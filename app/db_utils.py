@@ -176,6 +176,9 @@ def _format_vector_literal(embedding: list[float]) -> str:
 
 def insert_document(name: str, content: str, embedding: list[float], metadata: Optional[Dict[str, Any]] = None) -> int:
     """Insert a document with an embedding into the `documents` table and return its id."""
+    # Defensive: Ensure there are no NUL characters that PostgreSQL rejects in text literals
+    if "\x00" in content:
+        content = content.replace("\x00", "")
     cs = load_database_connection_string()
     conn = psycopg2.connect(cs)
     try:

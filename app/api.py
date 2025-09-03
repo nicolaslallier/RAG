@@ -73,8 +73,8 @@ async def ingester_document_multipart(
         name = spec_obj.get("name") or file.filename
         metadata = spec_obj.get("metadata")
         content_bytes = await file.read()
-        # Note: binary files (e.g., PDFs) are decoded best-effort for placeholder embedding
-        content = content_bytes.decode("utf-8", errors="ignore")
+        # Note: binary files (e.g., PDFs) are decoded best-effort; strip NULs to avoid DB issues
+        content = content_bytes.decode("utf-8", errors="ignore").replace("\x00", "")
 
         result = ingest_document(name, content, metadata)
         return JSONResponse({"status": "ok", **result})
