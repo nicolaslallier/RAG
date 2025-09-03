@@ -21,6 +21,9 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+FTS_MAX_CHARS = int(os.getenv("FTS_MAX_CHARS", "100000"))
+CONTENT_MAX_CHARS = int(os.getenv("CONTENT_MAX_CHARS", "2000000"))  # hard safety cap
+
 
 def load_database_connection_string() -> str:
     """Return the database connection string from env or a sensible default.
@@ -49,17 +52,7 @@ def connection_string_for_db(target_db: str, base_cs: str | None = None) -> str:
 
 
 def ensure_database_and_schema(target_db: str | None = None) -> bool:
-    """Ensure the database and pgvector schema exist.
-
-    High-level behavior:
-    1) Connects to the admin database (`postgres`) to check for `target_db` and creates it if missing.
-    2) Connects to `target_db` to install `pgvector` and create tables and indexes.
-       - documents(doc_id, section, page_no, chunk_id, content, embedding, metadata)
-       - ingestion_audit(name, status, detail, content_length, metadata)
-
-    Returns:
-        True if the database was created during this call, False if it already existed.
-    """
+    """Ensure the database and pgvector schema exist."""
     load_dotenv()
     if target_db is None:
         target_db = os.getenv("DB_NAME", "JARVIS")
@@ -114,10 +107,12 @@ def ensure_database_and_schema(target_db: str | None = None) -> bool:
                     WITH (lists = 100);
                     """
                 )
+                # Recreate FTS index to guard tsvector size using a truncated content expression
+                cur.execute("DROP INDEX IF EXISTS idx_documents_fts;")
                 cur.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_documents_fts
-                    ON documents USING gin (to_tsvector('simple', content));
+                    f"""
+                    CREATE INDEX idx_documents_fts ON documents
+                    USING gin (to_tsvector('simple', left(content, {FTS_MAX_CHARS})));
                     """
                 )
                 cur.execute(
@@ -133,7 +128,7 @@ def ensure_database_and_schema(target_db: str | None = None) -> bool:
                     );
                     """
                 )
-                logger.info("✅ Schema ensured (documents, ingestion_audit)")
+                logger.info("✅ Schema ensured (documents, indexes, ingestion_audit)")
     finally:
         if 'conn' in locals():
             conn.close()
@@ -191,9 +186,12 @@ def insert_document(
     chunk_id: Optional[int] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> int:
-    """Insert into `documents(doc_id, section, page_no, chunk_id, content, embedding, metadata)` and return id."""
+    """Insert into `documents` and return id."""
     if "\x00" in content:
         content = content.replace("\x00", "")
+    if len(content) > CONTENT_MAX_CHARS:
+        logger.warning("Content too long (%s chars); truncating to %s", len(content), CONTENT_MAX_CHARS)
+        content = content[:CONTENT_MAX_CHARS]
 
     cs = load_database_connection_string()
     conn = psycopg2.connect(cs)
