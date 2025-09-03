@@ -21,7 +21,6 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY test_db_connection.py ./
 COPY main.py ./
 
 # Default env var (can be overridden)
