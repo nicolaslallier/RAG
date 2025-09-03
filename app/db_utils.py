@@ -97,7 +97,6 @@ def ensure_database_and_schema(target_db: str | None = None) -> bool:
                     """
                     CREATE TABLE IF NOT EXISTS documents (
                         id SERIAL PRIMARY KEY,
-                        name TEXT,
                         content TEXT,
                         embedding vector(768),
                         metadata JSONB
@@ -175,10 +174,18 @@ def _format_vector_literal(embedding: list[float]) -> str:
 
 
 def insert_document(name: str, content: str, embedding: list[float], metadata: Optional[Dict[str, Any]] = None) -> int:
-    """Insert a document with an embedding into the `documents` table and return its id."""
-    # Defensive: Ensure there are no NUL characters that PostgreSQL rejects in text literals
+    """Insert a document into existing `documents(id, content, embedding, metadata)`.
+
+    The provided `name` is stored inside the JSON `metadata` under the key `name` to
+    preserve traceability without requiring a schema change.
+    """
     if "\x00" in content:
         content = content.replace("\x00", "")
+
+    # Merge `name` into metadata
+    merged_metadata = dict(metadata or {})
+    merged_metadata.setdefault("name", name)
+
     cs = load_database_connection_string()
     conn = psycopg2.connect(cs)
     try:
@@ -187,11 +194,11 @@ def insert_document(name: str, content: str, embedding: list[float], metadata: O
                 vec_literal = _format_vector_literal(embedding)
                 cur.execute(
                     """
-                    INSERT INTO documents (name, content, embedding, metadata)
-                    VALUES (%s, %s, %s::vector, %s)
+                    INSERT INTO documents (content, embedding, metadata)
+                    VALUES (%s, %s::vector, %s)
                     RETURNING id;
                     """,
-                    (name, content, vec_literal, Json(metadata) if metadata is not None else None),
+                    (content, vec_literal, Json(merged_metadata)),
                 )
                 new_id = cur.fetchone()[0]
                 return new_id
