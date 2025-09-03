@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 import psycopg2
 from psycopg2 import sql
+from psycopg2.extras import Json
 from dotenv import load_dotenv
 
 
@@ -187,7 +188,7 @@ def insert_document(name: str, content: str, embedding: list[float], metadata: O
                     VALUES (%s, %s, %s::vector, %s)
                     RETURNING id;
                     """,
-                    (name, content, vec_literal, psycopg2.extras.Json(metadata) if metadata is not None else None),
+                    (name, content, vec_literal, Json(metadata) if metadata is not None else None),
                 )
                 new_id = cur.fetchone()[0]
                 return new_id
@@ -208,7 +209,7 @@ def insert_ingestion_audit(name: str, status: str, detail: str = "", content_len
                     VALUES (%s, %s, %s, %s, %s)
                     RETURNING id;
                     """,
-                    (name, status, detail, content_length, psycopg2.extras.Json(metadata) if metadata is not None else None),
+                    (name, status, detail, content_length, Json(metadata) if metadata is not None else None),
                 )
                 new_id = cur.fetchone()[0]
                 return new_id
