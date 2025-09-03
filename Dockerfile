@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY test_db_connection.py ./
+COPY main.py ./
 
 # Default env var (can be overridden)
 ENV DATABASE_URL="postgres://pgadmin:SuperSecret123@psql-jarvis-cae-prd.postgres.database.azure.com:5432/postgres?sslmode=require"
@@ -32,5 +33,5 @@ USER appuser
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
   CMD ["python", "-c", "import psycopg2, dotenv"]
 
-# Default command runs the connection test
-CMD ["python", "test_db_connection.py"]
+# Default command runs the main workflow (App Insights logging, DB test, SB test)
+CMD ["python", "main.py"]
