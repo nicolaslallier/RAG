@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY main.py ./
+COPY app ./app
 
 # Default env var (can be overridden)
 ENV DATABASE_URL="postgres://pgadmin:SuperSecret123@psql-jarvis-cae-prd.postgres.database.azure.com:5432/JARVIS?sslmode=require"
