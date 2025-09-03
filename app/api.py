@@ -5,7 +5,7 @@ Routes:
 - GET /health: returns current status of database and Service Bus
 - POST /ingester/document: ingest a document into the vector DB
   Supports JSON body or multipart/form-data with parts: file (bytes), spec (json)
-- POST /ask: embed query, retrieve similar chunks, and build a prompt
+- POST /ask: embed query, retrieve similar chunks, and build a prompt; optional generation
 """
 
 import json
@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from app.health import check_health
 from app.ingestion import ingest_document, extract_pdf_pages, chunk_text, embed_query
 from app.db_utils import ensure_database_and_schema, find_similar_chunks
+from app.generation import generate_answer, build_prompt
 
 
 app = FastAPI(title="INGESTER-RAG", version="1.0.0")
@@ -39,6 +40,8 @@ class AskRequest(BaseModel):
     question: str = Field(..., description="User question to embed and retrieve context for")
     top_k: int = Field(3, description="Number of top chunks to include in prompt")
     fetch_k: int = Field(5, description="Number of chunks to fetch from DB before trimming to top_k")
+    generate: bool = Field(False, description="If true, call the local model to produce an answer")
+    model_id: str | None = Field(default=None, description="HF model id override")
 
 
 @app.on_event("startup")
@@ -119,28 +122,26 @@ async def ingester_document_multipart(
 
 @app.post("/ask", response_class=JSONResponse)
 async def ask(req: AskRequest) -> JSONResponse:
-    """Embed the question, retrieve similar chunks, and return a French prompt with context."""
     try:
         q_vec = embed_query(req.question)
         rows = find_similar_chunks(req.doc_id, q_vec, limit=req.fetch_k)
-        # rows: (id, content, page_no, section, distance)
         from textwrap import shorten
-        context_blocks = [f"[p.{r[2]}] {shorten(r[1], width=900)}" for r in rows[: req.top_k]]
-        context = "\n\n".join(context_blocks)
-        prompt = (
-            "Tu es un expert BBQ. Réponds précisément à la question\n"
-            "en t'appuyant UNIQUEMENT sur le contexte. Cite les pages entre [ ].\n\n"
-            f"Contexte:\n{context}\n\n"
-            f"Question: {req.question}\n"
-            "Réponse:\n"
-        )
-        return JSONResponse({
-            "status": "ok",
-            "prompt": prompt,
-            "matches": [
-                {"id": r[0], "page_no": r[2], "section": r[3], "distance": r[4]} for r in rows
-            ],
-        })
+        context_chunks = [f"[p.{r[2]}] {shorten(r[1], width=900)}" for r in rows[: req.top_k]]
+        prompt = build_prompt(context_chunks, req.question)
+
+        result = {"status": "ok", "prompt": prompt, "matches": [
+            {"id": r[0], "page_no": r[2], "section": r[3], "distance": r[4]} for r in rows
+        ]}
+
+        if req.generate:
+            try:
+                answer = generate_answer(context_chunks, req.question, model_id=req.model_id)
+                result["answer"] = answer
+            except Exception as exc:
+                logger.exception("Local generation failed: %s", exc)
+                result["answer_error"] = str(exc)
+
+        return JSONResponse(result)
     except Exception as exc:
         logger.exception("/ask failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
