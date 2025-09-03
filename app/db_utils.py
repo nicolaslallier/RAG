@@ -11,6 +11,7 @@ Audience: Solution Architects
 import logging
 import os
 from urllib.parse import urlparse, urlunparse
+from typing import Any, Dict, Optional
 
 import psycopg2
 from psycopg2 import sql
@@ -51,7 +52,9 @@ def ensure_database_and_schema(target_db: str | None = None) -> bool:
 
     High-level behavior:
     1) Connects to the admin database (`postgres`) to check for `target_db` and creates it if missing.
-    2) Connects to `target_db` to install `pgvector` and create the `documents` table and vector index.
+    2) Connects to `target_db` to install `pgvector` and create tables and indexes.
+       - documents(content, embedding, metadata)
+       - ingestion_audit(name, status, detail, content_length, metadata)
 
     Returns:
         True if the database was created during this call, False if it already existed.
@@ -81,18 +84,19 @@ def ensure_database_and_schema(target_db: str | None = None) -> bool:
         if 'admin_conn' in locals():
             admin_conn.close()
 
-    # 2) Ensure schema (pgvector, documents table, and index)
+    # 2) Ensure schema (pgvector, tables, and indexes)
     target_cs = connection_string_for_db(target_db)
     try:
         conn = psycopg2.connect(target_cs)
         with conn:
             with conn.cursor() as cur:
-                logger.info("Ensuring pgvector extension and schema in '%s'", target_db)
+                logger.info("Ensuring pgvector extension and application schema in '%s'", target_db)
                 cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
                 cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS documents (
                         id SERIAL PRIMARY KEY,
+                        name TEXT,
                         content TEXT,
                         embedding vector(768),
                         metadata JSONB
@@ -107,7 +111,20 @@ def ensure_database_and_schema(target_db: str | None = None) -> bool:
                     WITH (lists = 100);
                     """
                 )
-                logger.info("✅ Schema ensured")
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS ingestion_audit (
+                        id SERIAL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        detail TEXT,
+                        content_length INTEGER,
+                        metadata JSONB,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+                logger.info("✅ Schema ensured (documents, ingestion_audit)")
     finally:
         if 'conn' in locals():
             conn.close()
@@ -149,3 +166,51 @@ def test_database_connection() -> bool:
         if 'conn' in locals():
             cursor.close()
             conn.close()
+
+
+def _format_vector_literal(embedding: list[float]) -> str:
+    """Format a Python list of floats into a pgvector literal string like '[0.1,0.2,...]'."""
+    return '[' + ','.join(str(float(x)) for x in embedding) + ']'
+
+
+def insert_document(name: str, content: str, embedding: list[float], metadata: Optional[Dict[str, Any]] = None) -> int:
+    """Insert a document with an embedding into the `documents` table and return its id."""
+    cs = load_database_connection_string()
+    conn = psycopg2.connect(cs)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                vec_literal = _format_vector_literal(embedding)
+                cur.execute(
+                    """
+                    INSERT INTO documents (name, content, embedding, metadata)
+                    VALUES (%s, %s, %s::vector, %s)
+                    RETURNING id;
+                    """,
+                    (name, content, vec_literal, psycopg2.extras.Json(metadata) if metadata is not None else None),
+                )
+                new_id = cur.fetchone()[0]
+                return new_id
+    finally:
+        conn.close()
+
+
+def insert_ingestion_audit(name: str, status: str, detail: str = "", content_length: int | None = None, metadata: Optional[Dict[str, Any]] = None) -> int:
+    """Record an ingestion event for traceability and returns the audit id."""
+    cs = load_database_connection_string()
+    conn = psycopg2.connect(cs)
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO ingestion_audit (name, status, detail, content_length, metadata)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id;
+                    """,
+                    (name, status, detail, content_length, psycopg2.extras.Json(metadata) if metadata is not None else None),
+                )
+                new_id = cur.fetchone()[0]
+                return new_id
+    finally:
+        conn.close()
