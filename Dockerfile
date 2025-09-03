@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY test_db_connection.py ./
 
 # Default env var (can be overridden)
-ENV DATABASE_URL="postgres://mcppostgres:SuperSecret123@mypgflex.postgres.database.azure.com:5432/postgres?sslmode=require"
+ENV DATABASE_URL="postgres://pgadmin:SuperSecret123@mypgflex.postgres.database.azure.com:5432/postgres?sslmode=require"
 
 USER appuser
 

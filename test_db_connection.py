@@ -25,7 +25,7 @@ def load_database_config():
     load_dotenv()
     
     # Default connection string (you can override with environment variables)
-    default_connection_string = "postgres://mcppostgres:SuperSecret123@mypgflex.postgres.database.azure.com:5432/postgres?sslmode=require"
+    default_connection_string = "postgres://pgadmin:SuperSecret123@mypgflex.postgres.database.azure.com:5432/postgres?sslmode=require"
     
     # Try to get from environment variable first, then use default
     connection_string = os.getenv('DATABASE_URL', default_connection_string)
