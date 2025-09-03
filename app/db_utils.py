@@ -54,7 +54,7 @@ def ensure_database_and_schema(target_db: str | None = None) -> bool:
     High-level behavior:
     1) Connects to the admin database (`postgres`) to check for `target_db` and creates it if missing.
     2) Connects to `target_db` to install `pgvector` and create tables and indexes.
-       - documents(content, embedding, metadata)
+       - documents(doc_id, section, page_no, chunk_id, content, embedding, metadata)
        - ingestion_audit(name, status, detail, content_length, metadata)
 
     Returns:
@@ -97,18 +97,27 @@ def ensure_database_and_schema(target_db: str | None = None) -> bool:
                     """
                     CREATE TABLE IF NOT EXISTS documents (
                         id SERIAL PRIMARY KEY,
-                        content TEXT,
-                        embedding vector(768),
-                        metadata JSONB
+                        doc_id TEXT NOT NULL,
+                        section TEXT,
+                        page_no INT,
+                        chunk_id INT,
+                        content TEXT NOT NULL,
+                        embedding vector(768) NOT NULL,
+                        metadata JSONB DEFAULT '{}'
                     );
                     """
                 )
                 cur.execute(
                     """
-                    CREATE INDEX IF NOT EXISTS idx_documents_embedding_ivfflat
-                    ON documents
-                    USING ivfflat (embedding vector_cosine_ops)
+                    CREATE INDEX IF NOT EXISTS idx_documents_embedding
+                    ON documents USING ivfflat (embedding vector_cosine_ops)
                     WITH (lists = 100);
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_documents_fts
+                    ON documents USING gin (to_tsvector('simple', content));
                     """
                 )
                 cur.execute(
@@ -173,18 +182,18 @@ def _format_vector_literal(embedding: list[float]) -> str:
     return '[' + ','.join(str(float(x)) for x in embedding) + ']'
 
 
-def insert_document(name: str, content: str, embedding: list[float], metadata: Optional[Dict[str, Any]] = None) -> int:
-    """Insert a document into existing `documents(id, content, embedding, metadata)`.
-
-    The provided `name` is stored inside the JSON `metadata` under the key `name` to
-    preserve traceability without requiring a schema change.
-    """
+def insert_document(
+    doc_id: str,
+    content: str,
+    embedding: list[float],
+    section: Optional[str] = None,
+    page_no: Optional[int] = None,
+    chunk_id: Optional[int] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> int:
+    """Insert into `documents(doc_id, section, page_no, chunk_id, content, embedding, metadata)` and return id."""
     if "\x00" in content:
         content = content.replace("\x00", "")
-
-    # Merge `name` into metadata
-    merged_metadata = dict(metadata or {})
-    merged_metadata.setdefault("name", name)
 
     cs = load_database_connection_string()
     conn = psycopg2.connect(cs)
@@ -194,11 +203,11 @@ def insert_document(name: str, content: str, embedding: list[float], metadata: O
                 vec_literal = _format_vector_literal(embedding)
                 cur.execute(
                     """
-                    INSERT INTO documents (content, embedding, metadata)
-                    VALUES (%s, %s::vector, %s)
+                    INSERT INTO documents (doc_id, section, page_no, chunk_id, content, embedding, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s::vector, COALESCE(%s, '{}'::jsonb))
                     RETURNING id;
                     """,
-                    (content, vec_literal, Json(merged_metadata)),
+                    (doc_id, section, page_no, chunk_id, content, vec_literal, Json(metadata) if metadata is not None else None),
                 )
                 new_id = cur.fetchone()[0]
                 return new_id

@@ -47,26 +47,42 @@ def _deterministic_embedding_768(text: str) -> List[float]:
     return values
 
 
-def ingest_document(name: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Ingest a single document into the vector store and emit operational events.
+def ingest_document(
+    name: str,
+    content: str,
+    metadata: Optional[Dict[str, Any]] = None,
+    *,
+    doc_id: Optional[str] = None,
+    section: Optional[str] = None,
+    page_no: Optional[int] = None,
+    chunk_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Ingest a single document chunk into the vector store and emit operational events.
 
-    Steps:
-    1) Generate a 768-dim embedding for the content
-    2) Insert into `documents` table and return the new document id
-    3) Insert into `ingestion_audit` with status "ingested"
-    4) Emit a Service Bus event `document_ingested` with the document name
-    5) Log ingestion details to console for observability during development/testing
+    Fields:
+    - name: original filename or identifier (logged, stored in audit)
+    - doc_id: logical grouping id for a document, defaults to sanitized name if not provided
+    - section/page_no/chunk_id: optional attributes for provenance and ordering
     """
-    logger.info("Ingesting document: name='%s' length=%s", name, len(content))
+    logger.info("Ingesting document: name='%s' doc_id='%s' length=%s", name, doc_id or name, len(content))
 
     embedding = _deterministic_embedding_768(content)
-    doc_id = insert_document(name=name, content=content, embedding=embedding, metadata=metadata)
+    new_id = insert_document(
+        doc_id=doc_id or name,
+        section=section,
+        page_no=page_no,
+        chunk_id=chunk_id,
+        content=content,
+        embedding=embedding,
+        metadata=metadata,
+    )
+
     audit_id = insert_ingestion_audit(
         name=name,
         status="ingested",
-        detail="Document stored with vector embedding",
+        detail="Document chunk stored with vector embedding",
         content_length=len(content),
-        metadata=metadata,
+        metadata={**(metadata or {}), "doc_id": doc_id or name, "section": section, "page_no": page_no, "chunk_id": chunk_id},
     )
 
     # Emit Service Bus event
@@ -75,15 +91,23 @@ def ingest_document(name: str, content: str, metadata: Optional[Dict[str, Any]] 
     send_topic_message(namespace, topic, {
         "event": "document_ingested",
         "name": name,
-        "document_id": doc_id,
+        "doc_id": doc_id or name,
+        "row_id": new_id,
         "audit_id": audit_id,
+        "section": section,
+        "page_no": page_no,
+        "chunk_id": chunk_id,
     })
 
-    # Console detail for developer visibility
-    logger.info("✅ Ingested document '%s' (doc_id=%s, audit_id=%s)", name, doc_id, audit_id)
+    logger.info("✅ Ingested '%s' (doc_id=%s, row_id=%s, audit_id=%s, section=%s, page_no=%s, chunk_id=%s)",
+                name, doc_id or name, new_id, audit_id, section, page_no, chunk_id)
 
     return {
-        "document_id": doc_id,
+        "row_id": new_id,
         "audit_id": audit_id,
         "name": name,
+        "doc_id": doc_id or name,
+        "section": section,
+        "page_no": page_no,
+        "chunk_id": chunk_id,
     }
