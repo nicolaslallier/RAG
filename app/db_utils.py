@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 FTS_MAX_CHARS = int(os.getenv("FTS_MAX_CHARS", "100000"))
 CONTENT_MAX_CHARS = int(os.getenv("CONTENT_MAX_CHARS", "2000000"))  # hard safety cap
+ENABLE_FTS = os.getenv("ENABLE_FTS", "false").lower() in {"1", "true", "yes"}
 
 
 def load_database_connection_string() -> str:
@@ -107,14 +108,34 @@ def ensure_database_and_schema(target_db: str | None = None) -> bool:
                     WITH (lists = 100);
                     """
                 )
-                # Recreate FTS index to guard tsvector size using a truncated content expression
-                cur.execute("DROP INDEX IF EXISTS idx_documents_fts;")
+                # Drop any FTS index that indexes full content (risk of ProgramLimitExceeded)
                 cur.execute(
-                    f"""
-                    CREATE INDEX idx_documents_fts ON documents
-                    USING gin (to_tsvector('simple', left(content, {FTS_MAX_CHARS})));
+                    """
+                    SELECT indexname
+                    FROM pg_indexes
+                    WHERE schemaname = 'public'
+                      AND tablename  = 'documents'
+                      AND indexdef ILIKE '%to_tsvector%'
+                      AND indexdef NOT ILIKE '%left(content%'
                     """
                 )
+                for (bad_index,) in cur.fetchall():
+                    logger.warning("Dropping overly-wide FTS index: %s", bad_index)
+                    cur.execute(sql.SQL("DROP INDEX IF EXISTS {};").format(sql.Identifier(bad_index)))
+
+                # Optionally (re)create guarded FTS index
+                cur.execute("DROP INDEX IF EXISTS idx_documents_fts;")
+                if ENABLE_FTS:
+                    cur.execute(
+                        f"""
+                        CREATE INDEX idx_documents_fts ON documents
+                        USING gin (to_tsvector('simple', left(content, {FTS_MAX_CHARS})));
+                        """
+                    )
+                    logger.info("✅ FTS index created with left(content, %s)", FTS_MAX_CHARS)
+                else:
+                    logger.info("ℹ️ ENABLE_FTS=false -> skipping FTS index creation")
+
                 cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS ingestion_audit (
