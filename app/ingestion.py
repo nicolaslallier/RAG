@@ -21,31 +21,87 @@ from app.service_bus import send_topic_message
 logger = logging.getLogger(__name__)
 
 
-def _deterministic_embedding_768(text: str) -> List[float]:
-    """Create a deterministic 768-dim embedding from input text.
+# ---------------- Embeddings ----------------
 
-    Implementation detail:
-    - Uses repeated SHA256 digests to derive pseudo-random but deterministic values.
-    - Produces values in [0, 1]. Suitable for testing and schema validation only.
-    - Replace with a real embedding model in production.
-    """
+def _deterministic_embedding_768(text: str) -> List[float]:
+    """Create a deterministic 768-dim embedding from input text."""
     target_dim = 768
     seed = text.encode("utf-8")
     values: List[float] = []
     counter = 0
     while len(values) < target_dim:
         h = hashlib.sha256(seed + counter.to_bytes(4, "big")).digest()
-        # Use bytes to make 8 floats per digest chunk of 4 bytes each
         for i in range(0, len(h), 4):
             if len(values) >= target_dim:
                 break
             chunk = h[i:i+4]
-            # Convert 4 bytes to int and scale to [0,1]
             val = int.from_bytes(chunk, "big") / 0xFFFFFFFF
             values.append(val)
         counter += 1
     return values
 
+
+def embed_passage(text: str) -> List[float]:
+    """Embed a passage (chunk) – placeholder implementation.
+
+    Mirrors the pattern: embedder.encode([f"passage: {c}"]).
+    """
+    return _deterministic_embedding_768(f"passage: {text}")
+
+
+def embed_query(text: str) -> List[float]:
+    """Embed a query – placeholder implementation.
+
+    Mirrors the pattern: embedder.encode([f"query: {q}"]).
+    """
+    return _deterministic_embedding_768(f"query: {text}")
+
+
+# ---------------- Chunking ----------------
+
+def chunk_text(text: str, max_chars: int = 900, overlap: int = 150) -> List[str]:
+    """Chunk text into overlapping windows suitable for embedding.
+
+    This keeps chunks below ~1 MB so FTS indexing won't overflow tsvector limits.
+    """
+    t = " ".join(text.split())
+    chunks: List[str] = []
+    start = 0
+    while start < len(t):
+        end = min(start + max_chars, len(t))
+        chunks.append(t[start:end])
+        start = end - overlap
+        if start < 0:
+            start = 0
+        if end == len(t):
+            break
+    return chunks
+
+
+def extract_pdf_pages(file_bytes: bytes) -> List[tuple[int, str]]:
+    """Extract text per-page from a PDF byte stream.
+
+    Falls back gracefully if extraction fails.
+    """
+    try:
+        from pypdf import PdfReader  # imported lazily
+        import io
+        reader = PdfReader(io.BytesIO(file_bytes))
+        pages: List[tuple[int, str]] = []
+        for i, page in enumerate(reader.pages, start=1):
+            try:
+                txt = page.extract_text() or ""
+            except Exception:
+                txt = ""
+            pages.append((i, txt))
+        return pages
+    except Exception:
+        # If not a valid PDF, treat as a single-page text
+        text = file_bytes.decode("utf-8", errors="ignore")
+        return [(1, text)]
+
+
+# ---------------- Ingestion ----------------
 
 def ingest_document(
     name: str,
@@ -57,16 +113,10 @@ def ingest_document(
     page_no: Optional[int] = None,
     chunk_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Ingest a single document chunk into the vector store and emit operational events.
-
-    Fields:
-    - name: original filename or identifier (logged, stored in audit)
-    - doc_id: logical grouping id for a document, defaults to sanitized name if not provided
-    - section/page_no/chunk_id: optional attributes for provenance and ordering
-    """
+    """Ingest a single document chunk into the vector store and emit operational events."""
     logger.info("Ingesting document: name='%s' doc_id='%s' length=%s", name, doc_id or name, len(content))
 
-    embedding = _deterministic_embedding_768(content)
+    embedding = embed_passage(content)
     new_id = insert_document(
         doc_id=doc_id or name,
         section=section,
@@ -85,7 +135,6 @@ def ingest_document(
         metadata={**(metadata or {}), "doc_id": doc_id or name, "section": section, "page_no": page_no, "chunk_id": chunk_id},
     )
 
-    # Emit Service Bus event
     namespace = os.getenv("SB_NAMESPACE", "sbc-jarvis-cac-prd.servicebus.windows.net")
     topic = os.getenv("SB_TOPIC_NAME", "sbt-jarvis")
     send_topic_message(namespace, topic, {

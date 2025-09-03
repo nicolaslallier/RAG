@@ -11,7 +11,7 @@ Audience: Solution Architects
 import logging
 import os
 from urllib.parse import urlparse, urlunparse
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List, Tuple
 
 import psycopg2
 from psycopg2 import sql
@@ -232,5 +232,31 @@ def insert_ingestion_audit(name: str, status: str, detail: str = "", content_len
                 )
                 new_id = cur.fetchone()[0]
                 return new_id
+    finally:
+        conn.close()
+
+
+def find_similar_chunks(doc_id: str, query_embedding: List[float], limit: int = 5) -> List[Tuple[int, str, Optional[int], Optional[str], float]]:
+    """Return top-N most similar chunks for a given document id using cosine distance.
+
+    Output rows: (id, content, page_no, section, distance)
+    """
+    cs = load_database_connection_string()
+    conn = psycopg2.connect(cs)
+    try:
+        with conn.cursor() as cur:
+            vec_literal = _format_vector_literal(query_embedding)
+            cur.execute(
+                """
+                SELECT id, content, page_no, section, (embedding <=> %s::vector) AS distance
+                FROM documents
+                WHERE doc_id = %s
+                ORDER BY distance ASC
+                LIMIT %s
+                """,
+                (vec_literal, doc_id, limit),
+            )
+            rows = cur.fetchall()
+            return rows
     finally:
         conn.close()

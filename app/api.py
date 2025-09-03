@@ -5,6 +5,7 @@ Routes:
 - GET /health: returns current status of database and Service Bus
 - POST /ingester/document: ingest a document into the vector DB
   Supports JSON body or multipart/form-data with parts: file (bytes), spec (json)
+- POST /ask: embed query, retrieve similar chunks, and build a prompt
 """
 
 import json
@@ -15,8 +16,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.health import check_health
-from app.ingestion import ingest_document
-from app.db_utils import ensure_database_and_schema
+from app.ingestion import ingest_document, extract_pdf_pages, chunk_text, embed_query
+from app.db_utils import ensure_database_and_schema, find_similar_chunks
 
 
 app = FastAPI(title="INGESTER-RAG", version="1.0.0")
@@ -33,9 +34,15 @@ class IngestRequest(BaseModel):
     chunk_id: int | None = Field(default=None, description="Chunk order within page")
 
 
+class AskRequest(BaseModel):
+    doc_id: str = Field(..., description="Target document id to search within")
+    question: str = Field(..., description="User question to embed and retrieve context for")
+    top_k: int = Field(3, description="Number of top chunks to include in prompt")
+    fetch_k: int = Field(5, description="Number of chunks to fetch from DB before trimming to top_k")
+
+
 @app.on_event("startup")
 async def _startup() -> None:
-    """Ensure database and schema are present before serving requests."""
     try:
         ensure_database_and_schema()
         logger.info("Startup DB/schema ensure complete")
@@ -45,13 +52,11 @@ async def _startup() -> None:
 
 @app.get("/health", response_class=JSONResponse)
 async def health() -> JSONResponse:
-    """Return the current health status of core components."""
     return JSONResponse(check_health())
 
 
 @app.post("/ingester/document/json", response_class=JSONResponse)
 async def ingester_document_json(req: IngestRequest) -> JSONResponse:
-    """Ingest a document via JSON body."""
     try:
         result = ingest_document(
             name=req.name,
@@ -70,13 +75,11 @@ async def ingester_document_json(req: IngestRequest) -> JSONResponse:
 
 @app.post("/ingester/document", response_class=JSONResponse)
 async def ingester_document_multipart(
-    file: UploadFile = File(..., description="Raw document file"),
-    spec: str = Form(..., description="JSON string with name, optional doc_id/section/page_no/chunk_id/metadata")
+    file: UploadFile = File(..., description="Raw document file (PDF or text)"),
+    spec: str = Form(..., description="JSON string with name, optional doc_id/section/page_no/chunk_id/metadata"),
+    max_chars: int = 900,
+    overlap: int = 150,
 ) -> JSONResponse:
-    """Ingest a document via multipart form with file bytes and JSON spec.
-
-    spec example: {"name":"manual.pdf","doc_id":"bbq-pdf","section":"Fumage","page_no":4,"chunk_id":2,"metadata":{"source":"upload"}}
-    """
     try:
         try:
             spec_obj = json.loads(spec)
@@ -85,27 +88,59 @@ async def ingester_document_multipart(
 
         name = spec_obj.get("name") or file.filename
         metadata = spec_obj.get("metadata")
-        doc_id = spec_obj.get("doc_id")
-        section = spec_obj.get("section")
-        page_no = spec_obj.get("page_no")
-        chunk_id = spec_obj.get("chunk_id")
+        doc_id = spec_obj.get("doc_id") or name
 
-        content_bytes = await file.read()
-        # Note: binary files (e.g., PDFs) are decoded best-effort; strip NULs to avoid DB issues
-        content = content_bytes.decode("utf-8", errors="ignore").replace("\x00", "")
+        file_bytes = await file.read()
+        pages = extract_pdf_pages(file_bytes)
 
-        result = ingest_document(
-            name=name,
-            content=content,
-            metadata=metadata,
-            doc_id=doc_id,
-            section=section,
-            page_no=page_no,
-            chunk_id=chunk_id,
-        )
-        return JSONResponse({"status": "ok", **result})
+        ingested = []
+        for page_no, page_text in pages:
+            for j, chunk in enumerate(chunk_text(page_text, max_chars=max_chars, overlap=overlap)):
+                if not chunk.strip():
+                    continue
+                result = ingest_document(
+                    name=name,
+                    content=chunk,
+                    metadata=metadata,
+                    doc_id=doc_id,
+                    section=spec_obj.get("section"),
+                    page_no=page_no,
+                    chunk_id=j,
+                )
+                ingested.append(result)
+
+        return JSONResponse({"status": "ok", "ingested": ingested, "chunks": len(ingested)})
     except HTTPException:
         raise
     except Exception as exc:
         logger.exception("Multipart ingestion failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/ask", response_class=JSONResponse)
+async def ask(req: AskRequest) -> JSONResponse:
+    """Embed the question, retrieve similar chunks, and return a French prompt with context."""
+    try:
+        q_vec = embed_query(req.question)
+        rows = find_similar_chunks(req.doc_id, q_vec, limit=req.fetch_k)
+        # rows: (id, content, page_no, section, distance)
+        from textwrap import shorten
+        context_blocks = [f"[p.{r[2]}] {shorten(r[1], width=900)}" for r in rows[: req.top_k]]
+        context = "\n\n".join(context_blocks)
+        prompt = (
+            "Tu es un expert BBQ. Réponds précisément à la question\n"
+            "en t'appuyant UNIQUEMENT sur le contexte. Cite les pages entre [ ].\n\n"
+            f"Contexte:\n{context}\n\n"
+            f"Question: {req.question}\n"
+            "Réponse:\n"
+        )
+        return JSONResponse({
+            "status": "ok",
+            "prompt": prompt,
+            "matches": [
+                {"id": r[0], "page_no": r[2], "section": r[3], "distance": r[4]} for r in rows
+            ],
+        })
+    except Exception as exc:
+        logger.exception("/ask failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
