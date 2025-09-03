@@ -5,3 +5,4 @@ azure-servicebus
 azure-identity
 fastapi
 uvicorn[standard]
+python-multipart
