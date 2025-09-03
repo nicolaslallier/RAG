@@ -3,3 +3,5 @@ python-dotenv==1.0.0
 azure-monitor-opentelemetry
 azure-servicebus
 azure-identity
+fastapi
+uvicorn[standard]

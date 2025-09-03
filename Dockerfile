@@ -33,5 +33,8 @@ USER appuser
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
   CMD ["python", "-c", "import psycopg2, dotenv"]
 
-# Default command runs the main workflow (App Insights logging, DB test, SB test)
-CMD ["python", "main.py"]
+# Expose HTTP port
+EXPOSE 8080
+
+# Default command runs the FastAPI app
+CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8080"]
