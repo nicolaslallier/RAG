@@ -106,6 +106,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     entrees = {}
     for e in lecteur.lister():
         chemin = nfc(e.chemin)
+        if source.type == "obsidian" and not chemin.endswith(".md"):
+            continue  # pièces jointes, .gitignore, .DS_Store : hors coffre de notes
         if motif_exclusion(chemin, b"", source.exclure) is None:
             entrees[chemin] = e
     existants = {

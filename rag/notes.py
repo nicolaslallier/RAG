@@ -12,7 +12,7 @@ _FM = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.DOTALL)
 _COMMENTAIRE = re.compile(r"%%.*?(?:%%|\Z)", re.DOTALL)  # non fermé : masque jusqu'à la fin
 _CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.DOTALL)
 _LIEN = re.compile(r"\[\[([^\]|#]*)(?:[#|][^\]]*)?\]\]")
-_TAG = re.compile(r"(?<![\w&/#])#([\w][\w/-]*)")
+_TAG = re.compile(r"(?<![\w&/#])#([\w/-]*[^\W\d][\w/-]*)")  # au moins un non-chiffre
 
 
 _FM_MAX = 64 * 1024
@@ -77,7 +77,7 @@ def analyser_note(chemin: str, texte: str) -> Note:
             fm, corps = brut, texte[m.end():]
     corps = _COMMENTAIRE.sub("", corps)
     sans_code = _CODE.sub("", corps)
-    tags = [t.lstrip("#") for t in _liste(fm.get("tags"))] + _TAG.findall(sans_code)
+    tags = [t.lstrip("#") for t in _liste(fm.get("tags"))] + _TAG.findall(_LIEN.sub("", sans_code))
     alias = _liste(fm.get("aliases", fm.get("alias")))
     date = None
     try:

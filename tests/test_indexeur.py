@@ -198,3 +198,10 @@ def test_cle_privee_loin_dans_le_fichier_exclue(bd, coffre, faux_modeles):
     (coffre / "f.md").write_text("texte " * 2000 + "\n-----BEGIN RSA PRIVATE KEY-----\nabc\n")
     b = indexer_source(bd, SRC, LecteurDossier(coffre), CONF, faux_modeles)
     assert b.exclus == 1 and "f.md" not in chemins(bd)
+
+
+def test_seules_les_notes_md_d_un_coffre(bd, coffre, faux_modeles):
+    (coffre / ".gitignore").write_text("x")
+    (coffre / "image.png").write_bytes(b"\x89PNG\x00")
+    indexer_source(bd, SRC, LecteurDossier(coffre), CONF, faux_modeles)
+    assert chemins(bd) == {"a.md", "b.md", "c.md", "d.md"}

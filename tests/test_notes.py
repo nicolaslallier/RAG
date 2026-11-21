@@ -66,3 +66,8 @@ def test_frontmatter_dangereux_ignore(fm):
 
 def test_commentaire_non_ferme_masque_jusqu_a_la_fin():
     assert "secret" not in analyser_note("x.md", "a\n%%\nsecret privé").corps
+
+
+def test_tags_numeriques_et_liens_internes_ignores():
+    n = analyser_note("x.md", "Voir #12 et PR #186, [[#Se connecter]] et #vrai-tag #2026a")
+    assert n.tags == ["vrai-tag", "2026a"]
