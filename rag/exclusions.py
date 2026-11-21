@@ -6,7 +6,7 @@ from fnmatch import fnmatch
 _NOMS_SECRETS = [".env", ".env.*", "*.pem", "*.key", "*.p12", "id_rsa*", "id_ed25519*",
                  "seal.key", ".runner.env", ".openbao.env", ".portainer.env"]
 _CONTENU_SECRET = re.compile(
-    rb"-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{36}"
+    rb"-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----|(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{36}"
     rb"|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}"
 )
 _GENERES = ["uv.lock", "Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "*.min.js", "*.map"]

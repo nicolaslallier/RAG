@@ -10,6 +10,8 @@ from rag.exclusions import motif_exclusion
     ("img.png", b"\x89PNG\x00", "binaire"), (".obsidian/app.json", b"{}", "config"),
     ("_versions/2026-11-20/Poulet.md", b"# Poulet", "config"),
     ("02 - Domaines/Cuisine/Poulet.md", b"# Poulet", None), ("rag/api.py", b"import os", None),
+    ("veille.md", b"https://x.com/2026/elon-musk-other-companies-and-more-stuff", None),
+    ("k.md", b"OPENAI=sk-proj-abcdefghijklmnopqrstuv", "secret"),
     (".ENV", b"A=1", "secret"), ("ID_RSA", b"x", "secret"),
     ("k.asc", b"-----BEGIN PGP PRIVATE KEY BLOCK-----", "secret"),
     ("x.md", "é".encode()[:1], None),
