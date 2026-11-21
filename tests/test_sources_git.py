@@ -1,4 +1,5 @@
 import base64
+from pathlib import Path
 
 import pytest
 
@@ -86,3 +87,10 @@ def test_lire_ignore_l_arbre_de_travail(depot, tmp_path):
     lec.synchroniser()
     (tmp_path / "clone" / "a.py").write_text("modifié à la main")
     assert lec.lire("a.py") != b"modifi\xc3\xa9 \xc3\xa0 la main"
+
+
+def test_destination_relative(depot, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    lec = LecteurGit(str(depot), Path("donnees/clones/x"))
+    lec.synchroniser()
+    assert (tmp_path / "donnees/clones/x/a.py").exists()

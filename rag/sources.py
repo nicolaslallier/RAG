@@ -96,7 +96,7 @@ class LecteurGit:
     """Clone propre au service, qui suit `origin/<branche>` (réécritures d'historique comprises)."""
 
     def __init__(self, url: str, dest: Path, branche: str = "main", jeton: str = ""):
-        self.url, self.dest, self.branche = url, Path(dest), branche
+        self.url, self.dest, self.branche = url, Path(dest).absolute(), branche
         self._secrets = []
         self._env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
         if jeton:  # jamais dans une URL ni un argument : par l'environnement de git seulement
@@ -112,6 +112,8 @@ class LecteurGit:
                                env=self._env, capture_output=True, timeout=600)
         except subprocess.TimeoutExpired:
             raise ErreurSource(f"git {args[0]} : délai dépassé") from None
+        except OSError as e:
+            raise ErreurSource(f"git {args[0]} : {type(e).__name__}") from None
         if r.returncode:
             msg = r.stderr.decode(errors="replace").strip()
             for s in self._secrets:
