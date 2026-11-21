@@ -136,6 +136,10 @@ def main(argv: list[str] | None = None) -> int:
     pgs.add_argument("--max", type=int)
     sp.add_parser("servir")
     ajouter_cli_banc(sp)
+    ps = sp.add_parser("banc-synthetique")
+    ps.add_argument("--n", type=int, default=250)
+    ps.add_argument("--graine", type=int, default=1)
+    ps.add_argument("--source", action="append")
     a = p.parse_args(argv)
 
     reglages = Reglages()
@@ -177,6 +181,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.cmd == "banc":
             return commande_banc(a, conn, reglages, config, modeles, _indexer)
+        if a.cmd == "banc-synthetique":
+            from rag.banc.synthetique import commande_synthetique
+            return commande_synthetique(a, conn, config, modeles)
         from rag.api import version_id
         v = version_id(conn, empreinte_indexation(config.indexation))
         if v is None:
