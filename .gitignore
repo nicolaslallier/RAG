@@ -1,0 +1,5 @@
+.venv/
+donnees/
+banc/resultats/
+.env
+__pycache__/

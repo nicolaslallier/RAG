@@ -1,0 +1,149 @@
+import hashlib
+import math
+import os
+import re
+import unicodedata
+
+import psycopg
+import pytest
+
+from rag.db import connexion, migrer
+
+URL = os.environ.get("RAG_TEST_DATABASE_URL", "postgresql://rag:rag@localhost:5434/rag_test")
+
+
+def _mots(texte: str) -> list[str]:
+    t = unicodedata.normalize("NFKD", texte.lower())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    return re.findall(r"\w+", t)
+
+
+class FauxModeles:
+    """Même interface que rag.modeles.Modeles ; sac de mots haché, normalisé."""
+
+    def __init__(self):
+        self.appels = 0
+
+    def _vec(self, texte: str) -> list[float]:
+        v = [0.0] * 1024
+        for m in _mots(texte):
+            v[int(hashlib.md5(m.encode()).hexdigest(), 16) % 1024] += 1.0
+        n = math.sqrt(sum(x * x for x in v)) or 1.0
+        if not any(v):
+            v[0] = 1.0
+        return [x / n for x in v]
+
+    def embed_documents(self, textes, modele):
+        self.appels += 1
+        return [self._vec(t) for t in textes]
+
+    def embed_requete(self, question, modele, instruction):
+        self.appels += 1
+        return self._vec(question)
+
+    def generer(self, modele, messages, temperature, json_mode=False):
+        raise NotImplementedError
+
+
+@pytest.fixture
+def faux_modeles():
+    return FauxModeles()
+
+
+@pytest.fixture(scope="session")
+def _base():
+    nom = URL.rsplit("/", 1)[1]
+    admin = URL.rsplit("/", 1)[0] + "/postgres"
+    with psycopg.connect(admin, autocommit=True) as c:
+        if not c.execute("SELECT 1 FROM pg_database WHERE datname=%s", (nom,)).fetchone():
+            c.execute(f'CREATE DATABASE "{nom}"')
+    with connexion(URL) as c:
+        migrer(c)
+        c.commit()
+    return URL
+
+
+@pytest.fixture
+def bd(_base):
+    conn = connexion(_base)
+    conn.execute("TRUNCATE sources, index_versions CASCADE")
+    conn.commit()
+    yield conn
+    conn.rollback()
+    conn.close()
+
+
+class _Corps:
+    def __init__(self, b):
+        self.b = b
+
+    def read(self):
+        return self.b
+
+
+class FauxS3:
+    """Faux client boto3 : pages de list_objects_v2 jouées dans l'ordre, objets par clé."""
+
+    def __init__(self, pages: list[dict], objets: dict[str, bytes] | None = None):
+        self.pages, self.objets = pages, objets or {}
+        self.appels_list = 0
+        self.args = []
+
+    def list_objects_v2(self, **kw):
+        self.args.append(kw)
+        p = self.pages[self.appels_list]
+        self.appels_list += 1
+        return p
+
+    def get_object(self, Bucket, Key):
+        return {"Body": _Corps(self.objets[Key])}
+
+
+NOTES_TEST = {
+    "02 - Domaines/Cuisine/Recettes/Poulet cidre et Boursin.md":
+        "---\ntype: recette\ntags: [recette, poulet]\nsource: claude\ndate: 2026-11-08\n---\n"
+        "# Poulet cidre et Boursin\n\nPoitrines de poulet, carottes, cidre et Boursin au four.\n",
+    "02 - Domaines/Cuisine/Recettes/Pâté chinois.md":
+        "---\ntype: recette\ntags: [recette, boeuf]\ndate: 2026-10-01\n---\n"
+        "# Pâté chinois\n\nBoeuf haché, maïs en crème, patates pilées.\n",
+    "03 - Ressources/Grafana.md":
+        "---\ntype: ressource\ndate: 2026-09-01\n---\n# Grafana\n\nTableaux de bord du homelab.\n",
+    "03 - Ressources/Kubernetes.md":
+        "---\ntype: note-techno\ndate: 2025-03-01\n---\n# Kubernetes\n\nOrchestration de conteneurs.\n",
+    "05 - Journal/2026-11-20.md":
+        "---\ntype: journal\ndate: 2026-11-20\n---\n# Journée\n\nNote du jour : souper et ménage.\n",
+    "Accueil.md": "# Accueil\n\nPage d'accueil du coffre, une note de départ.\n",
+}
+
+
+class Index:
+    def __init__(self, version, coffre):
+        self.version, self.coffre = version, coffre
+
+
+def _indexer(bd, tmp_path, faux_modeles, strategie="titres"):
+    from pathlib import Path
+
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source, version_courante
+    from rag.sources import LecteurDossier
+
+    coffre = tmp_path / "coffre-index"
+    for chemin, texte in NOTES_TEST.items():
+        (coffre / chemin).parent.mkdir(parents=True, exist_ok=True)
+        (coffre / chemin).write_text(texte)
+    conf = charger_config(Path("config/rag.yaml")).indexation.model_copy(
+        update={"strategie": strategie})
+    src = SourceConf(nom="coffre-maison", type="obsidian", emplacement=str(coffre))
+    indexer_source(bd, src, LecteurDossier(coffre), conf, faux_modeles)
+    return Index(version_courante(bd, conf), coffre)
+
+
+@pytest.fixture
+def index(bd, tmp_path, faux_modeles):
+    return _indexer(bd, tmp_path, faux_modeles)
+
+
+@pytest.fixture
+def index_pe(bd, tmp_path, faux_modeles):
+    return _indexer(bd, tmp_path, faux_modeles, "parent_enfant")

@@ -1,0 +1,17 @@
+# RAG maître
+
+Index et recherche hybride (vecteur + plein texte + flou) sur le coffre Obsidian Maison
+et, plus tard, le code des dépôts. Spec : `docs/superpowers/specs/2026-11-21-rag-maitre-design.md`.
+
+## Développement
+
+    docker compose -f compose.dev.yml up -d     # Postgres 18 + pgvector sur localhost:5434
+    uv sync
+    uv run ruff check . && uv run pytest        # tests (les tests `vivant` sautent sans RAG_LITELLM_CLE)
+
+Les tests utilisent `RAG_TEST_DATABASE_URL` (défaut `postgresql://rag:rag@localhost:5434/rag_test`,
+créée au besoin). Pour travailler sur le vrai coffre (lecture seule) :
+
+    export RAG_DATABASE_URL=postgresql://rag:rag@localhost:5434/rag RAG_LITELLM_URL=... RAG_CONFIG=config/dev.yaml
+    uv run rag migrer && uv run rag indexer --complet
+    uv run rag chercher "recette de poulet"

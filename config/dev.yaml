@@ -1,0 +1,32 @@
+sources:
+  - {nom: coffre-maison, type: obsidian, emplacement: ~/Obsidian/Maison, exclure: [".obsidian/**", ".trash/**", "_versions/**"]}
+indexation:
+  strategie: titres          # titres | recursif | parent_enfant
+  cible_tokens: 400
+  plafond_tokens: 700
+  fusion_sous_tokens: 80
+  recursif_tokens: 400
+  recouvrement: 0.12
+  enfant_tokens: 200
+  modele_embedding: "qwen3-embedding:0.6b"
+  dimensions: 1024
+  taille_max_octets: 300000
+recherche:
+  top_vecteur: 40
+  top_texte: 40
+  rrf_k: 60
+  poids: {vecteur: 1.0, texte: 1.0, flou: 0.5}
+  flou: true
+  seuil_flou: 0.4
+  instruction_requete: "Given a web search query, retrieve relevant passages that answer the query"
+  rerank: {actif: false, modele: "BAAI/bge-reranker-v2-m3", candidats: 30, garder: 8}
+  graphe: {expansion: false, depuis: 3, attenuation: 0.5, plafond: 5}
+reponse:
+  modele: "gemma4:26b-a4b-it-qat"
+  temperature: 0.1
+  passages: 8
+  seuil_refus_rerank: null
+  seuil_refus_cosinus: null
+banc:
+  modele_juge: "qwen3.8:27b-mlx"
+  modele_synthetique: "gemma4:26b-a4b-it-qat"
