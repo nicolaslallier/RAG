@@ -41,7 +41,7 @@ Il s'inscrit dans une suite de 4 projets (ordre validé) :
 
 - Auto-hébergé sur l'hôte Docker du homelab (`192.168.2.10`), déployé par Portainer comme le reste, secrets dans OpenBao.
 - Modèles via LiteLLM (Ollama derrière) : embeddings `qwen3-embedding:0.6b` (1024 dims), génération `gemma4:26b-a4b-it-qat`. Pas de gros GPU.
-- Le coffre est un dépôt git : `github.com/nicolaslallier/obsidian-maison`. Notes en français, frontmatter (`type`, `tags`, `source`, `date`…), liens `[[…]]`, commentaires `%%…%%`.
+- **Le coffre vit dans S3** (SeaweedFS, bucket `obsidian`, synchronisé par Remotely Save depuis le Mac) : c'est la seule vérité (décision de Nicolas, 2026-11-21). Le dépôt git `obsidian-maison` est abandonné comme source (dernier commit le 8 novembre). `agent-musique` (Infra) lit/écrit déjà ce bucket : reprendre son accès S3 et sa règle « ne pas toucher une note modifiée depuis moins de 10 min ». Notes en français, frontmatter (`type`, `tags`, `source`, `date`…), liens `[[…]]`, commentaires `%%…%%`.
 - Le code : les dépôts `nicolaslallier/*` (AI, Infra, Jarvis, EA, DarkAngel, Final, Glee, Heaven, Midas, Moria, orchestre, mcp-fichiers…), `origin/main` seulement.
 - Nouveau dépôt `nicolaslallier/RAG` (aujourd'hui local, sans remote — sa création sur GitHub se fera avec l'accord de Nicolas).
 
@@ -74,8 +74,9 @@ sources (git) ──► indexeur ──► Postgres (documents, morceaux, nœuds
 
 ### Sources et synchronisation (décision de Nicolas : A + B + C)
 
-- Le service garde ses propres clones (coffre + chaque dépôt), `origin/main`.
-- **A** : réindexation incrémentale à chaque nouveau commit (webhook GitHub ou interrogation toutes les 5 min), par sha256 de fichier. Côté Nicolas, Obsidian Git pousse automatiquement.
+- **Coffre** : lu dans S3 (bucket `obsidian`) avec une identité en lecture seule ; changements détectés par etag/date de modification, puis sha256 du contenu.
+- **Code** : le service garde ses propres clones des dépôts, `origin/main`.
+- **A** : réindexation incrémentale — coffre : listage S3 toutes les 5 min ; code : webhook GitHub ou interrogation toutes les 5 min. Côté Nicolas, rien ne change (Remotely Save).
 - **B** : réindexation complète chaque nuit, filet de sécurité ; supprime ce qui a disparu ou été renommé.
 - **C** (préparé pour le projet 2) : l'API offre « réindexer maintenant » pour qu'un écrivain (le documentaliste) déclenche l'indexation juste après son commit.
 
@@ -141,6 +142,11 @@ Code : par symbole (fonction, classe, méthode), préfixé par « dépôt > chem
 - **Hôte** : Windows, GTX 1650 (4 Go), 12 cœurs. Le reranker (568M) tourne dans le service, sur GPU s'il est libre, sinon CPU ; budget de latence cible : < 2 s pour lister et chercher, < 30 s pour répondre, avec streaming de la réponse.
 - **Appelants v1** : le banc, Nicolas (CLI/HTTP) et un serveur MCP pour Claude Code. Réseau `infra-net` seulement, jeton dans OpenBao ; « réindexer » demande un jeton distinct.
 - **Cibles v1** fixées après la première mesure de base : la v1 est finie quand le banc tourne, que les 3 questions de Nicolas passent, et que chaque levier a été mesuré au moins une fois contre la base.
+
+## Ajouts demandés par les projets 2 et 3
+
+- Pour agent-doc : endpoints doublons (paires de notes au-dessus d'un seuil), notes orphelines, liens entrants d'une note ; exclusion du préfixe `_versions/` de l'indexation ; signal (webhook ou statut) de fin de réindexation nocturne.
+- **Visibilité par source** (projet 3, décision de Nicolas) : chaque source a un niveau (`public-maison` : coffre, code ; `prive` : fichiers, courriels, mémoires et réunions de Jarvis). Chaque jeton d'API donne droit à des niveaux ; le filtre est appliqué par le service dans toutes les requêtes (recherche, liste, graphe), jamais par le modèle. Le schéma porte ce niveau dès la v1, même si seules des sources `public-maison` existent alors.
 
 ## Laissé au builder
 
