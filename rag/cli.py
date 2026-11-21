@@ -4,6 +4,7 @@ import argparse
 import sys
 from dataclasses import asdict
 
+from rag.banc.execution import ajouter_cli_banc, commande_banc
 from rag.config import PUBLIC, TOUT, Reglages, charger_config, empreinte_indexation
 from rag.db import connexion, migrer
 from rag.indexeur import CoffrePartielError, indexer_source
@@ -43,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--limite", type=int, default=10)
     pc.add_argument("--prive", action="store_true")
     sp.add_parser("servir")
+    ajouter_cli_banc(sp)
     a = p.parse_args(argv)
 
     reglages = Reglages()
@@ -60,6 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         modeles = modeles_depuis(reglages)
         if a.cmd == "indexer":
             return _indexer(conn, reglages, config, modeles, a.source, a.complet, a.forcer)
+        if a.cmd == "banc":
+            return commande_banc(a, conn, reglages, config, modeles, _indexer)
         from rag.api import version_id
         v = version_id(conn, empreinte_indexation(config.indexation))
         if v is None:
