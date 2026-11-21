@@ -82,3 +82,9 @@ def test_bornes(client):
 def test_refuse_de_demarrer_sans_jeton():
     with pytest.raises(RuntimeError):
         create_app(Reglages(database_url=URL, litellm_url="http://x", jeton=""))
+
+
+def test_bearer_obligatoire(client):
+    for h in ("pub", "Basic pub", "bearer pub"):
+        assert client.post("/chercher", json={"question": "x"},
+                           headers={"Authorization": h}).status_code == 401

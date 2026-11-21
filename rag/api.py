@@ -44,6 +44,8 @@ def create_app(reglages: Reglages | None = None, modeles=None) -> FastAPI:
     app = FastAPI(title="RAG maître")
 
     def niveaux_du_jeton(authorization: str = Header(default="")) -> frozenset[str]:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(401, "jeton invalide")
         jeton = authorization.removeprefix("Bearer ").strip().encode()
         if jeton and hmac.compare_digest(jeton, reglages.jeton.encode()):
             return PUBLIC
