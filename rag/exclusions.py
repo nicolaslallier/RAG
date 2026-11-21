@@ -1,4 +1,5 @@
 """Ce qui n'est jamais indexé : config, secrets, fichiers générés, binaires."""
+# Changer ce fichier change ce qui est indexé : incrémenter VERSION_ANALYSEUR (rag/config.py).
 
 import re
 from fnmatch import fnmatch
@@ -8,6 +9,7 @@ _NOMS_SECRETS = [".env", ".env.*", "*.pem", "*.key", "*.p12", "id_rsa*", "id_ed2
 _CONTENU_SECRET = re.compile(
     rb"-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----|(?<![A-Za-z0-9_-])sk-(?:proj-|ant-|svcacct-)?[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{36}"
     rb"|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}"
+    rb"|hv[sb]\.[A-Za-z0-9_-]{20,}|(?<![A-Za-z0-9_.-])s\.[A-Za-z0-9]{24,}"
 )
 _GENERES = ["uv.lock", "Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "*.min.js", "*.map"]
 _DOSSIERS_GENERES = {"node_modules", "dist", "target", "graphify-out", ".venv"}

@@ -15,6 +15,8 @@ from rag.exclusions import motif_exclusion
     ("l.md", b"RAG_LITELLM_CLE=sk-AbCdEfGhIjKlMnOpQrStUv12", "secret"),
     ("u.md", b"https://host/v1/sk-ant-abcdefghijklmnopqrstuvwxyz", "secret"),
     ("v.md", b"cle=/sk-abcdefghijklmnopqrstuvwxyz", "secret"),
+    ("bao.md", b"VAULT_TOKEN=hvs.CAESIabcdefghijklmnopqrstuv", "secret"),
+    ("bao2.md", b"jeton: s.abcdefghijklmnopqrstuvwx", "secret"),
     (".ENV", b"A=1", "secret"), ("ID_RSA", b"x", "secret"),
     ("k.asc", b"-----BEGIN PGP PRIVATE KEY BLOCK-----", "secret"),
     ("x.md", "é".encode()[:1], None),

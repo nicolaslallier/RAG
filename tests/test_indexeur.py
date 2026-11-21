@@ -205,3 +205,37 @@ def test_seules_les_notes_md_d_un_coffre(bd, coffre, faux_modeles):
     (coffre / "image.png").write_bytes(b"\x89PNG\x00")
     indexer_source(bd, SRC, LecteurDossier(coffre), CONF, faux_modeles)
     assert chemins(bd) == {"a.md", "b.md", "c.md", "d.md"}
+
+
+def test_note_devenue_secret_retiree_de_toutes_les_versions(bd, coffre, faux_modeles,
+                                                            monkeypatch):
+    import rag.config as rc
+    import rag.indexeur as ri
+    indexer_source(bd, SRC, LecteurDossier(coffre), CONF, faux_modeles)
+    indexer_source(bd, SRC, LecteurDossier(coffre), CONF.model_copy(update={"strategie": "recursif"}),
+                   faux_modeles)
+    # nouvelle règle d'exclusion qui juge c.md secret, avec la version d'analyseur incrémentée
+    regle = ri.motif_exclusion
+    monkeypatch.setattr(ri, "motif_exclusion",
+                        lambda ch, d, ex: "secret" if ch == "c.md" and d else regle(ch, d, ex))
+    monkeypatch.setattr(rc, "VERSION_ANALYSEUR", rc.VERSION_ANALYSEUR + 1)
+    b = indexer_source(bd, SRC, LecteurDossier(coffre), CONF, faux_modeles)
+    assert b.exclus == 1 and "c.md" not in chemins(bd)
+    assert bd.execute("SELECT count(*) n FROM morceaux m JOIN documents d ON d.id=m.document_id "
+                      "WHERE d.chemin='c.md'").fetchone()["n"] == 0
+
+
+def test_secret_journalise_et_pas_relu(bd, coffre, faux_modeles, caplog, monkeypatch):
+    (coffre / "e.md").write_text("cle: sk-abcdefghijklmnopqrstuvwx")
+    with caplog.at_level("WARNING"):
+        indexer_source(bd, SRC, LecteurDossier(coffre), CONF, faux_modeles)
+    assert "e.md" in caplog.text and "sk-abc" not in caplog.text
+    lus = []
+    lec = LecteurDossier(coffre)
+    lire = lec.lire
+    monkeypatch.setattr(lec, "lire", lambda c: lus.append(c) or lire(c))
+    b = indexer_source(bd, SRC, lec, CONF, faux_modeles)
+    assert b.exclus == 1 and lus == []
+    (coffre / "e.md").write_text("plus de secret")
+    b = indexer_source(bd, SRC, lec, CONF, faux_modeles)
+    assert b.nouveaux == 1 and "e.md" in chemins(bd)

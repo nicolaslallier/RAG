@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -11,6 +12,8 @@ from rag.exclusions import motif_exclusion
 from rag.notes import analyser_note
 from rag.recherche import normaliser, vecteur_sql
 from rag.sources import nfc
+
+log = logging.getLogger(__name__)
 
 
 class CoffrePartielError(Exception):
@@ -117,6 +120,10 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                               AND m.version_id = %s) AS a_v
                  FROM documents d WHERE d.source_id = %s""", (v, source_id))
     }
+    emp = empreinte_indexation(conf)
+    deja_exclus = {r["chemin"]: r["signature"] for r in conn.execute(
+        "SELECT chemin, signature FROM exclus WHERE source_id = %s AND empreinte = %s",
+        (source_id, emp))}
     absents = existants.keys() - entrees.keys()
     if not forcer and (not entrees or len(absents) > len(existants) / 2):
         conn.rollback()
@@ -128,6 +135,9 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     for chemin, e in sorted(entrees.items()):
         ex = existants.get(chemin)
         try:
+            if deja_exclus.get(chemin) == e.signature:
+                bilan.exclus += 1
+                continue
             if ex and ex["signature"] == e.signature and ex["a_v"]:
                 bilan.inchanges += 1
                 continue
@@ -135,9 +145,16 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 bilan.reportes += 1
                 continue
             contenu = lecteur.lire(chemin)
-            if motif_exclusion(chemin, contenu, source.exclure):
+            if raison := motif_exclusion(chemin, contenu, source.exclure):
+                log.warning("%s : %s exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
+                conn.execute(
+                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison)
+                       VALUES (%s, %s, %s, %s, %s) ON CONFLICT (source_id, chemin) DO UPDATE
+                       SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                           raison = EXCLUDED.raison""",
+                    (source_id, chemin, e.signature, emp, raison))
                 conn.commit()
                 bilan.exclus += 1
                 continue
@@ -148,6 +165,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 conn.commit()
                 bilan.inchanges += 1
                 continue
+            conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
+                         (source_id, chemin))
             note, ms = _morceaux(chemin, contenu, conf)
             bilan.morceaux += _ecrire(conn, source_id, chemin, e, sha, note, ms, conf, v,
                                       modeles, ex)
@@ -160,6 +179,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             conn.rollback()
             raise
 
+    conn.execute("DELETE FROM exclus WHERE source_id = %s AND NOT (chemin = ANY(%s))",
+                 (source_id, list(entrees)))
     for chemin in absents:
         conn.execute("DELETE FROM documents WHERE id = %s", (existants[chemin]["id"],))
         bilan.supprimes += 1
