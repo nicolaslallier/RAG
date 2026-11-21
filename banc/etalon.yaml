@@ -422,3 +422,147 @@
   mode_attendu: repondre
   statut: propose
   note: Plombier absent. Vérifié par grep -ril.
+# --- Code des dépôts (plan 2, tâche 8) : PROPOSÉ, à corriger par Nicolas. Clé : "<dépôt>:<chemin>".
+- id: architecture-ai
+  question: Quelle est l'architecture de mon projet AI ?
+  nature: synthetiser
+  attendus:
+  - coffre-maison:01 - Projets/AI/AI.md
+  - coffre-maison:01 - Projets/AI/AI - Documentation.md
+  - AI:README.md
+  - AI:agents.yaml
+  - AI:deploy/portainer-stack.yml
+  - AI:backend/portail/ordonnanceur.py
+  - AI:backend/portail/lanceur.py
+  - AI:lanceur/src/main.rs
+  mode_attendu: repondre
+  statut: propose
+  note: Obligatoire (plan 2). Fichiers clés choisis d'après l'arbre du dépôt (Portail, lanceur Rust, ordonnanceur).
+- id: dashboards-grafana
+  question: Quelles sont mes dashboards Grafana ?
+  nature: lister
+  attendus:
+  - Infra:monitoring/grafana/provisioning/dashboards/json/colima.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/darkangel.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/ea.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/infra-overview.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/jarvis.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/librechat.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/litellm.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/logs.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/macos.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/moria.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/ollama.json
+  - Infra:monitoring/grafana/provisioning/dashboards/json/windows.json
+  - AI:deploy/grafana/portail-agents.json
+  - AI:deploy/grafana/portail-boucle-dev.json
+  - AI:deploy/grafana/portail-lanceur.json
+  - AI:deploy/grafana/portail-sante.json
+  - coffre-maison:01 - Projets/Infra/Infra - Dashboard Grafana LiteLLM.md
+  - coffre-maison:01 - Projets/Infra/Infra - Fusion dashboards Agents et LiteLLM.md
+  - coffre-maison:01 - Projets/Infra/Infra - Métriques Windows dans Grafana.md
+  mode_attendu: lister
+  statut: propose
+  note: Obligatoire (plan 2). 12 JSON Infra + 4 JSON AI + notes du coffre.
+- id: litellm-config-et-notes
+  question: Comment LiteLLM est configuré dans mon homelab ?
+  nature: synthetiser
+  attendus:
+  - Infra:litellm/config.yaml
+  - Infra:litellm/teams.yaml
+  - coffre-maison:01 - Projets/Infra/Infra - LiteLLM image unifiée.md
+  - coffre-maison:01 - Projets/Infra/Infra - Montée LiteLLM 1.108 LTS.md
+  mode_attendu: repondre
+  statut: propose
+  note: À cheval coffre + code.
+- id: pii-litellm
+  question: Comment je filtre les données personnelles avant d'envoyer au cloud via LiteLLM ?
+  nature: factuel
+  attendus:
+  - Infra:litellm/cloud_pii.py
+  - Infra:litellm/pii_policy.yaml
+  - Infra:docs/superpowers/specs/2026-11-14-litellm-cloud-pii-design.md
+  mode_attendu: repondre
+  statut: propose
+  note: À cheval spec + code ; vérifier s'il existe une note du coffre.
+- id: ordonnanceur-portail
+  question: Comment fonctionne l'ordonnanceur du Portail avec la GitHub App ?
+  nature: synthetiser
+  attendus:
+  - AI:backend/portail/ordonnanceur.py
+  - coffre-maison:01 - Projets/AI/Ordonnanceur du Portail - GitHub App.md
+  mode_attendu: repondre
+  statut: propose
+  note: À cheval coffre + code.
+- id: delais-llm-portail
+  question: Où est réglé le délai des appels LLM dans le Portail ?
+  nature: factuel
+  attendus:
+  - coffre-maison:01 - Projets/AI/Portail - timeouts LLM (délai configurable).md
+  - coffre-maison:01 - Projets/AI/Délais LLM du Portail.md
+  mode_attendu: repondre
+  statut: propose
+  note: À cheval ; ajouter le fichier de config du Portail qui porte le délai après lecture du dépôt.
+- id: symbole-indexer-source
+  question: Que fait la fonction indexer_source ?
+  nature: factuel
+  attendus:
+  - RAG:rag/indexeur.py
+  mode_attendu: repondre
+  statut: propose
+  note: Symbole précis (dépôt RAG).
+- id: symbole-lanceur-conteneurs
+  question: Comment le lanceur Rust démarre les conteneurs d'agents ?
+  nature: factuel
+  attendus:
+  - AI:lanceur/src/conteneurs.rs
+  - AI:lanceur/src/api.rs
+  mode_attendu: repondre
+  statut: propose
+  note: Fichier précis (Rust).
+- id: fichier-alertes-portail
+  question: Quelles alertes Grafana sont définies pour le Portail ?
+  nature: factuel
+  attendus:
+  - AI:deploy/grafana/alertes-portail.yml
+  mode_attendu: repondre
+  statut: propose
+  note: Fichier précis.
+- id: nginx-portail
+  question: Quelle est la config nginx du Portail ?
+  nature: factuel
+  attendus:
+  - AI:deploy/nginx/portail.conf
+  mode_attendu: repondre
+  statut: propose
+  note: Fichier précis.
+- id: agents-du-portail
+  question: Quels agents sont déclarés dans le Portail ?
+  nature: lister
+  attendus:
+  - AI:agents.yaml
+  - AI:docs/agents-contrat-v1.md
+  mode_attendu: lister
+  statut: propose
+  note: Liste tirée d'un fichier.
+- id: sans-reponse-kubernetes-ai
+  question: Quel chart Helm déploie le Portail sur Kubernetes ?
+  nature: sans_reponse
+  attendus: []
+  mode_attendu: repondre
+  statut: propose
+  note: Plausible, mais le Portail est déployé par Portainer, pas Kubernetes.
+- id: sans-reponse-terraform-infra
+  question: Quel module Terraform crée les VM du homelab ?
+  nature: sans_reponse
+  attendus: []
+  mode_attendu: repondre
+  statut: propose
+  note: Plausible ; Infra est en Docker Compose, sans Terraform (à vérifier).
+- id: sans-reponse-graphql-jarvis
+  question: Quel est le schéma GraphQL de l'API de Jarvis ?
+  nature: sans_reponse
+  attendus: []
+  mode_attendu: repondre
+  statut: propose
+  note: Plausible ; Jarvis expose du REST FastAPI (à vérifier).
