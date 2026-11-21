@@ -89,3 +89,23 @@ def test_qwen3_bout_en_bout(modeles_vivants):
     brut = modeles_vivants.embed_documents(["Quelle recette contient du poulet ?"], M)[0]
     assert cosinus(q, brut) < 0.999
     assert cosinus(q, doc_p) > cosinus(q, doc_g)
+
+
+@pytest.mark.skipif(not __import__("shutil").which("openssl"), reason="openssl absent")
+def test_contexte_tls_ca_maison(tmp_path):
+    import ssl
+    import subprocess
+
+    from rag.modeles import contexte_tls
+    cle, crt = tmp_path / "k.pem", tmp_path / "ca.crt"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", cle,
+                    "-out", crt, "-days", "1", "-subj", "/CN=ca-test"], check=True,
+                   capture_output=True)
+    ctx, defaut = contexte_tls(crt), contexte_tls(None)
+    # seul le drapeau strict diffère, la CA maison est chargée en plus des CA système
+    assert ctx.verify_flags == defaut.verify_flags & ~ssl.VERIFY_X509_STRICT
+    assert any(("commonName", "ca-test") in rdn for c in ctx.get_ca_certs() for rdn in c["subject"])
+    assert len(ctx.get_ca_certs()) > len(defaut.get_ca_certs()) or defaut.get_ca_certs() == []
+    for c in (ctx, defaut):
+        assert c.verify_mode == ssl.CERT_REQUIRED and c.check_hostname
+    assert defaut.verify_flags & ssl.VERIFY_X509_STRICT
