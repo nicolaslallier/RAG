@@ -152,3 +152,23 @@ def test_rag_indexer_continue_apres_un_echec_de_graphe(bd, depot, tmp_path, monk
     assert {r["nom"] for r in bd.execute(
         "SELECT DISTINCT s.nom FROM documents d JOIN sources s ON s.id=d.source_id")} == {
         "depot-test", "depot-2"}
+
+
+def test_environnement_de_graphify_en_liste_blanche(monkeypatch, tmp_path, depot):
+    monkeypatch.setenv("SECRET_QUELCONQUE", "x")
+    vu = {}
+    monkeypatch.setattr(subprocess, "run", lambda args, **k: vu.update(k) or FauxProc(args))
+    extraire_structure(depot, tmp_path / "t")
+    assert set(vu["env"]) <= {"PATH", "HOME", "LANG"}
+
+
+def test_erreur_postgres_dans_le_graphe_n_arrete_rien(bd, index_code, monkeypatch):
+    import psycopg
+
+    monkeypatch.setattr("rag.graphe.extraire_structure", lambda *a, **k: G)
+
+    def casse(*a, **k):
+        raise psycopg.errors.DataError("valeur invalide")
+    monkeypatch.setattr("rag.graphe.charger_graphe", casse)
+    assert "ÉCHEC" in maj_graphe(bd, SRC_CODE, index_code, REGLAGES)
+    assert bd.execute("SELECT 1 AS x").fetchone()["x"] == 1  # connexion utilisable

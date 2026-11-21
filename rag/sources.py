@@ -1,12 +1,16 @@
 """Lecteurs de source : même interface lister() / lire() / revision()."""
 
 import base64
+import logging
 import os
+import shutil
 import subprocess
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 class ListagePartielError(Exception):
@@ -102,7 +106,7 @@ class LecteurGit:
         if jeton:  # jamais dans une URL ni un argument : par l'environnement de git seulement
             b64 = base64.b64encode(f"x-access-token:{jeton}".encode()).decode()
             self._secrets = [jeton, b64]
-            self._env |= {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.extraheader",
+            self._env |= {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
                           "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {b64}"}
         self._sha = ""
 
@@ -121,14 +125,23 @@ class LecteurGit:
             raise ErreurSource(f"git {args[0]} : {msg}")
         return r.stdout.decode(errors="replace")
 
+    def _cloner(self) -> None:
+        shutil.rmtree(self.dest, ignore_errors=True)
+        self.dest.parent.mkdir(parents=True, exist_ok=True)
+        self._git("clone", "--single-branch", "--branch", self.branche, self.url,
+                  str(self.dest), cwd=self.dest.parent)
+
     def synchroniser(self) -> str:
         if not (self.dest / ".git").exists():
-            self.dest.parent.mkdir(parents=True, exist_ok=True)
-            self._git("clone", "--single-branch", "--branch", self.branche, self.url,
-                      str(self.dest), cwd=self.dest.parent)
+            self._cloner()
         else:
-            self._git("fetch", "origin", self.branche)
-            self._git("reset", "--hard", f"origin/{self.branche}")
+            b = self.branche
+            try:
+                self._git("fetch", "origin", f"+{b}:refs/remotes/origin/{b}")
+                self._git("reset", "--hard", f"origin/{b}")
+            except ErreurSource as e:  # clone abîmé : on repart de zéro (il appartient au service)
+                log.warning("%s : clone recréé (%s)", self.dest.name, e)
+                self._cloner()
         self._sha = self._git("rev-parse", "HEAD").strip()
         return self._sha
 
@@ -143,7 +156,10 @@ class LecteurGit:
             mode, _type, sha, taille = meta.split()
             if mode in ("160000", "120000"):  # sous-module, lien symbolique : jamais suivis
                 continue
-            out.append(Entree(nfc(chemin), sha, datetime.min.replace(tzinfo=UTC), int(taille)))
+            if nfc(chemin) != chemin or "\ufffd" in chemin:  # NFD, nom non UTF-8 : ignoré seul
+                log.warning("%s : chemin ignoré (nom non normalisé) : %r", self.dest.name, chemin)
+                continue
+            out.append(Entree(chemin, sha, datetime.min.replace(tzinfo=UTC), int(taille)))
         return out
 
     def lire(self, chemin: str) -> bytes:

@@ -86,3 +86,13 @@ def test_la_config_de_prod_exclut_le_banc_du_depot_rag():
 def test_le_coffre_git_n_est_pas_une_source():
     for f in ("config/rag.yaml", "config/dev.yaml"):
         assert all("obsidian-maison" not in s.emplacement for s in charger_config(Path(f)).sources)
+
+
+def test_blob_geant_exclu_sans_lecture(bd, depot, tmp_path, faux_modeles):
+    commit(depot, "enorme.txt", "a" * (10 * CONF.taille_max_octets + 1))
+    lec = LecteurGit(str(depot), tmp_path / "c")
+    lus = []
+    lire = lec.lire
+    lec.lire = lambda c: lus.append(c) or lire(c)
+    b = indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles)
+    assert "enorme.txt" not in lus and "enorme.txt" not in chemins(bd) and b.exclus == 4

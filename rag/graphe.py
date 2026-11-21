@@ -10,6 +10,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import psycopg
+
 from rag.exclusions import motif_exclusion
 from rag.recherche import lien_source, normaliser
 
@@ -74,9 +76,8 @@ def extraire_structure(clone: Path, travail: Path, delai_s: int = 600, *,
     shutil.rmtree(copie, ignore_errors=True)
     copie.mkdir(parents=True)
     _copier_sans_exclus(Path(clone), copie, list(exclure))
-    # Jamais de clé infonuagique : l'extraction structurelle n'appelle aucun modèle.
-    env = {k: v for k, v in os.environ.items()
-           if not (k.endswith("_API_KEY") or k.startswith(("RAG_", "OPENAI_")))}
+    # Liste blanche : aucune clé (infonuagique ou RAG_*) ne peut atteindre graphify.
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG")}
     try:
         r = subprocess.run([*shlex.split(commande), "update", str(copie.resolve())], check=False,
                            env=env, capture_output=True, timeout=delai_s, cwd=travail)
@@ -212,7 +213,7 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
                      (source.nom,))
         conn.commit()
         return f"graphe : {n} nœuds, {l} liens"
-    except ErreurGraphe as e:
+    except (ErreurGraphe, psycopg.Error) as e:
         conn.rollback()
         log.error("%s : graphe en échec : %s", source.nom, e)
         return f"graphe : ÉCHEC {e}"

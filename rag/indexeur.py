@@ -120,6 +120,9 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         if source.type == "obsidian" and not chemin.endswith(".md"):
             continue  # pièces jointes, .gitignore, .DS_Store : hors coffre de notes
         raison = motif_exclusion(chemin, b"", source.exclure)
+        if raison is None and e.taille > 10 * conf.taille_max_octets:
+            raison = "trop_gros"  # jamais lu : un blob géant ne passe pas en mémoire
+            log.warning("%s : %s exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
         if raison is None:
             entrees[chemin] = e
         elif raison != "config":

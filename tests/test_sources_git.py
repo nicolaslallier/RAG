@@ -1,4 +1,5 @@
 import base64
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -94,3 +95,30 @@ def test_destination_relative(depot, tmp_path, monkeypatch):
     lec = LecteurGit(str(depot), Path("donnees/clones/x"))
     lec.synchroniser()
     assert (tmp_path / "donnees/clones/x/a.py").exists()
+
+
+def test_jeton_limite_a_github(tmp_path):
+    lec = LecteurGit("x", tmp_path / "c", jeton="j")
+    assert lec._env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+
+
+def test_un_nom_non_normalise_est_ignore_seul(depot, tmp_path):
+    blob = git(depot, "rev-parse", "HEAD:a.py")
+    nfd = unicodedata.normalize("NFD", "pâté.py")
+    git(depot, "config", "core.precomposeunicode", "false")  # macOS recompose sinon
+    git(depot, "update-index", "--add", "--cacheinfo", f"100644,{blob},{nfd}")
+    git(depot, "commit", "-qm", "noms bizarres")
+    lec = LecteurGit(str(depot), tmp_path / "c")
+    lec.synchroniser()
+    git(tmp_path / "c", "config", "core.precomposeunicode", "false")
+    brut = git(tmp_path / "c", "ls-tree", "-r", "--name-only", "HEAD")
+    assert "a.py" in {e.chemin for e in lec.lister()}
+    assert len(lec.lister()) == len(brut.splitlines()) - 1
+
+
+def test_clone_abime_est_reclone(depot, tmp_path):
+    LecteurGit(str(depot), tmp_path / "c").synchroniser()
+    (tmp_path / "c" / ".git" / "HEAD").write_text("n'importe quoi\n")
+    commit(depot, "b.py", "x = 1")
+    lec = LecteurGit(str(depot), tmp_path / "c")
+    assert lec.synchroniser() == git(depot, "rev-parse", "HEAD")
