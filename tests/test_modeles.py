@@ -89,3 +89,18 @@ def test_qwen3_bout_en_bout(modeles_vivants):
     brut = modeles_vivants.embed_documents(["Quelle recette contient du poulet ?"], M)[0]
     assert cosinus(q, brut) < 0.999
     assert cosinus(q, doc_p) > cosinus(q, doc_g)
+
+
+def test_contexte_tls_ca_maison(tmp_path):
+    import ssl
+    import subprocess
+
+    from rag.modeles import contexte_tls
+    cle, crt = tmp_path / "k.pem", tmp_path / "ca.crt"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", cle,
+                    "-out", crt, "-days", "1", "-subj", "/CN=ca-test"], check=True,
+                   capture_output=True)
+    ctx = contexte_tls(crt)
+    assert not ctx.verify_flags & ssl.VERIFY_X509_STRICT
+    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname
+    assert contexte_tls(None).verify_flags & ssl.VERIFY_X509_STRICT
