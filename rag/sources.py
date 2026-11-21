@@ -94,3 +94,11 @@ def client_s3(reglages):
         aws_secret_access_key=reglages.s3_secret_key, region_name="us-east-1",
         config=Config(s3={"addressing_style": "path"}),
     )
+
+
+def lecteur_pour(source, reglages):
+    if source.emplacement == "s3":
+        return LecteurS3(client_s3(reglages), reglages.coffre_bucket, reglages.coffre_prefixe)
+    if source.type == "obsidian":
+        return LecteurDossier(Path(source.emplacement).expanduser())
+    raise NotImplementedError(f"lecteur {source.type} : plan 2")
