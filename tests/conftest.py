@@ -97,3 +97,53 @@ class FauxS3:
 
     def get_object(self, Bucket, Key):
         return {"Body": _Corps(self.objets[Key])}
+
+
+NOTES_TEST = {
+    "02 - Domaines/Cuisine/Recettes/Poulet cidre et Boursin.md":
+        "---\ntype: recette\ntags: [recette, poulet]\nsource: claude\ndate: 2026-11-08\n---\n"
+        "# Poulet cidre et Boursin\n\nPoitrines de poulet, carottes, cidre et Boursin au four.\n",
+    "02 - Domaines/Cuisine/Recettes/Pâté chinois.md":
+        "---\ntype: recette\ntags: [recette, boeuf]\ndate: 2026-10-01\n---\n"
+        "# Pâté chinois\n\nBoeuf haché, maïs en crème, patates pilées.\n",
+    "03 - Ressources/Grafana.md":
+        "---\ntype: ressource\ndate: 2026-09-01\n---\n# Grafana\n\nTableaux de bord du homelab.\n",
+    "03 - Ressources/Kubernetes.md":
+        "---\ntype: note-techno\ndate: 2025-03-01\n---\n# Kubernetes\n\nOrchestration de conteneurs.\n",
+    "05 - Journal/2026-11-20.md":
+        "---\ntype: journal\ndate: 2026-11-20\n---\n# Journée\n\nNote du jour : souper et ménage.\n",
+    "Accueil.md": "# Accueil\n\nPage d'accueil du coffre, une note de départ.\n",
+}
+
+
+class Index:
+    def __init__(self, version, coffre):
+        self.version, self.coffre = version, coffre
+
+
+def _indexer(bd, tmp_path, faux_modeles, strategie="titres"):
+    from pathlib import Path
+
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source, version_courante
+    from rag.sources import LecteurDossier
+
+    coffre = tmp_path / "coffre-index"
+    for chemin, texte in NOTES_TEST.items():
+        (coffre / chemin).parent.mkdir(parents=True, exist_ok=True)
+        (coffre / chemin).write_text(texte)
+    conf = charger_config(Path("config/rag.yaml")).indexation.model_copy(
+        update={"strategie": strategie})
+    src = SourceConf(nom="coffre-maison", type="obsidian", emplacement=str(coffre))
+    indexer_source(bd, src, LecteurDossier(coffre), conf, faux_modeles)
+    return Index(version_courante(bd, conf), coffre)
+
+
+@pytest.fixture
+def index(bd, tmp_path, faux_modeles):
+    return _indexer(bd, tmp_path, faux_modeles)
+
+
+@pytest.fixture
+def index_pe(bd, tmp_path, faux_modeles):
+    return _indexer(bd, tmp_path, faux_modeles, "parent_enfant")
