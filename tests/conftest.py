@@ -71,3 +71,29 @@ def bd(_base):
     yield conn
     conn.rollback()
     conn.close()
+
+
+class _Corps:
+    def __init__(self, b):
+        self.b = b
+
+    def read(self):
+        return self.b
+
+
+class FauxS3:
+    """Faux client boto3 : pages de list_objects_v2 jouées dans l'ordre, objets par clé."""
+
+    def __init__(self, pages: list[dict], objets: dict[str, bytes] | None = None):
+        self.pages, self.objets = pages, objets or {}
+        self.appels_list = 0
+        self.args = []
+
+    def list_objects_v2(self, **kw):
+        self.args.append(kw)
+        p = self.pages[self.appels_list]
+        self.appels_list += 1
+        return p
+
+    def get_object(self, Bucket, Key):
+        return {"Body": _Corps(self.objets[Key])}
