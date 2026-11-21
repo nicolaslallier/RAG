@@ -1,5 +1,6 @@
 """Client LiteLLM (seul fournisseur de modèles) : embeddings et génération."""
 
+import ssl
 from pathlib import Path
 
 import httpx
@@ -12,12 +13,22 @@ class ErreurModele(Exception):
     pass
 
 
+def contexte_tls(ca: Path | None) -> ssl.SSLContext:
+    """CA maison en plus des CA système. Python 3.13 exige par défaut (VERIFY_X509_STRICT) une
+    extension keyUsage que le certificat de la CA maison n'a pas : on garde la vérification de la
+    chaîne et du nom, sans ce contrôle strict."""
+    ctx = ssl.create_default_context()
+    if ca:
+        ctx.load_verify_locations(cafile=str(Path(ca).expanduser()))
+        ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    return ctx
+
+
 class Modeles:
     def __init__(self, url: str, cle: str, ca: Path | None = None,
                  client: httpx.Client | None = None):
         self.url = url.rstrip("/")
-        self.client = client or httpx.Client(
-            timeout=300, verify=str(Path(ca).expanduser()) if ca else True)
+        self.client = client or httpx.Client(timeout=300, verify=contexte_tls(ca))
         self.entetes = {"Authorization": f"Bearer {cle}"}
 
     def _post(self, route: str, corps: dict) -> dict:
