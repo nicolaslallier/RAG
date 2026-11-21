@@ -3,9 +3,9 @@ services:
     image: pgvector/pgvector:0.8.6-pg18-bookworm
     environment:
       POSTGRES_USER: rag
-      POSTGRES_PASSWORD: rag
+      POSTGRES_PASSWORD: rag   # réservé au dev local, base jetable
       POSTGRES_DB: rag
-    ports: ["5434:5432"]
+    ports: ["127.0.0.1:5434:5432"]   # local seulement
     volumes: [pgdata:/var/lib/postgresql]
 volumes:
   pgdata:
