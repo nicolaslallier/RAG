@@ -9,7 +9,7 @@ from tests.conftest import commit
 
 CONFIG = charger_config(Path("config/rag.yaml"))
 CONF = CONFIG.indexation
-SRC_CODE = SourceConf(nom="depot-test", type="code", emplacement="x")
+SRC_CODE = SourceConf(visibilite="public-maison", nom="depot-test", type="code", emplacement="x")
 
 
 def chemins(bd):
@@ -72,7 +72,7 @@ def test_recherche_filtre_par_depot(bd, depot, tmp_path, faux_modeles, index):
 def test_lecteur_pour_le_code(tmp_path):
     class R:
         donnees_dir, github_jeton = tmp_path, "j"
-    lec = lecteur_pour(SourceConf(nom="AI", type="code", emplacement="u", branche="dev"), R)
+    lec = lecteur_pour(SourceConf(visibilite="public-maison", nom="AI", type="code", emplacement="u", branche="dev"), R)
     assert isinstance(lec, LecteurGit) and lec.dest == tmp_path / "clones" / "AI"
     assert lec.branche == "dev"
 

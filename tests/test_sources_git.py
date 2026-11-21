@@ -65,3 +65,24 @@ def test_le_jeton_est_masque_dans_l_erreur(tmp_path, monkeypatch):
     with pytest.raises(ErreurSource) as e:
         lec.synchroniser()
     assert "secret123" not in str(e.value) and "***" in str(e.value)
+
+
+def test_un_lien_symbolique_n_est_ni_liste_ni_lu(depot, tmp_path):
+    dehors = tmp_path / "dehors.txt"
+    dehors.write_text("SECRET_HORS_DEPOT")
+    (depot / "lien").symlink_to(dehors)
+    git(depot, "add", "lien")
+    git(depot, "commit", "-qm", "lien")
+    lec = LecteurGit(str(depot), tmp_path / "clone")
+    assert "lien" not in {e.chemin for e in lec.lister()}
+    assert b"SECRET_HORS_DEPOT" not in lec.lire("lien")  # le blob : le texte du lien, rien de plus
+    for c in ("../dehors.txt", "/etc/hosts", "a/../../x"):
+        with pytest.raises(ErreurSource):
+            lec.lire(c)
+
+
+def test_lire_ignore_l_arbre_de_travail(depot, tmp_path):
+    lec = LecteurGit(str(depot), tmp_path / "clone")
+    lec.synchroniser()
+    (tmp_path / "clone" / "a.py").write_text("modifié à la main")
+    assert lec.lire("a.py") != b"modifi\xc3\xa9 \xc3\xa0 la main"

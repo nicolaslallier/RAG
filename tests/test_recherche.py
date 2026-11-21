@@ -89,7 +89,7 @@ def test_version_isolee(bd, index, faux_modeles):
 
     avant = [(x.morceau_id, x.score) for x in ch(bd, "poulet", index, faux_modeles)]
     conf = CONF.indexation.model_copy(update={"strategie": "recursif"})
-    src = SourceConf(nom="coffre-maison", type="obsidian", emplacement=str(index.coffre))
+    src = SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian", emplacement=str(index.coffre))
     indexer_source(bd, src, LecteurDossier(index.coffre), conf, faux_modeles)
     assert [(x.morceau_id, x.score) for x in ch(bd, "poulet", index, faux_modeles)] == avant
 
@@ -102,7 +102,7 @@ def test_parent_enfant_rend_la_section_entiere(bd, index_pe, faux_modeles):
     from rag.sources import LecteurDossier
 
     conf = CONF.indexation.model_copy(update={"strategie": "parent_enfant"})
-    src = SourceConf(nom="coffre-maison", type="obsidian", emplacement=str(index_pe.coffre))
+    src = SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian", emplacement=str(index_pe.coffre))
     indexer_source(bd, src, LecteurDossier(index_pe.coffre), conf, faux_modeles)
     r = [x for x in ch(bd, "poulet rôti paragraphe", index_pe, faux_modeles, limite=50)
          if x.chemin == "Long.md"]
@@ -122,7 +122,7 @@ def test_ordre_reproductible_a_egalite(bd, index, faux_modeles):
     from rag.config import SourceConf
     from rag.indexeur import indexer_source
     from rag.sources import LecteurDossier
-    indexer_source(bd, SourceConf(nom="coffre-maison", type="obsidian", emplacement="x"),
+    indexer_source(bd, SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian", emplacement="x"),
                    LecteurDossier(index.coffre), CONF.indexation, faux_modeles)
     r = [ch(bd, "texte identique", index, faux_modeles) for _ in range(3)]
     ids = [[x.morceau_id for x in y] for y in r]

@@ -27,7 +27,7 @@ def test_obtenus_dedoublonnes_par_document(bd, index, faux_modeles):
     from rag.config import SourceConf
     from rag.indexeur import indexer_source
     from rag.sources import LecteurDossier
-    indexer_source(bd, SourceConf(nom="coffre-maison", type="obsidian", emplacement="x"),
+    indexer_source(bd, SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian", emplacement="x"),
                    LecteurDossier(index.coffre), CONFIG.indexation, faux_modeles)
     r = executer(bd, [Cas(id="g", question="poulet", nature="factuel",
                           attendus=["coffre-maison:Gros.md"])], CONFIG, faux_modeles,

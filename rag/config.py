@@ -47,7 +47,7 @@ class SourceConf(_Strict):
     branche: str = "main"
     exclure: list[str] = []
     repos_minutes: int = 0
-    visibilite: Literal["public-maison", "prive"] = "public-maison"
+    visibilite: Literal["public-maison", "prive"]
 
 
 class IndexationConf(_Strict):

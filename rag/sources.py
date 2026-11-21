@@ -139,13 +139,25 @@ class LecteurGit:
                 continue
             meta, chemin = ligne.split("\t", 1)
             mode, _type, sha, taille = meta.split()
-            if mode == "160000":  # sous-module
+            if mode in ("160000", "120000"):  # sous-module, lien symbolique : jamais suivis
                 continue
             out.append(Entree(nfc(chemin), sha, datetime.min.replace(tzinfo=UTC), int(taille)))
         return out
 
     def lire(self, chemin: str) -> bytes:
-        return (self.dest / chemin).read_bytes()
+        """Le blob du commit indexé, jamais le système de fichiers (liens symboliques)."""
+        if not self._sha:
+            self.synchroniser()
+        if chemin.startswith("/") or ".." in chemin.split("/"):
+            raise ErreurSource(f"chemin refusé : {chemin}")
+        try:
+            r = subprocess.run(["git", "cat-file", "blob", f"{self._sha}:{chemin}"], check=False,
+                               cwd=self.dest, env=self._env, capture_output=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            raise ErreurSource("git cat-file : délai dépassé") from None
+        if r.returncode:
+            raise ErreurSource(f"git cat-file : {chemin} illisible")
+        return r.stdout
 
     def revision(self) -> str:
         return self._sha

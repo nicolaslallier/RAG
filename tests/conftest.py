@@ -134,7 +134,7 @@ def _indexer(bd, tmp_path, faux_modeles, strategie="titres"):
         (coffre / chemin).write_text(texte)
     conf = charger_config(Path("config/rag.yaml")).indexation.model_copy(
         update={"strategie": strategie})
-    src = SourceConf(nom="coffre-maison", type="obsidian", emplacement=str(coffre))
+    src = SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian", emplacement=str(coffre))
     indexer_source(bd, src, LecteurDossier(coffre), conf, faux_modeles)
     return Index(version_courante(bd, conf), coffre)
 
