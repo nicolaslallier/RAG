@@ -64,6 +64,8 @@ _FILTRES = {
     "jusqua": "d.date_doc <= %(f_jusqua)s",
 }
 
+# ponytail: `base` est un CTE matérialisé, donc l'index HNSW ne sert pas (balayage complet) ;
+# suffisant pour ~100 notes, à revoir au plan 2 quand le code des dépôts arrive.
 _SQL = """
 WITH q AS (SELECT %(vec)s::halfvec AS v,
                   NULLIF(replace(plainto_tsquery('fr', %(question)s)::text, '&', '|'), '')::tsquery
@@ -73,15 +75,16 @@ base AS (SELECT m.id, m.embedding, m.tsv, m.symbole, d.titre_norm
            JOIN sources s ON s.id = d.source_id
           WHERE m.version_id = %(version)s AND m.embedding IS NOT NULL
             AND s.visibilite = ANY(%(niveaux)s) {filtres}),
-vecteur AS (SELECT id, row_number() OVER (ORDER BY embedding <=> (SELECT v FROM q)) AS r
-              FROM base ORDER BY embedding <=> (SELECT v FROM q) LIMIT %(top_vecteur)s),
-texte AS (SELECT id, row_number() OVER (ORDER BY ts_rank_cd(tsv, (SELECT ts FROM q)) DESC) AS r
-            FROM base WHERE tsv @@ (SELECT ts FROM q) LIMIT %(top_texte)s),
-flou AS (SELECT id, row_number() OVER (ORDER BY sim DESC) AS r FROM (
+vecteur AS (SELECT id, row_number() OVER (ORDER BY embedding <=> (SELECT v FROM q), id) AS r
+              FROM base ORDER BY embedding <=> (SELECT v FROM q), id LIMIT %(top_vecteur)s),
+texte AS (SELECT id, row_number() OVER (ORDER BY ts_rank_cd(tsv, (SELECT ts FROM q)) DESC, id) AS r
+            FROM base WHERE tsv @@ (SELECT ts FROM q)
+           ORDER BY ts_rank_cd(tsv, (SELECT ts FROM q)) DESC, id LIMIT %(top_texte)s),
+flou AS (SELECT id, row_number() OVER (ORDER BY sim DESC, id) AS r FROM (
            SELECT id, greatest(word_similarity(%(qnorm)s, titre_norm),
                                word_similarity(%(qnorm)s, lower(coalesce(symbole, '')))) AS sim
              FROM base) x
-          WHERE sim >= %(seuil_flou)s ORDER BY sim DESC LIMIT 20),
+          WHERE sim >= %(seuil_flou)s ORDER BY sim DESC, id LIMIT 20),
 fusion AS (SELECT id, sum(poids / (%(rrf_k)s + r)) AS score FROM (
              SELECT id, r, %(p_vecteur)s::float AS poids FROM vecteur
    UNION ALL SELECT id, r, %(p_texte)s FROM texte

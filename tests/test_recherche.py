@@ -114,3 +114,18 @@ def test_lien_code():
     assert lien_source("code", "Infra", "a.py", None) == "Infra/a.py"
     assert lien_source("obsidian", "c", "03 - Ressources/Grafana.md", None) == (
         "obsidian://open?vault=Maison&file=03%20-%20Ressources/Grafana")
+
+
+def test_ordre_reproductible_a_egalite(bd, index, faux_modeles):
+    for _ in range(2):
+        (index.coffre / f"Double{_}.md").write_text("# Pareil\n\nTexte identique.")
+    from rag.config import SourceConf
+    from rag.indexeur import indexer_source
+    from rag.sources import LecteurDossier
+    indexer_source(bd, SourceConf(nom="coffre-maison", type="obsidian", emplacement="x"),
+                   LecteurDossier(index.coffre), CONF.indexation, faux_modeles)
+    r = [ch(bd, "texte identique", index, faux_modeles) for _ in range(3)]
+    ids = [[x.morceau_id for x in y] for y in r]
+    assert ids[0] == ids[1] == ids[2]
+    doubles = [x for x in r[0] if x.chemin.startswith("Double")]
+    assert doubles[0].morceau_id < doubles[1].morceau_id   # égalité départagée par id
