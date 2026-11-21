@@ -12,6 +12,8 @@ from rag.exclusions import motif_exclusion
     ("02 - Domaines/Cuisine/Poulet.md", b"# Poulet", None), ("rag/api.py", b"import os", None),
     ("veille.md", b"https://x.com/2026/elon-musk-other-companies-and-more-stuff", None),
     ("k.md", b"OPENAI=sk-proj-abcdefghijklmnopqrstuv", "secret"),
+    ("l.md", b"RAG_LITELLM_CLE=sk-AbCdEfGhIjKlMnOpQrStUv12", "secret"),
+    ("u.md", b"https://exemple.com/sk-abcdefghijklmnopqrstuvwxyz", None),
     (".ENV", b"A=1", "secret"), ("ID_RSA", b"x", "secret"),
     ("k.asc", b"-----BEGIN PGP PRIVATE KEY BLOCK-----", "secret"),
     ("x.md", "é".encode()[:1], None),
