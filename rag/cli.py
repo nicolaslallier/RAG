@@ -129,6 +129,9 @@ def main(argv: list[str] | None = None) -> int:
     ple = sp.add_parser("liens-entrants")
     ple.add_argument("cle")
     ple.add_argument("--prive", action="store_true")
+    pgs = sp.add_parser("graphe-semantique")
+    pgs.add_argument("--source")
+    pgs.add_argument("--max", type=int)
     sp.add_parser("servir")
     ajouter_cli_banc(sp)
     a = p.parse_args(argv)
@@ -162,6 +165,13 @@ def main(argv: list[str] | None = None) -> int:
                         from rag.graphe import charger_wikiliens
                         for chemin, cible in getattr(charger_wikiliens, "non_resolues", []):
                             print(f"  non résolu : [[{cible}]] dans {chemin}")
+            return 0
+        if a.cmd == "graphe-semantique":
+            from rag.semantique import passe_semantique
+            debut = time.monotonic()
+            b = passe_semantique(conn, config, modeles, a.source, a.max)
+            print(", ".join(f"{v} {k}" for k, v in b.items())
+                  + f" ({time.monotonic() - debut:.0f} s)")
             return 0
         if a.cmd == "banc":
             return commande_banc(a, conn, reglages, config, modeles, _indexer)

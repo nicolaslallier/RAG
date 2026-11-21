@@ -43,7 +43,10 @@ def depuis_graphify(graphe: dict) -> dict:
     noeuds = []
     for n in graphe.get("nodes", []):
         m = _LIGNE.fullmatch(n.get("source_location") or "")
-        noeuds.append({"cle": n["id"], "libelle": n.get("label") or n["id"],
+        libelle = n.get("label") or n["id"]
+        if n.get("_callable") and libelle.endswith("()"):  # « .lancer() » -> « lancer »
+            libelle = libelle.removesuffix("()").lstrip(".") or libelle
+        noeuds.append({"cle": n["id"], "libelle": libelle,
                        "type": _type_graphify(n), "fichier": n.get("source_file") or None,
                        "ligne": int(m.group(1)) if m else None, "communaute": n.get("community")})
     cles = {n["cle"] for n in noeuds}
