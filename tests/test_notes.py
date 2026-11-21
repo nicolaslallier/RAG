@@ -71,3 +71,20 @@ def test_commentaire_non_ferme_masque_jusqu_a_la_fin():
 def test_tags_numeriques_et_liens_internes_ignores():
     n = analyser_note("x.md", "Voir #12 et PR #186, [[#Se connecter]] et #vrai-tag #2026a")
     assert n.tags == ["vrai-tag", "2026a"]
+
+
+def test_pourcent_dans_un_bloc_de_code_garde():
+    c = analyser_note("x.md", "```\nprintf('%%d');\n```\nfin %%privé%% visible").corps
+    assert "printf('%%d');" in c and "privé" not in c and "visible" in c
+
+
+@pytest.mark.parametrize("texte", ["---\r\ntype: recette\r\n---\r\ncorps",
+                                   "﻿---\ntype: recette\n---\ncorps"])
+def test_frontmatter_crlf_et_bom(texte):
+    n = analyser_note("x.md", texte)
+    assert n.type == "recette" and "type:" not in n.corps
+
+
+def test_frontmatter_vide():
+    n = analyser_note("x.md", "---\n---\ncorps")
+    assert n.frontmatter == {} and n.corps.strip() == "corps"

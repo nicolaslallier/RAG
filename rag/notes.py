@@ -1,4 +1,5 @@
 """Analyse d'une note Obsidian : frontmatter, commentaires %%…%%, tags, [[liens]]."""
+# Changer ce fichier change ce qui est indexé : incrémenter VERSION_ANALYSEUR (rag/config.py).
 
 import datetime as dt
 import json
@@ -8,8 +9,9 @@ from pathlib import PurePosixPath
 
 import yaml
 
-_FM = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.DOTALL)
-_COMMENTAIRE = re.compile(r"%%.*?(?:%%|\Z)", re.DOTALL)  # non fermé : masque jusqu'à la fin
+_FM = re.compile(r"\A---[ \t]*\n(?:(.*?)\n)?---[ \t]*(?:\n|\Z)", re.DOTALL)
+# code gardé tel quel ; %% hors code masqué, jusqu'à la fin s'il n'est pas fermé (comme Obsidian)
+_COMMENTAIRE = re.compile(r"(```.*?(?:```|\Z)|`[^`\n]*`)|%%.*?(?:%%|\Z)", re.DOTALL)
 _CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.DOTALL)
 _LIEN = re.compile(r"\[\[([^\]|#]*)(?:[#|][^\]]*)?\]\]")
 _TAG = re.compile(r"(?<![\w&/#])#([\w/-]*[^\W\d][\w/-]*)")  # au moins un non-chiffre
@@ -30,6 +32,8 @@ class _ChargeurSansAlias(yaml.SafeLoader):
 def _frontmatter(brut: str) -> dict | None:
     if len(brut) > _FM_MAX:
         return None
+    if not brut.strip():
+        return {}
     try:
         d = yaml.load(brut, Loader=_ChargeurSansAlias)  # SafeLoader dérivé
         if not isinstance(d, dict):
@@ -68,14 +72,14 @@ def _uniques(xs):
 
 
 def analyser_note(chemin: str, texte: str) -> Note:
-    texte = texte.replace("\x00", "")
+    texte = texte.replace("\x00", "").removeprefix("\ufeff").replace("\r\n", "\n")
     fm, corps = {}, texte
     m = _FM.match(texte)
     if m:
-        brut = _frontmatter(m.group(1))
+        brut = _frontmatter(m.group(1) or "")
         if brut is not None:
             fm, corps = brut, texte[m.end():]
-    corps = _COMMENTAIRE.sub("", corps)
+    corps = _COMMENTAIRE.sub(lambda x: x.group(1) or "", corps)
     sans_code = _CODE.sub("", corps)
     tags = [t.lstrip("#") for t in _liste(fm.get("tags"))] + _TAG.findall(_LIEN.sub("", sans_code))
     alias = _liste(fm.get("aliases", fm.get("alias")))
