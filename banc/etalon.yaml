@@ -6,7 +6,7 @@
   attendus:
   - coffre-maison:02 - Domaines/Cuisine/Recettes/Poulet cidre et Boursin, légumes rôtis.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: 'Obligatoire (spec). Seule note type: recette avec poulet ; « Menu de la semaine au poulet » et le hotpot (bouillon au poulet) sont type: ressource : à ajouter si Nicolas les compte.'
 - id: menus-semaine
   question: C'est quoi mes menus de la semaine ?
@@ -16,7 +16,7 @@
   - coffre-maison:02 - Domaines/Cuisine/Repas spéciaux IGA 12-18 nov.md
   - coffre-maison:02 - Domaines/Cuisine/Cuisine.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: Dossier Cuisine, types ressource et domaine.
 - id: liste-costco
   question: Qu'est-ce que j'ai sur ma liste Costco ?
@@ -24,7 +24,7 @@
   attendus:
   - coffre-maison:02 - Domaines/Maison/Liste Costco.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: Nom propre (Costco), domaine Maison.
 - id: famille
   question: C'est qui ma famille ?
@@ -34,7 +34,7 @@
   - coffre-maison:02 - Domaines/Personnes/Elizabeth Rose Lallier.md
   - coffre-maison:À propos de moi.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: Type personne et contexte (racine).
 - id: projets-en-cours
   question: J'ai quels projets en cours ?
@@ -43,7 +43,7 @@
   - coffre-maison:Accueil.md
   - coffre-maison:À propos de moi.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: 'Racine ; les notes de projet une par une seraient aussi défendables : à trancher.'
 - id: notes-techno
   question: Quelles notes techno j'ai écrites ?
@@ -53,7 +53,7 @@
   - coffre-maison:02 - Domaines/Travail/Note techno - Édition de poids par programme linéaire.md
   - coffre-maison:02 - Domaines/Travail/Travail.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: Type note-techno.
 - id: veille-mistral
   question: Dans quelles veilles on parle de Mistral ?
@@ -68,7 +68,7 @@
   - coffre-maison:03 - Ressources/Veille IA/2026-11-20.md
   - coffre-maison:03 - Ressources/Veille IA/2026-11-21.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: 'Nom propre ; vérifié par grep -il mistral. Liste longue : teste le rappel@10.'
 - id: agents-a2a
   question: J'ai quels agents A2A derrière LiteLLM ?
@@ -78,7 +78,7 @@
   - coffre-maison:01 - Projets/Infra/Infra - Premier agent A2A (agent-test).md
   - coffre-maison:01 - Projets/AI/Portail — chat avec agent-musique.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: Sigle A2A.
 - id: vaisselle
   question: C'est quand la vaisselle cette semaine ?
@@ -90,7 +90,7 @@
   - coffre-maison:05 - Journal/2026-11-13.md
   - coffre-maison:05 - Journal/2026-11-14.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: Type journal (vérifié par grep -il vaisselle).
 - id: courriels-novembre
   question: C'était quoi les courriels importants au début de novembre ?
@@ -99,7 +99,7 @@
   - coffre-maison:00 - Inbox/Courriels importants 2026-11-08.md
   - coffre-maison:00 - Inbox/À trier.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: Dossier 00 - Inbox.
 - id: dashboards-litellm
   question: Résume ce qu'on a fait sur les dashboards Grafana de LiteLLM
@@ -108,7 +108,7 @@
   - coffre-maison:01 - Projets/Infra/Infra - Dashboard Grafana LiteLLM.md
   - coffre-maison:01 - Projets/Infra/Infra - Fusion dashboards Agents et LiteLLM.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Deux notes Infra liées.
 - id: version-litellm
   question: On est rendu où avec la version de LiteLLM ?
@@ -117,7 +117,7 @@
   - coffre-maison:01 - Projets/Infra/Infra - Montée LiteLLM 1.108 LTS.md
   - coffre-maison:01 - Projets/Infra/Infra - LiteLLM image unifiée.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: delais-portail
   question: Pourquoi le Portail avait des délais dépassés avec LiteLLM ?
@@ -127,7 +127,7 @@
   - coffre-maison:01 - Projets/AI/Portail - timeouts LLM (délai configurable).md
   - coffre-maison:01 - Projets/AI/Portail - agent plan qui relit en boucle.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Trois incidents liés ; formulation sans les mots « timeout » ni « ReadTimeout ».
 - id: separation-stacks
   question: C'est quoi le plan pour faire rouler les stacks sur plusieurs machines ?
@@ -138,7 +138,7 @@
   - coffre-maison:01 - Projets/Infra/Infra - Stack dev.md
   - coffre-maison:01 - Projets/Infra/Infra - Stack Keycloak.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Type plan + notes de stack.
 - id: mcp-fichiers
   question: Résume-moi le projet MCP Fichiers
@@ -148,7 +148,7 @@
   - coffre-maison:01 - Projets/MCP Fichiers/Plan MCP Fichiers.md
   - coffre-maison:01 - Projets/MCP Fichiers/Spec MCP Fichiers.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Types projet, plan, spec.
 - id: labo-ia
   question: Qu'est-ce que j'apprends avec mon labo IA ?
@@ -158,7 +158,7 @@
   - coffre-maison:01 - Projets/AI/AI.md
   - coffre-maison:01 - Projets/AI/AI - Documentation.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: projets-jeux
   question: Résume mes projets de jeux vidéo
@@ -168,7 +168,7 @@
   - coffre-maison:01 - Projets/Moria/Moria.md
   - coffre-maison:01 - Projets/Moria/Moria - Documentation.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: vue-infra
   question: Donne-moi une vue d'ensemble de mon infra
@@ -177,7 +177,7 @@
   - coffre-maison:01 - Projets/Infra/Infra.md
   - coffre-maison:01 - Projets/Infra/Infra - Documentation.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: hotpot-bouillons
   question: C'est quoi les deux bouillons du hotpot ?
@@ -185,7 +185,7 @@
   attendus:
   - coffre-maison:02 - Domaines/Cuisine/Hotpot en amoureux - samedi 14 nov.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: pate-chinois
   question: combien de temps ca prend le pate chinois des speciaux iga
@@ -193,7 +193,7 @@
   attendus:
   - coffre-maison:02 - Domaines/Cuisine/Repas spéciaux IGA 12-18 nov.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Sans accents ni majuscules.
 - id: four-poulet
   question: Je mets le four à combien pour le poulet au cidre ?
@@ -201,7 +201,7 @@
   attendus:
   - coffre-maison:02 - Domaines/Cuisine/Recettes/Poulet cidre et Boursin, légumes rôtis.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: annick
   question: Annick fait quoi dans la vie ?
@@ -209,7 +209,7 @@
   attendus:
   - coffre-maison:02 - Domaines/Personnes/Annick.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Nom propre, type personne.
 - id: lena
   question: C'est qui Lena Hope Capp ?
@@ -217,7 +217,7 @@
   attendus:
   - coffre-maison:02 - Domaines/Personnes/Lena Hope Capp.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Nom propre.
 - id: nvidia-export
   question: C'était quand la nouvelle sur les puces Nvidia bloquées à l'export ?
@@ -225,7 +225,7 @@
   attendus:
   - coffre-maison:03 - Ressources/Veille IA/2026-11-14.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Type veille ; Nvidia apparaît dans 6 veilles, une seule parle de l'export.
 - id: dns-adresse
   question: C'est quoi l'adresse du DNS de la maison ?
@@ -233,7 +233,7 @@
   attendus:
   - coffre-maison:01 - Projets/Infra/Infra - Stack DNS.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: keycloak-machine
   question: keycloack s'en va sur quelle machine ?
@@ -241,7 +241,7 @@
   attendus:
   - coffre-maison:01 - Projets/Infra/Infra - Stack Keycloak.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Faute de frappe sur un nom propre.
 - id: ordonnanceur
   question: Pourquoi l'ordonnanceur du Portail partait aucune tâche ?
@@ -249,7 +249,7 @@
   attendus:
   - coffre-maison:01 - Projets/AI/Ordonnanceur du Portail - GitHub App.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: windows-grafana
   question: Pourquoi le dashboard Windows était vide dans Grafana ?
@@ -257,7 +257,7 @@
   attendus:
   - coffre-maison:01 - Projets/Infra/Infra - Métriques Windows dans Grafana.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: heaven-clouds
   question: Heaven doit se brancher sur quels clouds ?
@@ -265,7 +265,7 @@
   attendus:
   - coffre-maison:01 - Projets/Heaven/Heaven.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Nom propre.
 - id: acord
   question: la modelisation acord c'est pour quel domaine
@@ -273,7 +273,7 @@
   attendus:
   - coffre-maison:01 - Projets/Modélisation ACORD/Modélisation ACORD.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Sans accents.
 - id: ea-archimate
   question: J'utilise quelle version d'ArchiMate pour EA ?
@@ -282,7 +282,7 @@
   - coffre-maison:01 - Projets/EA/EA.md
   - coffre-maison:01 - Projets/EA/EA - Documentation.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: skills-anthropic
   question: Les Agent Skills d'Anthropic, ça marche comment ?
@@ -290,7 +290,7 @@
   attendus:
   - coffre-maison:02 - Domaines/Travail/Note techno - Agent Skills d'Anthropic.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: ''
 - id: edition-poids
   question: combien de poids on modifie avec l'edition par programme lineaire ?
@@ -298,7 +298,7 @@
   attendus:
   - coffre-maison:02 - Domaines/Travail/Note techno - Édition de poids par programme linéaire.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Sans accents.
 - id: instructions-claude
   question: Claude doit faire quoi au début d'une session ?
@@ -306,7 +306,7 @@
   attendus:
   - coffre-maison:_Claude/Instructions.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Dossier _Claude, type instructions.
 - id: visite-guidee
   question: C'est quoi le gabarit pour une visite guidée ?
@@ -315,112 +315,112 @@
   - coffre-maison:04 - Archives/Modèle - Visite guidée.md
   - coffre-maison:04 - Archives/Guide touristique/Guide touristique.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Dossier 04 - Archives, types visite et domaine.
 - id: sr-saumon
   question: T'as une recette de saumon ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: 'Piège : cuisine présente, saumon absent (grep). Vérifié par grep -ril.'
 - id: sr-lasagne
   question: C'est quand qu'on mange de la lasagne cette semaine ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: 'Piège : menus présents, lasagne absente. Vérifié par grep -ril.'
 - id: sr-kubernetes
   question: On met Kubernetes pour séparer les stacks ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: 'Piège : plan de séparation présent (Swarm mentionné), Kubernetes absent. Vérifié par grep -ril.'
 - id: sr-dentiste
   question: C'est quand mon rendez-vous chez le dentiste ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: 'Piège : journal plein de rendez-vous, dentiste absent. Vérifié par grep -ril.'
 - id: sr-traefik
   question: Pourquoi on a choisi Traefik ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: 'Piège : infra/nginx présents, Traefik absent. Vérifié par grep -ril.'
 - id: sr-proxmox
   question: Combien de VM roulent sur Proxmox ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Proxmox absent. Vérifié par grep -ril.
 - id: sr-tesla
   question: Quand est le prochain entretien de la Tesla ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Tesla absent. Vérifié par grep -ril.
 - id: sr-vaccin
   question: Elizabeth a son rappel de vaccin quand ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: 'Vaccin absent (nom propre présent : piège léger). Vérifié par grep -ril.'
 - id: sr-assurance
   question: Mon assurance auto se renouvelle quand ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Assurance auto absente. Vérifié par grep -ril.
 - id: sr-impots
   question: J'ai-tu fait mes impôts ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Impôts absents. Vérifié par grep -ril.
 - id: sr-japon
   question: C'est quoi le plan du voyage au Japon ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Japon absent. Vérifié par grep -ril.
 - id: sr-hydro
   question: Combien coûte ma facture d'Hydro-Québec ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Hydro-Québec absent. Vérifié par grep -ril.
 - id: sr-pneus
   question: J'ai-tu posé mes pneus d'hiver ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Pneus absents. Vérifié par grep -ril.
 - id: sr-netflix
   question: Combien je paye pour Netflix ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Netflix absent. Vérifié par grep -ril.
 - id: sr-plombier
   question: C'est quoi le numéro du plombier ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Plombier absent. Vérifié par grep -ril.
 # --- Code des dépôts (plan 2, tâche 8) : PROPOSÉ, à corriger par Nicolas. Clé : "<dépôt>:<chemin>".
 - id: architecture-ai
