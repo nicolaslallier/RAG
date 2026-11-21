@@ -1,5 +1,8 @@
 """Lecteurs de source : même interface lister() / lire() / revision()."""
 
+import base64
+import os
+import subprocess
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -7,6 +10,10 @@ from pathlib import Path
 
 
 class ListagePartielError(Exception):
+    pass
+
+
+class ErreurSource(Exception):
     pass
 
 
@@ -85,6 +92,65 @@ class LecteurS3:
         return self._quand
 
 
+class LecteurGit:
+    """Clone propre au service, qui suit `origin/<branche>` (réécritures d'historique comprises)."""
+
+    def __init__(self, url: str, dest: Path, branche: str = "main", jeton: str = ""):
+        self.url, self.dest, self.branche = url, Path(dest), branche
+        self._secrets = []
+        self._env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+        if jeton:  # jamais dans une URL ni un argument : par l'environnement de git seulement
+            b64 = base64.b64encode(f"x-access-token:{jeton}".encode()).decode()
+            self._secrets = [jeton, b64]
+            self._env |= {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.extraheader",
+                          "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {b64}"}
+        self._sha = ""
+
+    def _git(self, *args: str, cwd: Path | None = None) -> str:
+        try:
+            r = subprocess.run(["git", *args], check=False, cwd=cwd or self.dest,
+                               env=self._env, capture_output=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            raise ErreurSource(f"git {args[0]} : délai dépassé") from None
+        if r.returncode:
+            msg = r.stderr.decode(errors="replace").strip()
+            for s in self._secrets:
+                msg = msg.replace(s, "***")
+            raise ErreurSource(f"git {args[0]} : {msg}")
+        return r.stdout.decode(errors="replace")
+
+    def synchroniser(self) -> str:
+        if not (self.dest / ".git").exists():
+            self.dest.parent.mkdir(parents=True, exist_ok=True)
+            self._git("clone", "--single-branch", "--branch", self.branche, self.url,
+                      str(self.dest), cwd=self.dest.parent)
+        else:
+            self._git("fetch", "origin", self.branche)
+            self._git("reset", "--hard", f"origin/{self.branche}")
+        self._sha = self._git("rev-parse", "HEAD").strip()
+        return self._sha
+
+    def lister(self) -> list[Entree]:
+        if not self._sha:
+            self.synchroniser()
+        out = []
+        for ligne in self._git("ls-tree", "-r", "-z", "--long", "HEAD").split("\0"):
+            if not ligne:
+                continue
+            meta, chemin = ligne.split("\t", 1)
+            mode, _type, sha, taille = meta.split()
+            if mode == "160000":  # sous-module
+                continue
+            out.append(Entree(nfc(chemin), sha, datetime.min.replace(tzinfo=UTC), int(taille)))
+        return out
+
+    def lire(self, chemin: str) -> bytes:
+        return (self.dest / chemin).read_bytes()
+
+    def revision(self) -> str:
+        return self._sha
+
+
 def client_s3(reglages):
     import boto3
     from botocore.config import Config
@@ -103,4 +169,5 @@ def lecteur_pour(source, reglages):
         return LecteurS3(client_s3(reglages), reglages.coffre_bucket, prefixe)
     if source.type == "obsidian":
         return LecteurDossier(Path(source.emplacement).expanduser())
-    raise NotImplementedError(f"lecteur {source.type} : plan 2")
+    return LecteurGit(source.emplacement, Path(reglages.donnees_dir) / "clones" / source.nom,
+                      source.branche, reglages.github_jeton)

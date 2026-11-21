@@ -26,6 +26,7 @@ class Reglages(BaseSettings):
     litellm_ca: Path | None = None
     jeton: str = ""
     jeton_prive: str = ""
+    github_jeton: str = ""
     donnees_dir: Path = Path("donnees")
     config: Path = Path("config/rag.yaml")
     s3_endpoint: str = "http://s3:8333"

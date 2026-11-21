@@ -147,3 +147,38 @@ def index(bd, tmp_path, faux_modeles):
 @pytest.fixture
 def index_pe(bd, tmp_path, faux_modeles):
     return _indexer(bd, tmp_path, faux_modeles, "parent_enfant")
+
+
+def git(depot, *args):
+    import subprocess
+
+    return subprocess.run(["git", "-C", str(depot), *args], check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
+def commit(depot, chemin, texte, message="maj"):
+    (depot / chemin).parent.mkdir(parents=True, exist_ok=True)
+    (depot / chemin).write_text(texte)
+    git(depot, "add", chemin)
+    git(depot, "commit", "-qm", message)
+
+
+@pytest.fixture
+def depot(tmp_path):
+    """Dépôt git local : main avec du code, un secret, un verrou, un binaire, un gros JSON."""
+    d = tmp_path / "depot"
+    d.mkdir()
+    git(d, "init", "-q", "-b", "main")
+    git(d, "config", "user.email", "t@t")
+    git(d, "config", "user.name", "t")
+    (d / "a.py").write_text("import os\n\ndef aide():\n    return 1\n\n\nclass Indexeur:\n"
+                            "    def lancer(self):\n        return aide()\n")
+    (d / ".env.example").write_text("CLE=xyz\n")
+    (d / "uv.lock").write_text("version = 1\n")
+    (d / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00binaire")
+    (d / "docs").mkdir()
+    (d / "docs/guide.md").write_text("# Guide\n\nComment déployer le service.\n")
+    (d / "gros.json").write_text('{"x": "' + "a" * 400_000 + '"}')
+    git(d, "add", "-A")
+    git(d, "commit", "-qm", "init")
+    return d
