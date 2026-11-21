@@ -197,3 +197,20 @@ def index_code(bd, depot, tmp_path, faux_modeles):
     lec = LecteurGit(str(depot), tmp_path / "c")
     indexer_source(bd, src, lec, charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
     return lec
+
+
+def indexer_coffre(bd, tmp_path, faux_modeles, notes: dict, nom="coffre-maison", forcer=False):
+    from pathlib import Path
+
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source
+    from rag.sources import LecteurDossier
+
+    coffre = tmp_path / nom
+    for chemin, texte in notes.items():
+        (coffre / chemin).parent.mkdir(parents=True, exist_ok=True)
+        (coffre / chemin).write_text(texte)
+    src = SourceConf(visibilite="public-maison", nom=nom, type="obsidian", emplacement="x")
+    indexer_source(bd, src, LecteurDossier(coffre),
+                   charger_config(Path("config/rag.yaml")).indexation, faux_modeles, forcer=forcer)
+    return coffre

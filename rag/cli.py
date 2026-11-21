@@ -81,6 +81,10 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"{src.nom} : "
                           + maj_graphe(conn, src, lecteur_pour(src, reglages), reglages,
                                        forcer=True))
+                    if src.type == "obsidian":
+                        from rag.graphe import charger_wikiliens
+                        for chemin, cible in getattr(charger_wikiliens, "non_resolues", []):
+                            print(f"  non résolu : [[{cible}]] dans {chemin}")
             return 0
         if a.cmd == "banc":
             return commande_banc(a, conn, reglages, config, modeles, _indexer)
