@@ -9,10 +9,35 @@ from pathlib import PurePosixPath
 import yaml
 
 _FM = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.DOTALL)
-_COMMENTAIRE = re.compile(r"%%.*?%%", re.DOTALL)
+_COMMENTAIRE = re.compile(r"%%.*?(?:%%|\Z)", re.DOTALL)  # non fermé : masque jusqu'à la fin
 _CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.DOTALL)
 _LIEN = re.compile(r"\[\[([^\]|#]*)(?:[#|][^\]]*)?\]\]")
 _TAG = re.compile(r"(?<![\w&/#])#([\w][\w/-]*)")
+
+
+_FM_MAX = 64 * 1024
+
+
+class _ChargeurSansAlias(yaml.SafeLoader):
+    """Refuse ancres et alias YAML (amplification « billion laughs »)."""
+
+    def compose_node(self, parent, index):
+        if self.check_event(yaml.AliasEvent) or getattr(self.peek_event(), "anchor", None):
+            raise yaml.YAMLError("alias ou ancre YAML refusés")
+        return super().compose_node(parent, index)
+
+
+def _frontmatter(brut: str) -> dict | None:
+    if len(brut) > _FM_MAX:
+        return None
+    try:
+        d = yaml.load(brut, Loader=_ChargeurSansAlias)  # SafeLoader dérivé
+        if not isinstance(d, dict):
+            return None
+        d = {str(k): v for k, v in d.items()}
+        return json.loads(json.dumps(d, default=str, allow_nan=False))
+    except Exception:  # noqa: BLE001 - un frontmatter n'arrête jamais l'indexation du coffre
+        return None
 
 
 @dataclass
@@ -47,13 +72,9 @@ def analyser_note(chemin: str, texte: str) -> Note:
     fm, corps = {}, texte
     m = _FM.match(texte)
     if m:
-        try:
-            brut = yaml.safe_load(m.group(1))
-        except yaml.YAMLError:
-            brut = None
-        if isinstance(brut, dict):
-            fm = json.loads(json.dumps(brut, default=str))
-            corps = texte[m.end():]
+        brut = _frontmatter(m.group(1))
+        if brut is not None:
+            fm, corps = brut, texte[m.end():]
     corps = _COMMENTAIRE.sub("", corps)
     sans_code = _CODE.sub("", corps)
     tags = [t.lstrip("#") for t in _liste(fm.get("tags"))] + _TAG.findall(sans_code)

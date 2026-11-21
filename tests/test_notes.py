@@ -51,3 +51,18 @@ def test_lien_dans_un_bloc_de_code_ignore():
 
 def test_lien_avec_section():
     assert analyser_note("x.md", "[[Note#Partie]] [[Note]]").liens == ["Note"]
+
+
+@pytest.mark.parametrize("fm", [
+    "---\na: &x [1, 2]\nb: *x\n---\n",            # alias YAML refusé
+    "---\na: .nan\n---\n",                         # NaN non sérialisable en JSON strict
+    "---\n? [1, 2]\n: v\n---\n",                   # clé non hachable / exotique
+    "---\na: " + "x" * 70000 + "\n---\n",          # frontmatter trop gros
+])
+def test_frontmatter_dangereux_ignore(fm):
+    n = analyser_note("x.md", fm + "corps")
+    assert n.frontmatter == {} and "corps" in n.corps
+
+
+def test_commentaire_non_ferme_masque_jusqu_a_la_fin():
+    assert "secret" not in analyser_note("x.md", "a\n%%\nsecret privé").corps
