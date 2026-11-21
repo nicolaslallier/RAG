@@ -34,3 +34,11 @@ def test_une_cle_inconnue_est_refusee(tmp_path):
     f.write_text(yaml.safe_dump(d))
     with pytest.raises(pydantic.ValidationError):
         charger_config(f)
+
+
+def test_empreinte_suit_la_version_d_analyseur(monkeypatch):
+    import rag.config as rc
+    c = charger_config(Path("config/rag.yaml")).indexation
+    avant = empreinte_indexation(c)
+    monkeypatch.setattr(rc, "VERSION_ANALYSEUR", rc.VERSION_ANALYSEUR + 1)
+    assert empreinte_indexation(c) != avant

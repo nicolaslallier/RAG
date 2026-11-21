@@ -9,6 +9,10 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Incrémenter à chaque changement de notes.py, decoupage.py ou exclusions.py : l'empreinte change,
+# donc tout est réanalysé (une note devenue « secret » est alors retirée de toutes les versions).
+VERSION_ANALYSEUR = 2
+
 PUBLIC: frozenset[str] = frozenset({"public-maison"})
 TOUT: frozenset[str] = frozenset({"public-maison", "prive"})
 
@@ -116,5 +120,5 @@ def charger_config(chemin: Path) -> Config:
 
 
 def empreinte_indexation(c: IndexationConf) -> str:
-    brut = json.dumps(c.model_dump(), sort_keys=True, separators=(",", ":"))
+    brut = json.dumps(c.model_dump() | {"version_analyseur": VERSION_ANALYSEUR}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(brut.encode()).hexdigest()

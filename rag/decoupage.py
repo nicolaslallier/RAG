@@ -1,4 +1,5 @@
 """Découpage des notes en morceaux : par titres, récursif, ou parent-enfant."""
+# Changer ce fichier change ce qui est indexé : incrémenter VERSION_ANALYSEUR (rag/config.py).
 
 import math
 import re
