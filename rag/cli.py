@@ -77,6 +77,25 @@ def _graphe_cli(conn, a) -> int:
     return 0
 
 
+def _entretien_cli(conn, a, config) -> int:
+    from rag.api import version_id
+    from rag.entretien import doublons, liens_entrants, orphelines
+    niveaux = TOUT if a.prive else PUBLIC
+    if a.cmd == "doublons":
+        v = version_id(conn, empreinte_indexation(config.indexation))
+        for d in doublons(conn, v, a.seuil, niveaux=niveaux) if v else []:
+            print(f"{d['similarite']:.3f}  {d['a']['cle']}  ==  {d['b']['cle']}")
+    elif a.cmd == "orphelines":
+        for o in orphelines(conn, niveaux=niveaux):
+            print(o["cle"])
+    else:
+        r = liens_entrants(conn, a.cle, niveaux=niveaux)
+        print(r["etat"])
+        for e in r["entrants"]:
+            print(f"  {e['cle']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="rag")
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -102,6 +121,14 @@ def main(argv: list[str] | None = None) -> int:
     pex = sp.add_parser("expliquer")
     pex.add_argument("nom")
     pex.add_argument("--prive", action="store_true")
+    pd = sp.add_parser("doublons")
+    pd.add_argument("--seuil", type=float, default=0.92)
+    pd.add_argument("--prive", action="store_true")
+    po = sp.add_parser("orphelines")
+    po.add_argument("--prive", action="store_true")
+    ple = sp.add_parser("liens-entrants")
+    ple.add_argument("cle")
+    ple.add_argument("--prive", action="store_true")
     sp.add_parser("servir")
     ajouter_cli_banc(sp)
     a = p.parse_args(argv)
@@ -121,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
         modeles = modeles_depuis(reglages)
         if a.cmd == "indexer":
             return _indexer(conn, reglages, config, modeles, a.source, a.complet, a.forcer)
+        if a.cmd in ("doublons", "orphelines", "liens-entrants"):
+            return _entretien_cli(conn, a, config)
         if a.cmd in ("chemin", "expliquer"):
             return _graphe_cli(conn, a)
         if a.cmd == "graphe":

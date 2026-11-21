@@ -96,3 +96,13 @@ def test_api_chemin_expliquer_ne_rendent_jamais_500(client):
     r = client.post("/expliquer", json={"nom": "zzz"}, headers=auth)
     assert r.status_code == 200 and r.json()["etat"] == "introuvable"
     assert client.post("/chemin", json={"de": "a", "vers": "b"}).status_code == 401
+
+
+def test_api_entretien_bornes(client):
+    assert client.get("/doublons?seuil=0.1", headers=auth).status_code == 422
+    assert client.get("/doublons?limite=500", headers=auth).status_code == 422
+    assert client.get("/orphelines").status_code == 401
+    assert client.get("/doublons", headers=auth).status_code == 200
+    assert client.get("/orphelines", headers=auth).json()["orphelines"]
+    r = client.get("/liens-entrants?cle=coffre-maison:absente.md", headers=auth).json()
+    assert r["etat"] == "introuvable"
