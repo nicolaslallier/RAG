@@ -64,3 +64,13 @@ def test_s3_lit_une_cle_nfd_par_son_chemin_nfc():
 def test_aucune_ecriture_s3_dans_le_depot():
     src = "".join(p.read_text() for p in Path("rag").rglob("*.py"))
     assert not re.search(r"put_object|delete_object|copy_object|upload_file", src)
+
+
+@pytest.mark.parametrize("brut,attendu", [("coffre", "coffre/"), ("coffre/", "coffre/"),
+                                          ("", ""), ("/", "")])
+def test_prefixe_du_coffre_normalise(brut, attendu):
+    from rag.config import Reglages, SourceConf
+    from rag.sources import lecteur_pour
+    r = Reglages(database_url="x", litellm_url="x", coffre_prefixe=brut)
+    src = SourceConf(nom="c", type="obsidian", emplacement="s3")
+    assert lecteur_pour(src, r).prefixe == attendu

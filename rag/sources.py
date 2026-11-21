@@ -98,7 +98,9 @@ def client_s3(reglages):
 
 def lecteur_pour(source, reglages):
     if source.emplacement == "s3":
-        return LecteurS3(client_s3(reglages), reglages.coffre_bucket, reglages.coffre_prefixe)
+        p = reglages.coffre_prefixe.strip()
+        prefixe = p.rstrip("/") + "/" if p.strip("/") else ""
+        return LecteurS3(client_s3(reglages), reglages.coffre_bucket, prefixe)
     if source.type == "obsidian":
         return LecteurDossier(Path(source.emplacement).expanduser())
     raise NotImplementedError(f"lecteur {source.type} : plan 2")
