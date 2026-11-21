@@ -118,6 +118,7 @@ def chercher(conn, question: str, conf: RechercheConf, modeles, version_id: int,
                       flou="UNION ALL SELECT id, r, %(p_flou)s FROM flou" if conf.flou else "")
     with conn.transaction():
         conn.execute("SET LOCAL hnsw.iterative_scan = relaxed_order")
+        conn.execute("SET LOCAL hnsw.ef_search = 200")  # 40 par défaut : rappel@10 -0,07 au banc
         lignes = conn.execute(sql, params).fetchall()
     out, parents_vus = [], set()
     for r in lignes:
