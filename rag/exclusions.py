@@ -14,6 +14,7 @@ _DOSSIERS_GENERES = {"node_modules", "dist", "target", "graphify-out", ".venv"}
 
 
 def motif_exclusion(chemin: str, debut: bytes, exclure: list[str]) -> str | None:
+    """`debut` : le contenu (complet de préférence, pour les secrets) ou b\"\" (nom seul)."""
     if any(fnmatch(chemin, g) for g in exclure):
         return "config"
     parties = chemin.split("/")
@@ -22,6 +23,7 @@ def motif_exclusion(chemin: str, debut: bytes, exclure: list[str]) -> str | None
         return "secret"
     if any(fnmatch(nom, m) for m in _GENERES) or _DOSSIERS_GENERES & set(parties[:-1]):
         return "genere"
+    debut = debut[:8192]  # le binaire se juge sur le début ; les secrets sur tout le contenu
     if b"\x00" in debut:
         return "binaire"
     try:

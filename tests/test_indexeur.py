@@ -192,3 +192,9 @@ def test_parent_sans_embedding(bd, coffre, faux_modeles):
                       bool_and(embedding IS NOT NULL) FILTER (WHERE parent_id IS NOT NULL) e,
                       count(*) FILTER (WHERE parent_id IS NOT NULL) n FROM morceaux""").fetchone()
     assert r["p"] and r["e"] and r["n"] >= 4
+
+
+def test_cle_privee_loin_dans_le_fichier_exclue(bd, coffre, faux_modeles):
+    (coffre / "f.md").write_text("texte " * 2000 + "\n-----BEGIN RSA PRIVATE KEY-----\nabc\n")
+    b = indexer_source(bd, SRC, LecteurDossier(coffre), CONF, faux_modeles)
+    assert b.exclus == 1 and "f.md" not in chemins(bd)

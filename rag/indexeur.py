@@ -9,7 +9,7 @@ from rag.config import IndexationConf, SourceConf, empreinte_indexation
 from rag.decoupage import Morceau, decouper_note
 from rag.exclusions import motif_exclusion
 from rag.notes import analyser_note
-from rag.recherche import normaliser
+from rag.recherche import normaliser, vecteur_sql
 from rag.sources import nfc
 
 
@@ -35,10 +35,6 @@ def version_courante(conn, conf: IndexationConf) -> int:
     v = conn.execute("SELECT id FROM index_versions WHERE empreinte = %s", (emp,)).fetchone()["id"]
     conn.commit()
     return v
-
-
-def vecteur_sql(v: list[float]) -> str:
-    return "[" + ",".join(f"{x:.6g}" for x in v) + "]"
 
 
 def _morceaux(chemin: str, contenu: bytes, conf: IndexationConf):
@@ -137,7 +133,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 bilan.reportes += 1
                 continue
             contenu = lecteur.lire(chemin)
-            if motif_exclusion(chemin, contenu[:8192], source.exclure):
+            if motif_exclusion(chemin, contenu, source.exclure):
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
                 conn.commit()
