@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from rag.config import PUBLIC, TOUT, Reglages, charger_config, empreinte_indexation
 from rag.db import connexion
+from rag.graphe import chemin, expliquer
 from rag.modeles import modeles_depuis
 from rag.recherche import Filtres, chercher
 
@@ -21,6 +22,19 @@ class FiltresEntree(BaseModel):
     type: str | None = None
     depuis: date | None = None
     jusqua: date | None = None
+
+
+class DemandeChemin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    de: str = Field(max_length=500)
+    vers: str = Field(max_length=500)
+    max_sauts: int = Field(6, ge=1, le=10)
+
+
+class DemandeExpliquer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    nom: str = Field(max_length=500)
+    limite: int = Field(20, ge=1, le=100)
 
 
 class Demande(BaseModel):
@@ -73,5 +87,15 @@ def create_app(reglages: Reglages | None = None, modeles=None) -> FastAPI:
                          config.indexation.modele_embedding, niveaux=niveaux,
                          filtres=Filtres(**d.filtres.model_dump()), limite=d.limite)
         return {"resultats": r}
+
+    @app.post("/chemin")
+    def route_chemin(d: DemandeChemin, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
+        with connexion(reglages.database_url) as conn:
+            return chemin(conn, d.de, d.vers, d.max_sauts, niveaux=niveaux)
+
+    @app.post("/expliquer")
+    def route_expliquer(d: DemandeExpliquer, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
+        with connexion(reglages.database_url) as conn:
+            return expliquer(conn, d.nom, d.limite, niveaux=niveaux)
 
     return app

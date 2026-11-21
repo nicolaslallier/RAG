@@ -38,6 +38,45 @@ def _indexer(conn, reglages, config, modeles, noms=None, complet=False, forcer=F
     return code
 
 
+def _candidats(cands) -> None:
+    for c in cands:
+        print(f"  id:{c['id']}  {c['libelle']}  ({c['type']}, {c['source']}:{c['chemin']})")
+
+
+def _graphe_cli(conn, a) -> int:
+    from rag.graphe import chemin, expliquer
+    niveaux = TOUT if a.prive else PUBLIC
+    if a.cmd == "chemin":
+        r = chemin(conn, a.de, a.vers, niveaux=niveaux)
+        print(r["etat"])
+        if r["etat"] in ("ambigu", "introuvable"):
+            for cote in ("a", "b"):
+                if len(r["candidats"][cote]) != 1:
+                    print(f"{a.de if cote == 'a' else a.vers} :")
+                    _candidats(r["candidats"][cote])
+        for e in r["etapes"]:
+            if lk := e["lien"]:
+                print(f"    {'->' if lk['sens'] == 'sortant' else '<-'} {lk['type']} "
+                      f"[{lk['confiance']}]")
+            print(f"  {e['noeud']['libelle']}  ({e['noeud']['source']}:{e['noeud']['chemin']})")
+        return 0
+    r = expliquer(conn, a.nom, niveaux=niveaux)
+    print(r["etat"])
+    if r["etat"] != "ok":
+        _candidats(r["candidats"])
+        return 0
+    n = r["noeud"]
+    print(f"{n['libelle']} ({n['type']}) — {n['lien']}")
+    if r["communaute"]:
+        c = r["communaute"]
+        print(f"communauté {c['id']} ({c['taille']}) : {', '.join(c['membres'])}")
+    print(f"{r['n_voisins']} voisins :")
+    for v in r["voisins"]:
+        print(f"  {'->' if v['sens'] == 'sortant' else '<-'} {v['lien_type']} [{v['confiance']}]"
+              f"  {v['libelle']}  ({v['source']}:{v['chemin']})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="rag")
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -56,6 +95,13 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--prive", action="store_true")
     pg = sp.add_parser("graphe")
     pg.add_argument("--source", action="append")
+    pch = sp.add_parser("chemin")
+    pch.add_argument("de")
+    pch.add_argument("vers")
+    pch.add_argument("--prive", action="store_true")
+    pex = sp.add_parser("expliquer")
+    pex.add_argument("nom")
+    pex.add_argument("--prive", action="store_true")
     sp.add_parser("servir")
     ajouter_cli_banc(sp)
     a = p.parse_args(argv)
@@ -75,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
         modeles = modeles_depuis(reglages)
         if a.cmd == "indexer":
             return _indexer(conn, reglages, config, modeles, a.source, a.complet, a.forcer)
+        if a.cmd in ("chemin", "expliquer"):
+            return _graphe_cli(conn, a)
         if a.cmd == "graphe":
             for src in config.sources:
                 if not a.source or src.nom in a.source:

@@ -88,3 +88,11 @@ def test_bearer_obligatoire(client):
     for h in ("pub", "Basic pub", "bearer pub"):
         assert client.post("/chercher", json={"question": "x"},
                            headers={"Authorization": h}).status_code == 401
+
+
+def test_api_chemin_expliquer_ne_rendent_jamais_500(client):
+    for corps in ({"de": "config", "vers": "A"}, {"de": "zzz", "vers": "A"}, {"de": "", "vers": ""}):
+        assert client.post("/chemin", json=corps, headers=auth).status_code in (200, 422)
+    r = client.post("/expliquer", json={"nom": "zzz"}, headers=auth)
+    assert r.status_code == 200 and r.json()["etat"] == "introuvable"
+    assert client.post("/chemin", json={"de": "a", "vers": "b"}).status_code == 401
