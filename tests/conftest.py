@@ -182,3 +182,18 @@ def depot(tmp_path):
     git(d, "add", "-A")
     git(d, "commit", "-qm", "init")
     return d
+
+
+@pytest.fixture
+def index_code(bd, depot, tmp_path, faux_modeles):
+    """Le dépôt de test indexé comme source de code « depot-test »."""
+    from pathlib import Path
+
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source
+    from rag.sources import LecteurGit
+
+    src = SourceConf(visibilite="public-maison", nom="depot-test", type="code", emplacement="x")
+    lec = LecteurGit(str(depot), tmp_path / "c")
+    indexer_source(bd, src, lec, charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
+    return lec

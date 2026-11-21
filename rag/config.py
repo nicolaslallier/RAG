@@ -27,6 +27,7 @@ class Reglages(BaseSettings):
     jeton: str = ""
     jeton_prive: str = ""
     github_jeton: str = ""
+    graphify_commande: str = "graphify"   # en dev : spike/graphify/en-conteneur.sh (sans réseau)
     donnees_dir: Path = Path("donnees")
     config: Path = Path("config/rag.yaml")
     s3_endpoint: str = "http://s3:8333"

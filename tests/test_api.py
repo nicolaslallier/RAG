@@ -12,7 +12,7 @@ from tests.conftest import URL
 @pytest.fixture
 def cfg(tmp_path, index):
     d = yaml.safe_load(Path("config/rag.yaml").read_text())
-    d["sources"] = [{"nom": "coffre-maison", "type": "obsidian", "emplacement": str(index.coffre)}]
+    d["sources"] = [{"nom": "coffre-maison", "type": "obsidian", "visibilite": "public-maison", "emplacement": str(index.coffre)}]
     f = tmp_path / "rag.yaml"
     f.write_text(yaml.safe_dump(d))
     return f
