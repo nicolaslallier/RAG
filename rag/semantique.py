@@ -18,6 +18,7 @@ CONSIGNE = (
     'uniquement en JSON : {"concepts": [{"nom": "…", "relation": "concerne" | "utilise" | '
     '"decrit"}]}')
 _RELATIONS = {"concerne", "utilise", "decrit"}
+_FORME_CODE = re.compile(r"_|[a-z][A-Z]")
 _MOT = re.compile(r"[\w][\w.-]*(?:/[\w.-]+)*")
 
 
@@ -60,7 +61,11 @@ def mentions_de_code(conn, document_id: int, texte: str) -> list[dict]:
                                 AND length(n.libelle) >= 6 AND n.libelle = ANY(%s)
                               ORDER BY n.id""", (mots,)):
         par_libelle.setdefault(n["libelle"], []).append(n["id"])
-    for ids in par_libelle.values():
+    entre_backticks = set(_MOT.findall(" ".join(re.findall(r"`([^`\n]+)`", texte))))
+    for libelle, ids in par_libelle.items():
+        # « format », « documents » : un mot courant n'est un symbole que s'il en a la forme
+        if not (_FORME_CODE.search(libelle) or libelle in entre_backticks):
+            continue
         conf = "EXTRAIT" if len(ids) == 1 else "AMBIGU"
         out += [{"vers_id": i, "confiance": conf} for i in ids[:3]]
     return [m | {"type": "mentionne"} for m in out]

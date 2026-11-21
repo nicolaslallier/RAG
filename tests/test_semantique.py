@@ -129,3 +129,9 @@ def test_les_liens_de_structure_et_wikiliens_survivent(bd, index_mixte):
     charger_wikiliens(bd, "coffre-maison")
     assert bd.execute("SELECT count(*) n FROM liens WHERE origine='wikilien'").fetchone()["n"] == 1
     assert bd.execute("SELECT count(*) n FROM liens").fetchone()["n"] == avant
+
+
+def test_mot_courant_seulement_entre_backticks(bd, index_mixte):
+    charger_graphe(bd, "RAG", {"noeuds": [_n("rag_fmt", "format")], "liens": []})
+    assert mentions_de_code(bd, index_mixte, "Le format du fichier.") == []
+    assert len(mentions_de_code(bd, index_mixte, "Voir `format`.")) == 1
