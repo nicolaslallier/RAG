@@ -235,7 +235,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "migrer":  # au démarrage du conteneur : attendre Postgres plutôt que redémarrer
         from rag.demarrage import attendre_base
-        ouvrir = attendre_base(lambda: connexion(reglages.database_url))
+        ouvrir = attendre_base(lambda: connexion(reglages.database_url),
+                               url=reglages.database_url)
     else:
         ouvrir = connexion(reglages.database_url)
     with ouvrir as conn:

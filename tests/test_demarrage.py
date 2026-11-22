@@ -1,6 +1,7 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import psycopg
 import pytest
@@ -131,17 +132,33 @@ def test_s3_en_clair_refuse(tmp_path):
     verifier_reglages(reglages(config=f, s3_endpoint="https://s3.x"), "travailleur")
 
 
-def test_attendre_base_journalise_le_motif(capsys):
-    essais = iter([psycopg.OperationalError('password authentication failed for user "rag"\nx'),
-                   "conn"])
+class _ErreurPg(psycopg.OperationalError):
+    sqlstate = "28P01"
+    diag = SimpleNamespace(message_primary='password authentication failed mdp-Secret9 rag:mdp-Secret9@h')
+
+    def __str__(self):
+        return "connection to postgresql://rag:mdp-Secret9@h/rag failed: mdp-Secret9"
+
+
+def test_attendre_base_ne_journalise_jamais_le_mot_de_passe(capsys):
+    essais = iter([_ErreurPg(), psycopg.OperationalError("brut mdp-Secret9"), "conn"])
 
     def ouvrir():
         x = next(essais)
         if isinstance(x, Exception):
             raise x
         return x
-    attendre_base(ouvrir, dormir=lambda s: None)
-    assert 'password authentication failed for user "rag"' in capsys.readouterr().err
+    attendre_base(ouvrir, dormir=lambda s: None, url="postgresql://rag:mdp-Secret9@h/rag")
+    err = capsys.readouterr().err
+    assert "mdp-Secret9" not in err and "28P01 password authentication failed" in err
+
+
+def test_url_invalide_echoue_sans_reessai(capsys):
+    def ouvrir():
+        raise psycopg.ProgrammingError("invalid dsn: mdp-Secret9")
+    with pytest.raises(ErreurConfig, match="RAG_DATABASE_URL invalide") as e:
+        attendre_base(ouvrir, dormir=lambda s: pytest.fail("réessai"))
+    assert "mdp-Secret9" not in str(e.value) + capsys.readouterr().err
 
 
 def test_pas_de_documentation_openapi(faux_modeles):

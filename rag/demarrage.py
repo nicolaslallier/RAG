@@ -35,14 +35,32 @@ def verifier_reglages(r: Reglages, role: Literal["api", "travailleur"]) -> None:
             raise ErreurConfig("RAG_GITHUB_JETON vide alors qu'une source clone GitHub")
 
 
-def attendre_base(ouvrir, pause: float = 30, dormir=None):
-    """Réessaie `ouvrir()` jusqu'au succès, une ligne de journal par échec, sans sortir."""
+def _masquer(texte: str, url: str) -> str:
+    """Retire de `texte` l'userinfo de l'URL et le mot de passe qu'elle porte."""
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit(url)
+    except ValueError:
+        return texte
+    for secret in filter(None, (u.password, u.netloc.rpartition("@")[0])):
+        texte = texte.replace(secret, "***")
+    return texte
+
+
+def attendre_base(ouvrir, pause: float = 30, dormir=None, url: str = ""):
+    """Réessaie `ouvrir()` jusqu'au succès, une ligne de journal par échec, sans sortir.
+    Une URL invalide (ProgrammingError) échoue tout de suite, sans réessai."""
+    import psycopg
     while True:
         try:
             return ouvrir()
+        except psycopg.ProgrammingError:
+            raise ErreurConfig("RAG_DATABASE_URL invalide") from None
         except Exception as e:  # noqa: BLE001 - Postgres pas encore prêt, on réessaie
-            # Première ligne du message psycopg (ex. échec d'authentification) : jamais de mot de passe.
-            detail = (str(e).strip().splitlines() or [""])[0][:200]
-            print(f"base injoignable ({type(e).__name__}: {detail}), nouvel essai dans {pause:.0f} s",
-                  file=sys.stderr, flush=True)
+            # Champs structurés seulement : le texte brut peut contenir la chaîne de connexion.
+            diag = getattr(e, "diag", None)
+            champs = [getattr(e, "sqlstate", None), getattr(diag, "message_primary", None)]
+            detail = _masquer(" ".join(c for c in champs if c)[:200], url)
+            print(f"base injoignable ({type(e).__name__}{': ' + detail if detail else ''}), "
+                  f"nouvel essai dans {pause:.0f} s", file=sys.stderr, flush=True)
             (dormir or time.sleep)(pause)
