@@ -548,3 +548,12 @@ def test_exclusions_visibles_selon_le_jeton(client_priv, client_pub, bd):
     bd.commit()
     pub = client_pub.get("/ui/exclusions").text
     assert "Accueil.md" not in pub and "coffre-maison" not in pub
+
+
+def test_connexion_depuis_un_site_tiers_refusee(client):
+    r = client.post("/ui/connexion", data={"jeton": "priv"}, follow_redirects=False,
+                    headers={"Origin": "https://ailleurs.example"})
+    assert r.status_code == 403 and "set-cookie" not in r.headers
+    ok = client.post("/ui/connexion", data={"jeton": "priv"}, follow_redirects=False,
+                     headers={"Origin": "http://testserver"})
+    assert ok.status_code == 303

@@ -573,3 +573,31 @@ def test_import_ne_retire_rien_d_une_source_apparue_sans_verrou(bd, index, monke
     assert retraits == [sid]
     assert {(e["source"], e["motif"]) for e in exclusions(bd)} == {
         ("coffre-maison", "Accueil.md"), ("neuve", "*")}
+
+
+def test_exclusion_pendant_la_passe_d_un_fichier_inchange_garde_sa_ligne(bd, index, faux_modeles):
+    # « exclure » pendant la passe (à la lecture d'une note modifiée, traitée avant), sur un
+    # fichier inchangé que la passe saute : la ligne « manuelle » survit au nettoyage final
+    from rag.sources import LecteurDossier
+    modifiee = index.coffre / "02 - Domaines/Cuisine/Recettes/Pâté chinois.md"
+    modifiee.write_text(modifiee.read_text() + "\nAvec du ketchup.\n")
+    lecteur = LecteurDossier(index.coffre)
+    lire = lecteur.lire
+
+    def lire_puis_exclure(chemin):
+        if chemin.endswith("Pâté chinois.md"):
+            with connexion(URL) as autre:
+                exclure(autre, "coffre-maison", "Accueil.md")
+        return lire(chemin)
+    lecteur.lire = lire_puis_exclure
+    reindexer_coffre(bd, index, faux_modeles, lecteur=lecteur, sans_repos=True)
+    assert "Accueil.md" not in chemins(bd)
+    assert raisons(bd)["Accueil.md"][0] == "manuelle"
+
+
+def test_exclure_sur_du_code_relance_graphify(bd, index_code):
+    bd.execute("UPDATE sources SET graphe_revision = revision WHERE nom = 'depot-test'")
+    bd.commit()
+    exclure(bd, "depot-test", "a.py")
+    r = bd.execute("SELECT graphe_revision FROM sources WHERE nom = 'depot-test'").fetchone()
+    assert r["graphe_revision"] is None

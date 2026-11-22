@@ -92,7 +92,7 @@ CREATE TABLE exclusions_manuelles (
 - Le **graphe** : à l'exclusion, les nœuds rattachés aux documents supprimés sont supprimés aussi (sinon `document_id` passe à NULL et le nœud reste visible dans `chemin`/`expliquer`). Le chargement du graphe de structure (graphify) et la passe sémantique ignorent les fichiers exclus manuellement.
 - Ajouter une exclusion manuelle ne change pas l'empreinte d'indexation (comme `exclure:` aujourd'hui) : aucune réindexation des vecteurs.
 - *(Choix de Claude)* **Exclusion pendant une passe** : l'exclusion prend effet tout de suite, sans attendre le verrou. L'indexeur relit les motifs manuels de la source **juste avant d'écrire chaque document** (une requête, dans la même transaction que l'écriture) et saute le fichier s'il vient d'être exclu. Aucun refus ni attente dans l'interface.
-- *(Choix de Claude)* **Graphe après annulation** sur une source de code : l'annulation remet `graphe_revision` à NULL, ce qui relance graphify à la passe suivante (jusqu'à 600 s ; les annulations sont rares). Après une exclusion, la suppression des nœuds par `document_id` suffit ; graphify n'est pas relancé.
+- *(Choix de Claude)* **Graphe après annulation** sur une source de code : l'annulation remet `graphe_revision` à NULL, ce qui relance graphify à la passe suivante (jusqu'à 600 s ; les annulations sont rares). Une exclusion aussi (relecture de la PR) : les nœuds rattachés au document sont supprimés tout de suite, et graphify repasse pour ceux qui ne l'étaient pas.
 
 ### Actions
 

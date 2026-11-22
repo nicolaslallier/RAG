@@ -228,6 +228,8 @@ def exclure(conn, source: str, motif: str, raison: str | None = None) -> int:
         s = _source_connue(conn, source)
         _inserer(conn, source, motif, raison)
         n = _retirer_documents(conn, s["id"], motif)
+        if s["type"] == "code":  # graphify repasse : aucun nœud du fichier exclu ne reste
+            conn.execute("UPDATE sources SET graphe_revision = NULL WHERE id = %s", (s["id"],))
         conn.commit()
     except BaseException:
         conn.rollback()

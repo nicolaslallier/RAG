@@ -95,11 +95,13 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
     def peut_ecrire(niveaux: frozenset[str]) -> bool:
         return ecriture_possible and niveaux == TOUT
 
-    def ecrivain(request: Request, niveaux: Annotated[frozenset[str], Depends(session)]) -> None:
+    def origine_locale(request: Request) -> bool:
         origine = request.headers.get("origin")
-        attendue = f"{request.url.scheme}://{request.headers.get('host', '')}"
+        return origine is None or origine == f"{request.url.scheme}://{request.headers.get('host', '')}"
+
+    def ecrivain(request: Request, niveaux: Annotated[frozenset[str], Depends(session)]) -> None:
         if (not peut_ecrire(niveaux) or request.headers.get("hx-request") != "true"
-                or (origine is not None and origine != attendue)):
+                or not origine_locale(request)):
             raise HTTPException(403, "écriture refusée", headers=SANS_CACHE)
 
     def page_ui(request: Request, nom: str, statut: int = 200, **contexte) -> HTMLResponse:
@@ -111,6 +113,8 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
 
     @routeur.post("/connexion")
     def connexion_envoi(request: Request, jeton: Annotated[str, Form()] = ""):
+        if not origine_locale(request):  # pas de connexion forcée depuis un site tiers
+            raise HTTPException(403, "origine refusée", headers=SANS_CACHE)
         jeton = jeton.strip()
         if not jeton or niveaux_de("Bearer " + jeton) is None:
             log.warning("connexion à l'interface refusée")

@@ -244,11 +244,17 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             conn.rollback()
             raise
 
-    # oublie les fichiers disparus du listage, et les exclusions sur le nom levées depuis
+    # oublie les fichiers disparus du listage, et les exclusions sur le nom levées depuis ; garde
+    # les exclusions manuelles posées pendant la passe (motif encore en base)
+    motifs = motifs_manuels(conn, source.nom)
+    manuelles = [r["chemin"] for r in conn.execute(
+        "SELECT chemin FROM exclus WHERE source_id = %s AND raison = 'manuelle'", (source_id,))
+        if correspond(r["chemin"], motifs)]
     conn.execute(
         """DELETE FROM exclus WHERE source_id = %s
              AND (NOT (chemin = ANY(%s)) OR (NOT lu AND NOT (chemin = ANY(%s))))""",
-        (source_id, [*entrees, *exclus_listage], [*exclus_listage, *exclus_en_passe]))
+        (source_id, [*entrees, *exclus_listage],
+         [*exclus_listage, *exclus_en_passe, *manuelles]))
     for chemin in absents:
         conn.execute("DELETE FROM documents WHERE id = %s", (existants[chemin]["id"],))
         bilan.supprimes += 1
