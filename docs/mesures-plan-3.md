@@ -117,7 +117,24 @@ le poids du code (0,6) écarte les fichiers du dépôt.
 | exactitude du mode | ≥ 0,9 | 0,9375 | tenue |
 | répondre p95 | ≤ 30 s, sans autre charge sur gemma | 66 s (gemma partagé) | **non vérifiée** |
 
-Le banc de génération final (`v1-generation`, avec le bonus de source) n'a pas pu tourner :
-Postgres s'est arrêté pendant la mesure (`AdminShutdown`), puis Docker était indisponible.
-Les chiffres de génération ci-dessus viennent de `generation-base` (même config, sans le
-bonus). Mesure du p95 sans charge à refaire.
+### Banc de génération final `v1-generation` (2026-11-22, config v1 avec bonus de source)
+
+| fidélité | pertinence | refus justes | faux refus | citations invalides | exactitude du mode | p95 | juges illisibles |
+|---|---|---|---|---|---|---|---|
+| 4,85 | 4,74 | 100 % | 6,5 % (famille, keycloak-machine, litellm-config-et-notes) | 0 | 0,9375 | **204 s** | 4 |
+
+Réponses générées (31 non refusées) : p50 135 s, max 230 s. **gemma était partagé pendant toute
+la mesure** : le plan 1 (`RAG-wt-plan1b`) faisait tourner `rag banc-synthetique` (génération
+par gemma), et deux bancs de recherche, sur toute la durée (≈ 63 min). Le p95 ≤ 30 s n'est donc
+toujours pas vérifié ; à mesurer gemma libre (ou sur le Mac Studio, plan 4).
+`architecture-ai` : non refusée, fidélité 5, pertinence 5.
+
+| cible v1 | seuil | mesure finale | état |
+|---|---|---|---|
+| rappel@10 | ≥ 0,78 | 0,788 | tenue |
+| MRR | ≥ 0,85 | 0,874 | tenue |
+| refus justes | ≥ 0,85 | 1,00 (génération) ; 0,833 (seuil seul) | tenue |
+| faux refus | ≤ 0,08 | 0,065 (génération) ; 0,087 (seuil seul) | tenue |
+| fidélité | ≥ 4,5 | 4,85 | tenue |
+| exactitude du mode | ≥ 0,9 | 0,9375 | tenue |
+| répondre p95 | ≤ 30 s sans autre charge | 204 s, gemma partagé | non vérifiée |
