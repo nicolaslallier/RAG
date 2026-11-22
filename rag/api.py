@@ -28,6 +28,7 @@ from rag.config import (
 )
 from rag.db import connexion
 from rag.entretien import doublons, liens_entrants, orphelines
+from rag.gestion import demander_reindexation
 from rag.graphe import chemin, expliquer
 from rag.lister import lister, taxonomie
 from rag.mcp_serveur import creer_mcp
@@ -209,12 +210,7 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
     def route_reindexer(d: DemandeReindexer):
         with connexion(reglages.database_url) as conn:
             # Un compte seulement, et pas de 404 : ni liste ni oracle des noms de sources.
-            n = conn.execute(
-                "UPDATE sources SET demande_le = now() WHERE %(s)s::text IS NULL OR nom = %(s)s",
-                {"s": d.source}).rowcount
-            conn.execute("NOTIFY rag_reindexer")
-            conn.commit()
-        return {"demande": n}
+            return {"demande": demander_reindexation(conn, d.source)}
 
     @app.get("/etat")
     def route_etat(niveaux: frozenset[str] = Depends(niveaux_du_jeton)):

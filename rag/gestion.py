@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from fnmatch import fnmatch
 from typing import Literal
 
+import yaml
+
 from rag.sources import nfc
 
 
@@ -109,3 +111,192 @@ def fichier(conn, source: str, chemin: str, *, niveaux: frozenset[str],
             WHERE document_id = %s AND version_id = %s ORDER BY ordre""",
         (doc_id, version_id)).fetchall()
     return {"source": source, "chemin": chemin, **doc, "morceaux": morceaux}
+
+
+# --- Écriture : exclure, annuler, exporter, importer ---------------------------------------
+
+MOTIF_MAX = 1000
+RAISON_MAX = 500
+APERCU_MAX = 50
+
+
+class MotifInvalide(ValueError):
+    """Motif, raison ou fichier d'import refusé ; rien n'est écrit."""
+
+
+def valider_motif(motif: str) -> str:
+    """Motif nettoyé (`strip`) et en NFC ; 1 à 1000 caractères, sinon `MotifInvalide`."""
+    if not isinstance(motif, str):
+        raise MotifInvalide("le motif doit être un texte")
+    motif = nfc(motif.strip())
+    if not 1 <= len(motif) <= MOTIF_MAX:
+        raise MotifInvalide(f"le motif doit faire de 1 à {MOTIF_MAX} caractères")
+    return motif
+
+
+def _valider_raison(raison: str | None) -> str | None:
+    if raison is None:
+        return None
+    if not isinstance(raison, str):
+        raise MotifInvalide("la raison doit être un texte")
+    raison = raison.strip()
+    if len(raison) > RAISON_MAX:
+        raise MotifInvalide(f"la raison fait au plus {RAISON_MAX} caractères")
+    return raison or None
+
+
+def _source(conn, source: str) -> dict | None:
+    return conn.execute("SELECT id, type FROM sources WHERE nom = %s", (source,)).fetchone()
+
+
+def _source_connue(conn, source: str) -> dict:
+    if (s := _source(conn, source)) is None:
+        raise SourceInconnue(source)
+    return s
+
+
+def _documents_couverts(conn, source_id: int, motif: str) -> list[dict]:
+    return [d for d in conn.execute(
+        "SELECT id, chemin, signature FROM documents WHERE source_id = %s", (source_id,))
+        if correspond(d["chemin"], [motif])]
+
+
+def apercu(conn, source: str, motif: str) -> dict:
+    """Documents indexés que `motif` retirerait : leur nombre et les 50 premiers chemins."""
+    motif = valider_motif(motif)
+    s = _source_connue(conn, source)
+    touches = sorted(d["chemin"] for d in _documents_couverts(conn, s["id"], motif))
+    conn.commit()
+    return {"total": len(touches), "chemins": touches[:APERCU_MAX]}
+
+
+def _inserer(conn, source: str, motif: str, raison: str | None) -> bool:
+    return conn.execute(
+        """INSERT INTO exclusions_manuelles (source, motif, raison) VALUES (%s, %s, %s)
+           ON CONFLICT (source, motif) DO NOTHING""", (source, motif, raison)).rowcount == 1
+
+
+def _retirer_documents(conn, source_id: int, motif: str) -> int:
+    """Supprime les documents couverts (morceaux en cascade, nœuds du graphe) ; sans commit."""
+    docs = _documents_couverts(conn, source_id, motif)
+    if not docs:
+        return 0
+    # l'empreinte n'est relue que pour les verdicts lus (lu = true) : ici, indicative
+    v = conn.execute("SELECT empreinte FROM index_versions ORDER BY id DESC LIMIT 1").fetchone()
+    empreinte = v["empreinte"] if v else ""
+    ids = [d["id"] for d in docs]
+    conn.execute("DELETE FROM noeuds WHERE document_id = ANY(%s)", (ids,))
+    conn.execute("DELETE FROM documents WHERE id = ANY(%s)", (ids,))
+    for d in docs:
+        conn.execute(
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
+               VALUES (%s, %s, %s, %s, 'manuelle', false) ON CONFLICT (source_id, chemin)
+               DO UPDATE SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                             raison = EXCLUDED.raison, lu = false""",
+            (source_id, d["chemin"], d["signature"], empreinte))
+    return len(docs)
+
+
+def exclure(conn, source: str, motif: str, raison: str | None = None) -> int:
+    """Exclut `motif` de `source` tout de suite ; retourne le nombre de documents retirés."""
+    motif, raison = valider_motif(motif), _valider_raison(raison)
+    try:
+        s = _source_connue(conn, source)
+        _inserer(conn, source, motif, raison)
+        n = _retirer_documents(conn, s["id"], motif)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return n
+
+
+def demander_reindexation(conn, source: str | None) -> int:
+    """Demande une passe au travailleur (toutes les sources si `None`) ; nombre de sources visées.
+
+    Un compte seulement, sans erreur pour un nom inconnu : ni liste ni oracle des noms.
+    """
+    n = conn.execute(
+        "UPDATE sources SET demande_le = now() WHERE %(s)s::text IS NULL OR nom = %(s)s",
+        {"s": source}).rowcount
+    conn.execute("NOTIFY rag_reindexer")
+    conn.commit()
+    return n
+
+
+def annuler(conn, source: str, motif: str) -> bool:
+    """Lève le motif et demande la réindexation de la source ; `False` s'il n'existait pas."""
+    motif = valider_motif(motif)
+    try:
+        if not conn.execute("DELETE FROM exclusions_manuelles WHERE source = %s AND motif = %s",
+                            (source, motif)).rowcount:
+            conn.rollback()
+            return False
+        if s := _source(conn, source):
+            restants = motifs_manuels(conn, source)
+            liberes = [r["chemin"] for r in conn.execute(
+                "SELECT chemin FROM exclus WHERE source_id = %s AND raison = 'manuelle'",
+                (s["id"],)) if not correspond(r["chemin"], restants)]
+            conn.execute("DELETE FROM exclus WHERE source_id = %s AND raison = 'manuelle' "
+                         "AND chemin = ANY(%s)", (s["id"], liberes))
+            if s["type"] == "code":  # graphify doit revoir les fichiers rendus
+                conn.execute("UPDATE sources SET graphe_revision = NULL WHERE id = %s",
+                             (s["id"],))
+        demander_reindexation(conn, source)  # valide le tout
+    except BaseException:
+        conn.rollback()
+        raise
+    return True
+
+
+def exclusions(conn) -> list[dict]:
+    """Toutes les exclusions manuelles, triées par source puis motif."""
+    return conn.execute("SELECT source, motif, raison, cree_le FROM exclusions_manuelles "
+                        "ORDER BY source, motif").fetchall()
+
+
+def exporter(conn) -> str:
+    """Exclusions manuelles en YAML : liste de `{source, motif, raison}`."""
+    return yaml.safe_dump([{"source": e["source"], "motif": e["motif"], "raison": e["raison"]}
+                           for e in exclusions(conn)], allow_unicode=True, sort_keys=False)
+
+
+def _lignes_import(texte: str) -> list[tuple[str, str, str | None]]:
+    try:
+        donnees = yaml.safe_load(texte)
+    except yaml.YAMLError as e:
+        raise MotifInvalide("YAML illisible") from e
+    if not isinstance(donnees, list):
+        raise MotifInvalide("une liste d'exclusions est attendue")
+    lignes = []
+    for i, d in enumerate(donnees, 1):
+        if not isinstance(d, dict) or not {"source", "motif"} <= d.keys() <= {
+                "source", "motif", "raison"}:
+            raise MotifInvalide(f"entrée {i} : clés source, motif et raison (facultative)")
+        if not isinstance(d["source"], str) or not d["source"].strip():
+            raise MotifInvalide(f"entrée {i} : source invalide")
+        try:
+            lignes.append((d["source"].strip(), valider_motif(d["motif"]),
+                           _valider_raison(d.get("raison"))))
+        except MotifInvalide as e:
+            raise MotifInvalide(f"entrée {i} : {e}") from e
+    return lignes
+
+
+def importer(conn, texte: str) -> dict:
+    """Importe un export YAML ; tout est validé avant d'écrire, en une transaction.
+
+    Source connue : appliquée comme `exclure` ; source inconnue : gardée pour plus tard.
+    """
+    lignes = _lignes_import(texte)
+    ajoutees = 0
+    try:
+        for source, motif, raison in lignes:
+            ajoutees += _inserer(conn, source, motif, raison)
+            if s := _source(conn, source):
+                _retirer_documents(conn, s["id"], motif)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return {"ajoutees": ajoutees, "ignorees": len(lignes) - ajoutees}

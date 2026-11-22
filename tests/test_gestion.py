@@ -3,11 +3,26 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from rag.config import PUBLIC, TOUT, SourceConf, charger_config
 from rag.db import connexion
-from rag.gestion import SourceInconnue, correspond, fichier, fichiers, sources
-from rag.graphe import _copier_sans_exclus, maj_graphe
+from rag.gestion import (
+    MotifInvalide,
+    SourceInconnue,
+    annuler,
+    apercu,
+    correspond,
+    exclure,
+    exclusions,
+    exporter,
+    fichier,
+    fichiers,
+    importer,
+    sources,
+    valider_motif,
+)
+from rag.graphe import _copier_sans_exclus, charger_wikiliens, maj_graphe
 from rag.indexeur import indexer_source
 from rag.sources import LecteurDossier, nfc
 from tests.conftest import URL, git
@@ -296,3 +311,116 @@ def test_fichier_absent_ou_invisible(bd, index):
     bd.commit()
     with pytest.raises(SourceInconnue):
         fichier(bd, "coffre-maison", "Accueil.md", niveaux=PUBLIC, version_id=None)
+
+
+PATE = "02 - Domaines/Cuisine/Recettes/Pâté chinois.md"
+
+
+def test_apercu_et_exclure_immediat(bd, index):
+    a = apercu(bd, "coffre-maison", "02 - Domaines/**")
+    assert a["total"] == 2 and a["chemins"] == sorted(a["chemins"]) and PATE in a["chemins"]
+    assert exclure(bd, "coffre-maison", "02 - Domaines/**", "essai") == 2
+    assert PATE not in chemins(bd)
+    assert raisons(bd)[PATE] == ("manuelle", False)
+    assert exclusions(bd)[0]["raison"] == "essai"
+    assert apercu(bd, "coffre-maison", "02 - Domaines/**")["total"] == 0
+
+
+def test_exclure_deux_fois_ne_duplique_pas(bd, index):
+    exclure(bd, "coffre-maison", "Accueil.md")
+    assert exclure(bd, "coffre-maison", "Accueil.md") == 0
+    assert len(exclusions(bd)) == 1
+
+
+def test_exclure_retire_les_noeuds_du_graphe(bd, index):
+    charger_wikiliens(bd, "coffre-maison")
+    bd.commit()
+    assert bd.execute("SELECT 1 FROM noeuds WHERE cle = 'Accueil.md'").fetchone()
+    exclure(bd, "coffre-maison", "Accueil.md")
+    assert bd.execute("SELECT 1 FROM noeuds WHERE cle = 'Accueil.md'").fetchone() is None
+
+
+def test_exclure_source_inconnue(bd, index):
+    with pytest.raises(SourceInconnue):
+        exclure(bd, "nexiste-pas", "*")
+    with pytest.raises(SourceInconnue):
+        apercu(bd, "nexiste-pas", "*")
+    assert exclusions(bd) == []
+
+
+def test_motif_vide_ou_trop_long(bd, index):
+    for motif in ("", "  ", "x" * 1001):
+        with pytest.raises(MotifInvalide):
+            exclure(bd, "coffre-maison", motif)
+    with pytest.raises(MotifInvalide):
+        exclure(bd, "coffre-maison", "Accueil.md", "r" * 501)
+    assert exclusions(bd) == [] and "Accueil.md" in chemins(bd)
+
+
+def test_motif_valide_nettoye_et_nfc(bd, index):
+    assert valider_motif("  " + nfd("Pâté.md") + " ") == nfc("Pâté.md")
+    assert valider_motif("x" * 1000) == "x" * 1000
+    assert exclure(bd, "coffre-maison", nfd(PATE), "   ") == 1
+    (e,) = exclusions(bd)
+    assert e["motif"] == nfc(PATE) and e["raison"] is None
+
+
+def test_annuler_demande_la_reindexation(bd, index, faux_modeles):
+    exclure(bd, "coffre-maison", "Accueil.md")
+    assert annuler(bd, "coffre-maison", "Accueil.md") is True
+    assert exclusions(bd) == [] and "Accueil.md" not in raisons(bd)
+    assert bd.execute("SELECT demande_le FROM sources").fetchone()["demande_le"] is not None
+    reindexer_coffre(bd, index, faux_modeles)
+    assert "Accueil.md" in chemins(bd)
+
+
+def test_annuler_garde_les_lignes_encore_couvertes(bd, index):
+    exclure(bd, "coffre-maison", "02 - Domaines/**")
+    exclure(bd, "coffre-maison", PATE)
+    assert annuler(bd, "coffre-maison", "02 - Domaines/**") is True
+    assert PATE in raisons(bd) and len([r for r in raisons(bd).values()
+                                        if r == ("manuelle", False)]) == 1
+
+
+def test_annuler_motif_absent(bd, index):
+    assert annuler(bd, "coffre-maison", "zzz") is False
+    assert bd.execute("SELECT demande_le FROM sources").fetchone()["demande_le"] is None
+
+
+def test_annuler_sur_source_de_code_force_le_graphe(bd, index_code):
+    bd.execute("UPDATE sources SET graphe_revision = 'abc'")
+    bd.commit()
+    exclure(bd, "depot-test", "a.py")
+    assert annuler(bd, "depot-test", "a.py") is True
+    assert bd.execute("SELECT graphe_revision FROM sources").fetchone()["graphe_revision"] is None
+
+
+def test_export_import_aller_retour(bd, index):
+    exclure(bd, "coffre-maison", "Accueil.md", "bruit")
+    t = exporter(bd)
+    assert yaml.safe_load(t) == [{"source": "coffre-maison", "motif": "Accueil.md",
+                                  "raison": "bruit"}]
+    bd.execute("DELETE FROM exclusions_manuelles")
+    bd.commit()
+    assert importer(bd, t) == {"ajoutees": 1, "ignorees": 0}
+    assert importer(bd, t) == {"ajoutees": 0, "ignorees": 1}
+    assert [(e["source"], e["motif"], e["raison"]) for e in exclusions(bd)] == [
+        ("coffre-maison", "Accueil.md", "bruit")]
+
+
+def test_import_applique_l_exclusion_et_garde_une_source_inconnue(bd, index):
+    t = "- {source: coffre-maison, motif: Accueil.md}\n- {source: future, motif: '*.csv'}\n"
+    assert importer(bd, t) == {"ajoutees": 2, "ignorees": 0}
+    assert "Accueil.md" not in chemins(bd)
+    assert {e["source"] for e in exclusions(bd)} == {"coffre-maison", "future"}
+
+
+@pytest.mark.parametrize("texte", [
+    "pas une liste", "- {source: a}", "- {source: a, motif: '', raison: x}",
+    "- {source: a, motif: b, autre: 1}", "- {source: a, motif: b}\n- 3",
+    "- {source: a, motif: b, raison: 3}", "- {source: 1, motif: b}", ": [",
+    "- {source: a, motif: b, raison: " + "r" * 501 + "}"])
+def test_import_malforme_n_ecrit_rien(bd, index, texte):
+    with pytest.raises(MotifInvalide):
+        importer(bd, texte)
+    assert exclusions(bd) == []

@@ -47,3 +47,22 @@ def test_cli_question_liste(env_cli, capsys):
     out = capsys.readouterr().out
     assert "mode : lister (par regles)" in out and "type=recette" in out
     assert "Poulet cidre et Boursin" in out and "obsidian://" in out and "origine : claude" in out
+
+
+def test_cli_exclusions_exporter_puis_importer(env_cli, capsys, tmp_path):
+    assert cli.main(["indexer"]) == 0
+    capsys.readouterr()
+    f = tmp_path / "exclusions.yaml"
+    f.write_text("- {source: coffre-maison, motif: '*.md', raison: tout}\n")
+    assert cli.main(["exclusions", "importer", str(f)]) == 0
+    assert "1 ajoutée(s), 0 ignorée(s)" in capsys.readouterr().out
+    assert cli.main(["exclusions", "exporter"]) == 0
+    assert yaml.safe_load(capsys.readouterr().out) == [
+        {"source": "coffre-maison", "motif": "*.md", "raison": "tout"}]
+
+
+def test_cli_exclusions_importer_malforme(env_cli, capsys, tmp_path):
+    f = tmp_path / "exclusions.yaml"
+    f.write_text("pas une liste\n")
+    assert cli.main(["exclusions", "importer", str(f)]) == 1
+    assert "invalide" in capsys.readouterr().err
