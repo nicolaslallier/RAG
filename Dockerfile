@@ -17,6 +17,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev $GROUPES --no-install-project
 COPY rag ./rag
 COPY config ./config
+# CA de l'Infra (certificat public) : LiteLLM et S3 sont joints en TLS par leurs vhosts.
+COPY deploy/infra-ca.crt /etc/rag/infra-ca.crt
 RUN uv sync --frozen --no-dev $GROUPES
 
 RUN useradd --uid 1000 --home-dir /donnees --no-create-home rag \

@@ -30,3 +30,10 @@ def test_la_ci_ne_lance_pas_les_tests_vivants():
 
 def test_un_seul_deploiement_a_la_fois():
     assert W["deploy"]["concurrency"] == {"group": "deploy-rag", "cancel-in-progress": False}
+
+
+def test_l_image_est_arm64():
+    image = W["deploy"]["jobs"]["image"]
+    assert image["runs-on"] == "ubuntu-24.04-arm"
+    pas = [p for p in image["steps"] if "build-push-action" in p.get("uses", "")]
+    assert [p["with"]["platforms"] for p in pas] == ["linux/arm64"]

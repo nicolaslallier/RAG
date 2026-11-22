@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Crée la pile « rag » dans le Portainer de l'Infra, ou la met à jour (image retirée de nouveau).
+# Crée la pile « rag » dans le Portainer de l'Infra, environnement de Colima (Mac Studio), ou la met à jour (image retirée de nouveau).
 # Le dépôt est privé : Portainer ne clone rien, le fichier de pile lui est envoyé comme texte.
 # L'API de Portainer réécrit TOUTE la liste Env à chaque déploiement : on renvoie donc chaque
 # variable à chaque `up`, depuis $RAG_STACK_ENV.
