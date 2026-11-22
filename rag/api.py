@@ -1,14 +1,18 @@
 """API HTTP : /sante (sans jeton) et /chercher (jeton → niveaux de visibilité)."""
 
+import asyncio
 import hmac
 import json
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date
+from types import SimpleNamespace
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.routing import Route
 
 from rag.aiguillage import aiguiller
 from rag.config import PUBLIC, TOUT, Reglages, charger_config, empreinte_indexation
@@ -16,6 +20,7 @@ from rag.db import connexion
 from rag.entretien import doublons, liens_entrants, orphelines
 from rag.graphe import chemin, expliquer
 from rag.lister import lister, taxonomie
+from rag.mcp_serveur import creer_mcp
 from rag.modeles import ErreurModele, modeles_depuis
 from rag.recherche import Filtres, chercher
 from rag.reponse import repondre, repondre_flux
@@ -92,22 +97,78 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
     empreinte = empreinte_indexation(config.indexation)
     modeles = modeles or modeles_depuis(reglages)
     reranker = reranker or reranker_depuis(config, reglages)  # chargé au 1er appel, dans un fil
-    app = FastAPI(title="RAG maître")
+    mcp = creer_mcp(SimpleNamespace(
+        niveaux=lambda a: niveaux_de(a) or frozenset(),
+        chercher=lambda q, f, limite, n: _chercher(q, f, limite, n),
+        lister=lambda q, f, n: _question_lister(q, f, n),
+        repondre=lambda q, n: _repondre_simple(q, n),
+        chemin=lambda de, vers, n: _avec_conn(chemin, de, vers, niveaux=n),
+        expliquer=lambda nom, n: _avec_conn(expliquer, nom, niveaux=n)))
+    mcp_asgi = mcp.streamable_http_app().routes[0].endpoint
+
+    @asynccontextmanager
+    async def cycle(app):
+        async with mcp.session_manager.run():
+            if reranker is not None:  # charge le modèle hors de la boucle d'événements
+                await asyncio.to_thread(reranker.noter, "x", ["x"])
+            yield
+
+    app = FastAPI(title="RAG maître", lifespan=cycle)
+
+    class RouteMcp:  # application ASGI (une instance, pas une fonction) : 401 avant le MCP
+        async def __call__(self, scope, receive, send):
+            entetes = dict(scope["headers"])
+            if niveaux_de(entetes.get(b"authorization", b"").decode("latin-1")) is None:
+                await JSONResponse({"detail": "jeton invalide"}, status_code=401)(
+                    scope, receive, send)
+                return
+            await mcp_asgi(scope, receive, send)
+
+    app.router.routes.append(Route("/mcp", endpoint=RouteMcp(), methods=["GET", "POST", "DELETE"]))
+
+    def _avec_conn(f, *a, **k):
+        with connexion(reglages.database_url) as conn:
+            return f(conn, *a, **k)
+
+    def _chercher(question, f, limite, niveaux):
+        with connexion(reglages.database_url) as conn:
+            v = version_id(conn, empreinte)
+            return [] if v is None else chercher(
+                conn, question, config.recherche, modeles, v, config.indexation.modele_embedding,
+                niveaux=niveaux, filtres=f, limite=limite, reranker=reranker)
+
+    def _question_lister(question, f, niveaux):
+        with connexion(reglages.database_url) as conn:
+            if f is None:
+                f = aiguiller(question, taxonomie(conn, niveaux=niveaux), modeles,
+                              config.reponse.modele, "lister").filtres
+            return _lister(conn, question, f, niveaux)
+
+    def _repondre_simple(question, niveaux):
+        with connexion(reglages.database_url) as conn:
+            v = version_id(conn, empreinte) or 0
+            return repondre(conn, question, config, modeles, v, niveaux=niveaux,
+                            reranker=reranker)
 
     @app.exception_handler(ErreurModele)
     def _modele_indisponible(request: Request, e: ErreurModele):
         return JSONResponse({"detail": "modèle indisponible"}, status_code=503)
 
-    def niveaux_du_jeton(authorization: str = Header(default="")) -> frozenset[str]:
+    def niveaux_de(authorization: str) -> frozenset[str] | None:
         if not authorization.startswith("Bearer "):
-            raise HTTPException(401, "jeton invalide")
+            return None
         jeton = authorization.removeprefix("Bearer ").strip().encode()
         if jeton and hmac.compare_digest(jeton, reglages.jeton.encode()):
             return PUBLIC
         if jeton and reglages.jeton_prive and hmac.compare_digest(
                 jeton, reglages.jeton_prive.encode()):
             return TOUT
-        raise HTTPException(401, "jeton invalide")
+        return None
+
+    def niveaux_du_jeton(authorization: str = Header(default="")) -> frozenset[str]:
+        if (n := niveaux_de(authorization)) is None:
+            raise HTTPException(401, "jeton invalide")
+        return n
 
     def jeton_reindexer(authorization: str = Header(default="")) -> None:
         if not reglages.jeton_reindexer:
