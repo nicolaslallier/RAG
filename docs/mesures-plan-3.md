@@ -138,3 +138,21 @@ toujours pas vérifié ; à mesurer gemma libre (ou sur le Mac Studio, plan 4).
 | fidélité | ≥ 4,5 | 4,85 | tenue |
 | exactitude du mode | ≥ 0,9 | 0,9375 | tenue |
 | répondre p95 | ≤ 30 s sans autre charge | 204 s, gemma partagé | non vérifiée |
+
+### Latence sans charge `v1-latence` (2026-11-22, gemma libre)
+
+Le banc synthétique du plan 1 était suspendu (processus arrêté, état `T`) ; un banc de recherche
+du plan 1 (sans génération) a fini pendant la mesure. Sous-ensemble de 20 cas de l'étalon
+(ni listes ni sans réponse) ; 18 réponses générées non refusées.
+
+| p50 | p95 | max | fidélité | pertinence | faux refus | citations invalides |
+|---|---|---|---|---|---|---|
+| **25,8 s** | **170,9 s** | 189,0 s | 4,94 | 4,78 | 5 % | 0 |
+
+**Verdict : cible « répondre p95 ≤ 30 s » non tenue.** La médiane tient (26 s), mais quatre cas
+dépassent 2 minutes (version-litellm 189 s, mcp-fichiers 171 s, separation-stacks 153 s,
+hotpot-bouillons 125 s) alors que deux d'entre eux ont une réponse courte (265 et 124
+caractères) : la longueur n'explique pas tout. Hypothèse non vérifiée : rechargement de modèle
+côté Ollama, car le banc alterne gemma (générateur) et `qwen3.8:27b-mlx` (juge) ; une seconde
+génération (citations à refaire) est l'autre cause possible. À trancher au plan 4 sur le Mac
+Studio, avec un journal du temps par appel au modèle, sans le juge.
