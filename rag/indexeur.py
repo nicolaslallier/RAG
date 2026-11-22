@@ -115,6 +115,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     v = version_courante(conn, conf)
 
     entrees = {}
+    exclus_listage = {}  # chemin -> (entrée, raison) : écartés sur le nom, jamais lus
     for e in lecteur.lister():
         chemin = nfc(e.chemin)
         if source.type == "obsidian" and not chemin.endswith(".md"):
@@ -125,7 +126,9 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             log.warning("%s : %s exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
         if raison is None:
             entrees[chemin] = e
-        elif raison != "config":
+            continue
+        exclus_listage[chemin] = (e, raison)
+        if raison != "config":
             bilan.exclus += 1  # secret, verrou, généré : exclus sur le nom, jamais lus
     existants = {
         r["chemin"]: r for r in conn.execute(
@@ -136,7 +139,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     }
     emp = empreinte_indexation(conf)
     deja_exclus = {r["chemin"]: r["signature"] for r in conn.execute(
-        "SELECT chemin, signature FROM exclus WHERE source_id = %s AND empreinte = %s",
+        "SELECT chemin, signature FROM exclus WHERE source_id = %s AND empreinte = %s AND lu",
         (source_id, emp))}
     absents = existants.keys() - entrees.keys()
     if not forcer and (not entrees or len(absents) > len(existants) / 2):
@@ -144,6 +147,14 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         raise CoffrePartielError(
             f"{source.nom} : listage de {len(entrees)} entrées, {len(absents)} documents "
             f"sur {len(existants)} absents ; relancer avec forcer pour confirmer")
+
+    for chemin, (e, raison) in exclus_listage.items():
+        conn.execute(
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
+               VALUES (%s, %s, %s, %s, %s, false) ON CONFLICT (source_id, chemin) DO UPDATE
+               SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                   raison = EXCLUDED.raison, lu = false""",
+            (source_id, chemin, e.signature, emp, raison))
 
     repos = timedelta(minutes=source.repos_minutes)
     for chemin, e in sorted(entrees.items()):
@@ -164,10 +175,10 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
                 conn.execute(
-                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison)
-                       VALUES (%s, %s, %s, %s, %s) ON CONFLICT (source_id, chemin) DO UPDATE
+                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
+                       VALUES (%s, %s, %s, %s, %s, true) ON CONFLICT (source_id, chemin) DO UPDATE
                        SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                           raison = EXCLUDED.raison""",
+                           raison = EXCLUDED.raison, lu = true""",
                     (source_id, chemin, e.signature, emp, raison))
                 conn.commit()
                 bilan.exclus += 1
@@ -194,7 +205,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             raise
 
     conn.execute("DELETE FROM exclus WHERE source_id = %s AND NOT (chemin = ANY(%s))",
-                 (source_id, list(entrees)))
+                 (source_id, [*entrees, *exclus_listage]))
     for chemin in absents:
         conn.execute("DELETE FROM documents WHERE id = %s", (existants[chemin]["id"],))
         bilan.supprimes += 1

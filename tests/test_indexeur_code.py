@@ -5,7 +5,7 @@ from rag.exclusions import motif_exclusion
 from rag.indexeur import indexer_source, version_courante
 from rag.recherche import Filtres, chercher
 from rag.sources import LecteurGit, lecteur_pour
-from tests.conftest import commit
+from tests.conftest import commit, git
 
 CONFIG = charger_config(Path("config/rag.yaml"))
 CONF = CONFIG.indexation
@@ -25,8 +25,9 @@ def test_indexe_le_code_par_symbole(bd, depot, tmp_path, faux_modeles):
                    ).fetchone()
     assert r["fil"].startswith("depot-test > a.py > ") and r["type"] == "python"
     assert r["ligne"] >= 1
-    raisons = {r["chemin"]: r["raison"] for r in bd.execute("SELECT chemin, raison FROM exclus")}
-    assert raisons == {"logo.png": "binaire"}  # les autres sont exclus sur leur nom, sans lecture
+    raisons = {r["chemin"]: (r["raison"], r["lu"]) for r in bd.execute("SELECT chemin, raison, lu FROM exclus")}
+    assert raisons == {"logo.png": ("binaire", True), ".env.example": ("secret", False),
+                       "uv.lock": ("genere", False)}  # gros.json (400 Ko) reste sous 10 x taille_max
 
 
 def test_un_secret_dans_le_contenu_n_entre_jamais(bd, depot, tmp_path, faux_modeles):
@@ -96,3 +97,33 @@ def test_blob_geant_exclu_sans_lecture(bd, depot, tmp_path, faux_modeles):
     lec.lire = lambda c: lus.append(c) or lire(c)
     b = indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles)
     assert "enorme.txt" not in lus and "enorme.txt" not in chemins(bd) and b.exclus == 4
+
+
+def test_blob_geant_est_dans_le_registre(bd, depot, tmp_path, faux_modeles):
+    commit(depot, "enorme.txt", "a" * (10 * CONF.taille_max_octets + 1))
+    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF, faux_modeles)
+    r = bd.execute("SELECT raison, lu FROM exclus WHERE chemin = 'enorme.txt'").fetchone()
+    assert (r["raison"], r["lu"]) == ("trop_gros", False)
+
+
+def test_exclu_sur_le_nom_puis_plus_exclu_est_reindexe(bd, depot, tmp_path, faux_modeles):
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    src = SourceConf(visibilite="public-maison", nom="depot-test", type="code", emplacement="x",
+                     exclure=["docs/**"])
+    indexer_source(bd, src, lec, CONF, faux_modeles)
+    r = bd.execute("SELECT raison, lu FROM exclus WHERE chemin = 'docs/guide.md'").fetchone()
+    assert (r["raison"], r["lu"]) == ("config", False)
+    assert "docs/guide.md" not in chemins(bd)
+    indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles)
+    assert "docs/guide.md" in chemins(bd)
+    assert bd.execute("SELECT count(*) n FROM exclus WHERE chemin = 'docs/guide.md'").fetchone()["n"] == 0
+
+
+def test_exclus_disparu_du_listage_est_oublie(bd, depot, tmp_path, faux_modeles):
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles)
+    git(depot, "rm", "-q", "uv.lock")
+    git(depot, "commit", "-qm", "rm lock")
+    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                   faux_modeles)
+    assert bd.execute("SELECT count(*) n FROM exclus WHERE chemin = 'uv.lock'").fetchone()["n"] == 0
