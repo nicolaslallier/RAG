@@ -1,0 +1,1263 @@
+{
+ "etiquette": "base",
+ "empreinte_indexation": "2bb152a94a11129924882e00644f3e809f2e011ade448fc404db8ca844a3f27c",
+ "config": {
+  "top_vecteur": 40,
+  "top_texte": 40,
+  "rrf_k": 60,
+  "poids": {
+   "vecteur": 1.0,
+   "texte": 1.0,
+   "flou": 0.5
+  },
+  "flou": true,
+  "seuil_flou": 0.4,
+  "instruction_requete": "Given a web search query, retrieve relevant passages that answer the query",
+  "rerank": {
+   "actif": false,
+   "modele": "BAAI/bge-reranker-v2-m3",
+   "candidats": 30,
+   "garder": 8
+  },
+  "graphe": {
+   "expansion": false,
+   "depuis": 3,
+   "attenuation": 0.5,
+   "plafond": 5
+  },
+  "poids_source": {
+   "obsidian": 1.0,
+   "code": 0.6
+  }
+ },
+ "cas": [
+  {
+   "id": "recettes-poulet",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Cuisine/Menu de la semaine au poulet.md",
+    "coffre-maison:02 - Domaines/Cuisine/Repas spéciaux IGA 12-18 nov.md",
+    "coffre-maison:02 - Domaines/Cuisine/Recettes/Poulet cidre et Boursin, légumes rôtis.md",
+    "RAG:docs/superpowers/plans/2026-11-21-rag-maitre-3-reponse-aiguillage-mcp.md",
+    "coffre-maison:05 - Journal/2026-11-09.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 0.3333333333333333,
+   "ndcg10": 0.5,
+   "latence_ms": 471.6,
+   "meilleur_cosinus": 0.7129666671329962,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "menus-semaine",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Cuisine/Menu de la semaine au poulet.md",
+    "coffre-maison:02 - Domaines/Cuisine/Cuisine.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-08.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-15.md",
+    "coffre-maison:_Claude/Journal de Claude.md",
+    "coffre-maison:05 - Journal/2026-11-09.md"
+   ],
+   "rappel5": 0.6666666666666666,
+   "rappel10": 0.6666666666666666,
+   "mrr": 1.0,
+   "ndcg10": 0.7653606369886217,
+   "latence_ms": 377.6,
+   "meilleur_cosinus": 0.6958330733333659,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "liste-costco",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Maison/Liste Costco.md",
+    "coffre-maison:02 - Domaines/Maison/Maison.md",
+    "coffre-maison:02 - Domaines/Cuisine/Cuisine.md",
+    "coffre-maison:02 - Domaines/Finances/Finances.md",
+    "coffre-maison:02 - Domaines/Cuisine/Recettes/Poulet cidre et Boursin, légumes rôtis.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Agent musique (agent-musique).md",
+    "RAG:docs/superpowers/plans/2026-11-21-rag-maitre-3-reponse-aiguillage-mcp.md",
+    "coffre-maison:_Claude/Journal de Claude.md",
+    "coffre-maison:02 - Domaines/Loisirs/Loisirs.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 430.7,
+   "meilleur_cosinus": 0.8224954971464732,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "famille",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:À propos de moi.md",
+    "Infra:scripts/test_mcp_policy.py",
+    "Infra:scripts/test_cloud_pii.py",
+    "coffre-maison:02 - Domaines/Personnes/Elizabeth Rose Lallier.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-13.md",
+    "coffre-maison:02 - Domaines/Maison/Maison.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Premier agent A2A (agent-test).md",
+    "coffre-maison:01 - Projets/Infra/Infra - second-brain : indexation du coffre.md",
+    "coffre-maison:02 - Domaines/Travail/Note techno - Agent Skills d'Anthropic.md",
+    "coffre-maison:02 - Domaines/Personnes/Personnes.md"
+   ],
+   "rappel5": 0.6666666666666666,
+   "rappel10": 0.6666666666666666,
+   "mrr": 1.0,
+   "ndcg10": 0.6713860725233041,
+   "latence_ms": 330.4,
+   "meilleur_cosinus": 0.43459794945177177,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "projets-en-cours",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:06 - Modèles/Modèle - Projet.md",
+    "coffre-maison:Accueil.md",
+    "AI:backend/portail/outils_portail.py",
+    "AI:backend/portail/api.py",
+    "AI:backend/tests/test_outils_portail.py",
+    "coffre-maison:02 - Domaines/Loisirs/Loisirs.md",
+    "AI:backend/tests/test_bureau.py",
+    "coffre-maison:À propos de moi.md",
+    "AI:backend/tests/test_ordonnanceur.py",
+    "coffre-maison:02 - Domaines/Travail/Travail.md"
+   ],
+   "rappel5": 0.5,
+   "rappel10": 1.0,
+   "mrr": 0.5,
+   "ndcg10": 0.5802792108518124,
+   "latence_ms": 379.2,
+   "meilleur_cosinus": 0.6089891515416199,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "notes-techno",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Travail/Note techno - Édition de poids par programme linéaire.md",
+    "coffre-maison:02 - Domaines/Travail/Note techno - Agent Skills d'Anthropic.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Agent musique (agent-musique).md",
+    "coffre-maison:02 - Domaines/Travail/Travail.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 0.9674679834891693,
+   "latence_ms": 433.6,
+   "meilleur_cosinus": 0.5143135312495771,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "veille-mistral",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-08.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-15.md",
+    "coffre-maison:06 - Modèles/Modèle - Veille IA.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-16.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-20.md"
+   ],
+   "rappel5": 0.5,
+   "rappel10": 0.5,
+   "mrr": 1.0,
+   "ndcg10": 0.6193198671454698,
+   "latence_ms": 499.5,
+   "meilleur_cosinus": 0.4342860436491984,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "agents-a2a",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Premier agent A2A (agent-test).md",
+    "coffre-maison:01 - Projets/Infra/Infra - Agent musique (agent-musique).md",
+    "coffre-maison:01 - Projets/Infra/Infra - LiteLLM image unifiée.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-22.md"
+   ],
+   "rappel5": 0.6666666666666666,
+   "rappel10": 0.6666666666666666,
+   "mrr": 1.0,
+   "ndcg10": 0.7653606369886217,
+   "latence_ms": 434.9,
+   "meilleur_cosinus": 0.7733514333457464,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "vaisselle",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Cuisine/Menu de la semaine au poulet.md",
+    "coffre-maison:05 - Journal/2026-11-12.md",
+    "coffre-maison:05 - Journal/2026-11-14.md",
+    "coffre-maison:05 - Journal/2026-11-13.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-08.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-15.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-22.md"
+   ],
+   "rappel5": 0.6,
+   "rappel10": 0.6,
+   "mrr": 0.5,
+   "ndcg10": 0.5296347172140421,
+   "latence_ms": 404.6,
+   "meilleur_cosinus": 0.5755921008495203,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "courriels-novembre",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:00 - Inbox/Courriels importants 2026-11-08.md",
+    "coffre-maison:05 - Journal/2026-11-16.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-15.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-22.md",
+    "coffre-maison:05 - Journal/2026-11-20.md",
+    "coffre-maison:05 - Journal/2026-11-10.md",
+    "coffre-maison:05 - Journal/2026-11-08.md"
+   ],
+   "rappel5": 0.5,
+   "rappel10": 0.5,
+   "mrr": 1.0,
+   "ndcg10": 0.6131471927654584,
+   "latence_ms": 406.3,
+   "meilleur_cosinus": 0.766844657896122,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "dashboards-litellm",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Dashboard Grafana LiteLLM.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Fusion dashboards Agents et LiteLLM.md",
+    "coffre-maison:01 - Projets/Infra/Infra.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Métriques Windows dans Grafana.md",
+    "EA:docs/superpowers/plans/2026-10-10-09-gros-morceaux.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 458.7,
+   "meilleur_cosinus": 0.824700900981319,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "version-litellm",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - LiteLLM image unifiée.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-22.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Montée LiteLLM 1.108 LTS.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Dashboard Grafana LiteLLM.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-21.md",
+    "coffre-maison:01 - Projets/AI/Portail — chat avec agent-musique.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-15.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 0.9197207891481876,
+   "latence_ms": 331.9,
+   "meilleur_cosinus": 0.7247859360875407,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "delais-portail",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/AI/Délais LLM du Portail.md",
+    "coffre-maison:01 - Projets/AI/Portail - timeouts LLM (délai configurable).md"
+   ],
+   "rappel5": 0.6666666666666666,
+   "rappel10": 0.6666666666666666,
+   "mrr": 1.0,
+   "ndcg10": 0.7653606369886217,
+   "latence_ms": 437.5,
+   "meilleur_cosinus": 0.7982250787652907,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "separation-stacks",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Plan de séparation des stacks.md"
+   ],
+   "rappel5": 0.25,
+   "rappel10": 0.25,
+   "mrr": 1.0,
+   "ndcg10": 0.3903800499921017,
+   "latence_ms": 454.5,
+   "meilleur_cosinus": 0.6677646584114486,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "mcp-fichiers",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/MCP Fichiers/Spec MCP Fichiers.md",
+    "coffre-maison:01 - Projets/MCP Fichiers/Plan MCP Fichiers.md",
+    "coffre-maison:01 - Projets/MCP Fichiers/MCP Fichiers.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 297.5,
+   "meilleur_cosinus": 0.7225237259598434,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "labo-ia",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Labo IA/Labo IA.md",
+    "coffre-maison:06 - Modèles/Modèle - Veille IA.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-09.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-16.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-20.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-10.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-14.md",
+    "coffre-maison:01 - Projets/AI/AI - Documentation.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-12.md"
+   ],
+   "rappel5": 0.3333333333333333,
+   "rappel10": 0.6666666666666666,
+   "mrr": 1.0,
+   "ndcg10": 0.617319681505689,
+   "latence_ms": 331.6,
+   "meilleur_cosinus": 0.7147765704443177,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "projets-jeux",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Jeu vidéo/Jeu vidéo.md",
+    "coffre-maison:06 - Modèles/Modèle - Projet.md",
+    "coffre-maison:02 - Domaines/Loisirs/Loisirs.md",
+    "coffre-maison:Accueil.md",
+    "AI:backend/portail/api.py",
+    "coffre-maison:À propos de moi.md",
+    "AI:backend/tests/test_api_dev_ui.py",
+    "AI:agents.yaml"
+   ],
+   "rappel5": 0.3333333333333333,
+   "rappel10": 0.3333333333333333,
+   "mrr": 1.0,
+   "ndcg10": 0.46927872602275644,
+   "latence_ms": 291.6,
+   "meilleur_cosinus": 0.664975873175578,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "vue-infra",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Documentation.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Plan de séparation des stacks.md",
+    "coffre-maison:01 - Projets/Infra/Infra.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Agent musique (agent-musique).md",
+    "coffre-maison:01 - Projets/Infra/Infra - Stack DNS.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 0.9197207891481876,
+   "latence_ms": 345.2,
+   "meilleur_cosinus": 0.5858024765271463,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "hotpot-bouillons",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Cuisine/Hotpot en amoureux - samedi 14 nov.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 568.4,
+   "meilleur_cosinus": 0.7019803989220789,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "pate-chinois",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Cuisine/Repas spéciaux IGA 12-18 nov.md",
+    "coffre-maison:02 - Domaines/Cuisine/Hotpot en amoureux - samedi 14 nov.md",
+    "coffre-maison:06 - Modèles/Modèle - Veille IA.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 599.7,
+   "meilleur_cosinus": 0.6271890729256955,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "four-poulet",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Cuisine/Recettes/Poulet cidre et Boursin, légumes rôtis.md",
+    "coffre-maison:02 - Domaines/Cuisine/Menu de la semaine au poulet.md",
+    "coffre-maison:05 - Journal/2026-11-09.md",
+    "coffre-maison:02 - Domaines/Cuisine/Repas spéciaux IGA 12-18 nov.md",
+    "coffre-maison:02 - Domaines/Cuisine/Hotpot en amoureux - samedi 14 nov.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 519.6,
+   "meilleur_cosinus": 0.7605823377145766,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "annick",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Personnes/Annick.md",
+    "AI:backend/portail/dev.py",
+    "coffre-maison:À propos de moi.md",
+    "coffre-maison:02 - Domaines/Personnes/Personnes.md",
+    "coffre-maison:05 - Journal/2026-11-09.md",
+    "coffre-maison:_Claude/Journal de Claude.md",
+    "AI:backend/tests/test_avis.py",
+    "coffre-maison:02 - Domaines/Personnes/Lena Hope Capp.md",
+    "coffre-maison:01 - Projets/AI/AI - Documentation.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 379.3,
+   "meilleur_cosinus": 0.7300262649087408,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "lena",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Personnes/Lena Hope Capp.md",
+    "coffre-maison:00 - Inbox/Courriels importants 2026-11-08.md",
+    "coffre-maison:02 - Domaines/Personnes/Personnes.md",
+    "coffre-maison:05 - Journal/2026-11-09.md",
+    "coffre-maison:À propos de moi.md",
+    "coffre-maison:_Claude/Journal de Claude.md",
+    "coffre-maison:02 - Domaines/Cuisine/Hotpot en amoureux - samedi 14 nov.md",
+    "coffre-maison:02 - Domaines/Cuisine/Recettes/Poulet cidre et Boursin, légumes rôtis.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-21.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-22.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 555.3,
+   "meilleur_cosinus": 0.6263659511863634,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "nvidia-export",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-14.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-16.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-15.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-13.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-22.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 737.7,
+   "meilleur_cosinus": 0.7200651065804338,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "dns-adresse",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Stack DNS.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 335.4,
+   "meilleur_cosinus": 0.7591653485756975,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "keycloak-machine",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Plan de séparation des stacks.md",
+    "coffre-maison:_Claude/Instructions.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Stack Keycloak.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 0.3333333333333333,
+   "ndcg10": 0.5,
+   "latence_ms": 526.6,
+   "meilleur_cosinus": 0.49981354076049,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "ordonnanceur",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/AI/Ordonnanceur du Portail - GitHub App.md",
+    "AI:backend/portail/ordonnanceur.py",
+    "coffre-maison:01 - Projets/AI/Portail - AI factory doc.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 576.5,
+   "meilleur_cosinus": 0.6638295585521989,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "windows-grafana",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Métriques Windows dans Grafana.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Dashboard Grafana LiteLLM.md",
+    "coffre-maison:_Claude/Journal de Claude.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 579.9,
+   "meilleur_cosinus": 0.7472377800580092,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "heaven-clouds",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Heaven/Heaven.md",
+    "Heaven:docker-compose.yml",
+    "Heaven:docs/portainer.md",
+    "Heaven:docs/spec-tableau-de-bord.md",
+    "Heaven:README.md",
+    "Heaven:deploy/portainer/stack.yml"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 543.8,
+   "meilleur_cosinus": 0.5723418618690863,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "acord",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Modélisation ACORD/Modélisation ACORD.md",
+    "coffre-maison:02 - Domaines/Travail/Travail.md",
+    "coffre-maison:06 - Modèles/Modèle - Note de ressource.md",
+    "coffre-maison:06 - Modèles/Modèle - Personne.md",
+    "AI:agents/agent/src/portail.rs",
+    "Beacon:scripts/generate-self-signed-certs.sh",
+    "EA:docs/adr/0072-modeles-de-diagrammes.md",
+    "TDDRAGON:tests/endpoints/log_viewer/regression/test_infrastructure_regression.py",
+    "EA:docs/adr/0005-archimate-3-2-comme-metamodele.md",
+    "TDDRAGON:tests/endpoints/log_collector/regression/test_infrastructure_regression.py"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 463.9,
+   "meilleur_cosinus": 0.6036195184088088,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "ea-archimate",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/EA/EA - Documentation.md",
+    "coffre-maison:01 - Projets/EA/EA.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 463.4,
+   "meilleur_cosinus": 0.7492802936193572,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "skills-anthropic",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Travail/Note techno - Agent Skills d'Anthropic.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 412.3,
+   "meilleur_cosinus": 0.775197119113751,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "edition-poids",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Travail/Note techno - Édition de poids par programme linéaire.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 498.3,
+   "meilleur_cosinus": 0.6767330638471383,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "instructions-claude",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:_Claude/Instructions.md",
+    "coffre-maison:_Claude/Journal de Claude.md",
+    "coffre-maison:À propos de moi.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 471.1,
+   "meilleur_cosinus": 0.7155827376357701,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "visite-guidee",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:04 - Archives/Modèle - Visite guidée.md",
+    "coffre-maison:01 - Projets/AI/AI - Documentation.md",
+    "coffre-maison:04 - Archives/Guide touristique/Guide touristique.md",
+    "coffre-maison:Accueil.md",
+    "coffre-maison:01 - Projets/MCP Fichiers/Plan MCP Fichiers.md",
+    "coffre-maison:01 - Projets/MCP Fichiers/Spec MCP Fichiers.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-13.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-16.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-17.md",
+    "coffre-maison:05 - Journal/2026-11-09.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 0.9197207891481876,
+   "latence_ms": 510.3,
+   "meilleur_cosinus": 0.6128507698916857,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-saumon",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Cuisine/Menu de la semaine au poulet.md",
+    "coffre-maison:02 - Domaines/Cuisine/Hotpot en amoureux - samedi 14 nov.md",
+    "coffre-maison:02 - Domaines/Cuisine/Recettes/Poulet cidre et Boursin, légumes rôtis.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 331.4,
+   "meilleur_cosinus": 0.5186583949293015,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-lasagne",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Cuisine/Menu de la semaine au poulet.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-22.md",
+    "coffre-maison:02 - Domaines/Cuisine/Cuisine.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-15.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-08.md",
+    "coffre-maison:05 - Journal/2026-11-09.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 441.9,
+   "meilleur_cosinus": 0.5401053473476798,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-kubernetes",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Plan de séparation des stacks.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 451.5,
+   "meilleur_cosinus": 0.645402448822685,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-dentiste",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:05 - Journal/2026-11-12.md",
+    "coffre-maison:05 - Journal/2026-11-10.md",
+    "coffre-maison:05 - Journal/2026-11-14.md",
+    "coffre-maison:05 - Journal/2026-11-15.md",
+    "coffre-maison:05 - Journal/2026-11-20.md",
+    "coffre-maison:05 - Journal/2026-11-13.md",
+    "coffre-maison:05 - Journal/2026-11-16.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 430.0,
+   "meilleur_cosinus": 0.6000729189259949,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-traefik",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Plan de séparation des stacks.md",
+    "coffre-maison:01 - Projets/Infra/Infra.md",
+    "coffre-maison:01 - Projets/EA/EA - Documentation.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Documentation.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Stack dev.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Stack DNS.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 421.0,
+   "meilleur_cosinus": 0.4939006616539061,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-proxmox",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "Infra:monitoring/grafana/provisioning/dashboards/json/colima.json",
+    "Infra:README.md",
+    "Infra:docker-compose.colima.yml",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-08.md",
+    "Infra:monitoring/prometheus/targets/colima.yml",
+    "coffre-maison:01 - Projets/Infra/Infra - Plan de séparation des stacks.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Stack DNS.md",
+    "Infra:monitoring/grafana/provisioning/dashboards/json/macos.json"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 364.8,
+   "meilleur_cosinus": 0.5199996901407162,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-tesla",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "AI:backend/tests/test_resume.py",
+    "coffre-maison:05 - Journal/2026-11-15.md",
+    "coffre-maison:05 - Journal/2026-11-12.md",
+    "coffre-maison:05 - Journal/2026-11-14.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-22.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-14.md",
+    "coffre-maison:05 - Journal/2026-11-10.md",
+    "coffre-maison:05 - Journal/2026-11-16.md",
+    "coffre-maison:05 - Journal/2026-11-20.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 438.4,
+   "meilleur_cosinus": 0.39476549294399277,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-vaccin",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:02 - Domaines/Personnes/Elizabeth Rose Lallier.md",
+    "coffre-maison:02 - Domaines/Personnes/Lena Hope Capp.md",
+    "coffre-maison:05 - Journal/2026-11-12.md",
+    "coffre-maison:05 - Journal/2026-11-14.md",
+    "coffre-maison:05 - Journal/2026-11-08.md",
+    "coffre-maison:_Claude/Journal de Claude.md",
+    "coffre-maison:05 - Journal/2026-11-13.md",
+    "coffre-maison:05 - Journal/2026-11-15.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 428.0,
+   "meilleur_cosinus": 0.4545027827383885,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-assurance",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:01 - Projets/MCP Fichiers/Plan MCP Fichiers.md",
+    "coffre-maison:01 - Projets/MCP Fichiers/Spec MCP Fichiers.md",
+    "AI:backend/tests/test_github.py",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-12.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-17.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Documentation.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-22.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-15.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 415.9,
+   "meilleur_cosinus": 0.37964880261312595,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-impots",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "AI:backend/portail/faits.py",
+    "coffre-maison:02 - Domaines/Finances/Finances.md",
+    "coffre-maison:01 - Projets/AI/AI - Documentation.md",
+    "coffre-maison:_Claude/Instructions.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-16.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-20.md",
+    "coffre-maison:05 - Journal/2026-11-09.md",
+    "coffre-maison:00 - Inbox/Courriels importants 2026-11-08.md",
+    "coffre-maison:01 - Projets/MCP Fichiers/Spec MCP Fichiers.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 423.2,
+   "meilleur_cosinus": 0.45773505840851625,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-japon",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "AI:backend/tests/test_etapes_depot.py",
+    "coffre-maison:04 - Archives/Guide touristique/Guide touristique.md",
+    "coffre-maison:01 - Projets/MCP Fichiers/Plan MCP Fichiers.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Plan de séparation des stacks.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 424.7,
+   "meilleur_cosinus": 0.4788125578954163,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-hydro",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "DarkAngel:docs/superpowers/specs/2026-10-10-service-providers-design.md",
+    "coffre-maison:00 - Inbox/Courriels importants 2026-11-08.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-12.md",
+    "coffre-maison:02 - Domaines/Cuisine/Repas spéciaux IGA 12-18 nov.md",
+    "coffre-maison:05 - Journal/2026-11-17.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 442.8,
+   "meilleur_cosinus": 0.4558573921969947,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-pneus",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-14.md",
+    "coffre-maison:05 - Journal/2026-11-16.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-08.md",
+    "coffre-maison:05 - Journal/2026-11-14.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-13.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-22.md",
+    "coffre-maison:05 - Journal/2026-11-12.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-20.md",
+    "coffre-maison:01 - Projets/MCP Fichiers/Spec MCP Fichiers.md",
+    "coffre-maison:00 - Inbox/Courriels importants 2026-11-08.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 422.1,
+   "meilleur_cosinus": 0.4376758956963609,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-netflix",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-15.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-13.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-20.md",
+    "DarkAngel:backend/tests/regression/openapi.snapshot.json",
+    "coffre-maison:00 - Inbox/Courriels importants 2026-11-08.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-22.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 340.9,
+   "meilleur_cosinus": 0.4420153638259401,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sr-plombier",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:01 - Projets/AI/AI - Documentation.md",
+    "coffre-maison:Accueil.md",
+    "coffre-maison:01 - Projets/MCP Fichiers/Plan MCP Fichiers.md",
+    "AI:backend/tests/conftest.py",
+    "coffre-maison:01 - Projets/MCP Fichiers/Spec MCP Fichiers.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-13.md",
+    "coffre-maison:05 - Journal/2026-11-09.md",
+    "AI:frontend/src/bureau.test.ts",
+    "AI:backend/portail/dev.py"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 358.4,
+   "meilleur_cosinus": 0.43958466797037254,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "architecture-ai",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/AI/AI - Documentation.md",
+    "AI:backend/tests/test_architecture.py",
+    "coffre-maison:01 - Projets/AI/AI.md",
+    "coffre-maison:06 - Modèles/Modèle - Projet.md",
+    "EA:docs/README.md",
+    "coffre-maison:Accueil.md",
+    "coffre-maison:01 - Projets/EA/EA - Documentation.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Documentation.md",
+    "coffre-maison:À propos de moi.md"
+   ],
+   "rappel5": 0.25,
+   "rappel10": 0.25,
+   "mrr": 1.0,
+   "ndcg10": 0.3794140541514857,
+   "latence_ms": 394.1,
+   "meilleur_cosinus": 0.6644094563068312,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "dashboards-grafana",
+   "nature": "lister",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - Dashboard Grafana LiteLLM.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Fusion dashboards Agents et LiteLLM.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Métriques Windows dans Grafana.md"
+   ],
+   "rappel5": 0.15789473684210525,
+   "rappel10": 0.15789473684210525,
+   "mrr": 1.0,
+   "ndcg10": 0.4690000933206748,
+   "latence_ms": 361.3,
+   "meilleur_cosinus": 0.7410162741598857,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "litellm-config-et-notes",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - LiteLLM image unifiée.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Montée LiteLLM 1.108 LTS.md",
+    "coffre-maison:01 - Projets/AI/Portail - timeouts LLM (délai configurable).md",
+    "coffre-maison:01 - Projets/Infra/Infra - Dashboard Grafana LiteLLM.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-22.md"
+   ],
+   "rappel5": 0.5,
+   "rappel10": 0.5,
+   "mrr": 1.0,
+   "ndcg10": 0.6366824387328317,
+   "latence_ms": 442.6,
+   "meilleur_cosinus": 0.6987596192729791,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "pii-litellm",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/Infra/Infra - LiteLLM image unifiée.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-22.md",
+    "Infra:docs/superpowers/specs/2026-11-14-litellm-cloud-pii-design.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Montée LiteLLM 1.108 LTS.md",
+    "Infra:docs/superpowers/specs/2026-11-14-litellm-foundations-design.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Dashboard Grafana LiteLLM.md",
+    "coffre-maison:02 - Domaines/Cuisine/Hotpot en amoureux - samedi 14 nov.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-12.md"
+   ],
+   "rappel5": 0.3333333333333333,
+   "rappel10": 0.3333333333333333,
+   "mrr": 0.3333333333333333,
+   "ndcg10": 0.23463936301137822,
+   "latence_ms": 699.1,
+   "meilleur_cosinus": 0.8170798916010942,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "ordonnanceur-portail",
+   "nature": "synthetiser",
+   "obtenus": [
+    "coffre-maison:01 - Projets/AI/Ordonnanceur du Portail - GitHub App.md",
+    "AI:docs/superpowers/plans/2026-11-14-portail-c1-boucle-dev.md",
+    "AI:backend/portail/api.py"
+   ],
+   "rappel5": 0.5,
+   "rappel10": 0.5,
+   "mrr": 1.0,
+   "ndcg10": 0.6131471927654584,
+   "latence_ms": 540.6,
+   "meilleur_cosinus": 0.7344768088586158,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "delais-llm-portail",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/AI/Portail - timeouts LLM (délai configurable).md",
+    "coffre-maison:01 - Projets/AI/Délais LLM du Portail.md"
+   ],
+   "rappel5": 0.6666666666666666,
+   "rappel10": 0.6666666666666666,
+   "mrr": 1.0,
+   "ndcg10": 0.7653606369886217,
+   "latence_ms": 515.3,
+   "meilleur_cosinus": 0.693743599678519,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "symbole-indexer-source",
+   "nature": "factuel",
+   "obtenus": [
+    "RAG:rag/indexeur.py",
+    "Infra:agents/agent-musique/disques.py",
+    "coffre-maison:06 - Modèles/Modèle - Veille IA.md",
+    "RAG:tests/fixtures/graphify/graph.json",
+    "RAG:rag/cli.py",
+    "RAG:tests/conftest.py"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 1.0,
+   "ndcg10": 1.0,
+   "latence_ms": 404.0,
+   "meilleur_cosinus": 0.6998361897698281,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "symbole-lanceur-conteneurs",
+   "nature": "factuel",
+   "obtenus": [
+    "AI:docs/superpowers/plans/2026-11-14-portail-i-agents-conteneurs.md",
+    "AI:README.md",
+    "coffre-maison:02 - Domaines/Travail/Note techno - Agent Skills d'Anthropic.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-20.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Agent musique (agent-musique).md",
+    "AI:docs/superpowers/specs/2026-11-14-portail-f-i-ameliorations-design.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 538.5,
+   "meilleur_cosinus": 0.6775705925759034,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "fichier-alertes-portail",
+   "nature": "factuel",
+   "obtenus": [
+    "AI:docs/superpowers/plans/2026-11-14-portail-g-monitoring.md",
+    "coffre-maison:01 - Projets/AI/Portail - AI factory doc.md",
+    "AI:deploy/grafana/alertes-portail.yml",
+    "coffre-maison:01 - Projets/AI/Délais LLM du Portail.md",
+    "coffre-maison:01 - Projets/AI/Ordonnanceur du Portail - GitHub App.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 0.3333333333333333,
+   "ndcg10": 0.5,
+   "latence_ms": 477.3,
+   "meilleur_cosinus": 0.8153909244015792,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "nginx-portail",
+   "nature": "factuel",
+   "obtenus": [
+    "coffre-maison:01 - Projets/AI/Portail - AI factory doc.md",
+    "Infra:nginx/conf.d/portail.conf",
+    "AI:deploy/nginx/portail.conf",
+    "coffre-maison:01 - Projets/AI/Délais LLM du Portail.md",
+    "coffre-maison:01 - Projets/AI/Portail — chat avec agent-musique.md"
+   ],
+   "rappel5": 1.0,
+   "rappel10": 1.0,
+   "mrr": 0.3333333333333333,
+   "ndcg10": 0.5,
+   "latence_ms": 491.9,
+   "meilleur_cosinus": 0.6593080513630349,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "agents-du-portail",
+   "nature": "lister",
+   "obtenus": [
+    "AI:docs/superpowers/plans/2026-11-14-portail-i-agents-conteneurs.md",
+    "AI:deploy/portainer-stack.yml",
+    "coffre-maison:01 - Projets/AI/Portail — chat avec agent-musique.md",
+    "coffre-maison:01 - Projets/AI/Portail - agent plan qui relit en boucle.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 399.8,
+   "meilleur_cosinus": 0.6527794525595203,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sans-reponse-kubernetes-ai",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:01 - Projets/AI/Ordonnanceur du Portail - GitHub App.md",
+    "AI:deploy/portainer-stack.yml",
+    "AI:docs/superpowers/plans/2026-11-14-portail-g-monitoring.md",
+    "coffre-maison:01 - Projets/AI/Portail - AI factory doc.md",
+    "coffre-maison:01 - Projets/AI/Délais LLM du Portail.md",
+    "AI:docs/superpowers/plans/2026-11-14-portail-c-boucle-dev.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 469.8,
+   "meilleur_cosinus": 0.546300269886989,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sans-reponse-terraform-infra",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-08.md",
+    "coffre-maison:01 - Projets/AI/AI - Documentation.md",
+    "infrastructure:Makefile",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-13.md",
+    "coffre-maison:03 - Ressources/Veille IA/2026-11-12.md",
+    "coffre-maison:01 - Projets/Heaven/Heaven.md",
+    "coffre-maison:03 - Ressources/Veille IA/Semaine 2026-11-22.md",
+    "coffre-maison:01 - Projets/Infra/Infra - LiteLLM image unifiée.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 570.8,
+   "meilleur_cosinus": 0.5681264225331374,
+   "meilleur_rerank": null
+  },
+  {
+   "id": "sans-reponse-graphql-jarvis",
+   "nature": "sans_reponse",
+   "obtenus": [
+    "Jarvis:README.md",
+    "RAG:docs/superpowers/specs/2026-11-21-jarvis-sans-rag-design.md",
+    "Jarvis:docker-compose.yml",
+    "coffre-maison:01 - Projets/AI/AI.md",
+    "coffre-maison:01 - Projets/Infra/Infra - Fusion dashboards Agents et LiteLLM.md",
+    "Infra:monitoring/grafana/provisioning/dashboards/json/jarvis.json",
+    "EA:frontend/tests/support/api.ts",
+    "Infra:docs/superpowers/plans/2026-09-13-portainer-native-stack.md"
+   ],
+   "rappel5": 0.0,
+   "rappel10": 0.0,
+   "mrr": 0.0,
+   "ndcg10": 0.0,
+   "latence_ms": 429.0,
+   "meilleur_cosinus": 0.611259682590574,
+   "meilleur_rerank": null
+  }
+ ],
+ "resume": {
+  "rappel5": 0.7629,
+  "rappel10": 0.781,
+  "mrr": 0.8623,
+  "ndcg10": 0.7524,
+  "latence_p50_ms": 437.5,
+  "latence_p95_ms": 579.9,
+  "n": 46
+ },
+ "par_nature": {
+  "factuel": {
+   "n": 23,
+   "rappel5": 0.913,
+   "rappel10": 0.913,
+   "mrr": 0.8406,
+   "ndcg10": 0.8443
+  },
+  "lister": {
+   "n": 12,
+   "rappel5": 0.6048,
+   "rappel10": 0.6465,
+   "mrr": 0.7778,
+   "ndcg10": 0.6234
+  },
+  "sans_reponse": {
+   "n": 18,
+   "cosinus_moyen": 0.4991
+  },
+  "synthetiser": {
+   "n": 11,
+   "rappel5": 0.6212,
+   "rappel10": 0.6515,
+   "mrr": 1.0,
+   "ndcg10": 0.701
+  }
+ }
+}
