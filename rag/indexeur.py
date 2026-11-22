@@ -170,6 +170,24 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
 
     repos = timedelta(minutes=source.repos_minutes)
     exclus_en_passe = set()  # exclus à la main pendant la passe
+
+    def exclu_en_passe(chemin, e, ex) -> bool:
+        """Relit les motifs manuels ; si le chemin vient d'être exclu, le retire et valide."""
+        if not correspond(chemin, motifs_manuels(conn, source.nom)):
+            return False
+        if ex:
+            conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
+        conn.execute(
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
+               VALUES (%s, %s, %s, %s, 'manuelle', false)
+               ON CONFLICT (source_id, chemin) DO UPDATE
+               SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                   raison = EXCLUDED.raison, lu = false""",
+            (source_id, chemin, e.signature, emp))
+        conn.commit()
+        exclus_en_passe.add(chemin)
+        return True
+
     for chemin, e in sorted(entrees.items()):
         ex = existants.get(chemin)
         try:
@@ -181,6 +199,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 continue
             if not sans_repos and source.repos_minutes and e.modifie_le > maintenant - repos:
                 bilan.reportes += 1
+                continue
+            if exclu_en_passe(chemin, e, ex):  # exclu depuis le listage : jamais lu
                 continue
             contenu = lecteur.lire(chemin)
             if raison := motif_exclusion(chemin, contenu, source.exclure):
@@ -206,18 +226,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             note, ms = _morceaux(source, chemin, contenu, conf)
             vec_de = _vecteurs(ms, conf, modeles)
             # relu après les embeddings (longs), dans la transaction de l'écriture
-            if correspond(chemin, motifs_manuels(conn, source.nom)):  # exclu pendant la passe
-                if ex:
-                    conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
-                conn.execute(
-                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
-                       VALUES (%s, %s, %s, %s, 'manuelle', false)
-                       ON CONFLICT (source_id, chemin) DO UPDATE
-                       SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                           raison = EXCLUDED.raison, lu = false""",
-                    (source_id, chemin, e.signature, emp))
-                conn.commit()
-                exclus_en_passe.add(chemin)
+            if exclu_en_passe(chemin, e, ex):
                 continue
             conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
                          (source_id, chemin))

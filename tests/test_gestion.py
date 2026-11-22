@@ -120,6 +120,31 @@ def test_exclusion_pendant_la_passe_retire_le_document_existant(bd, index, faux_
     assert raisons(bd)[chemin] == ("manuelle", False)
 
 
+def test_exclusion_apres_le_listage_jamais_lue_ni_vectorisee(bd, index, faux_modeles):
+    premiere, suivante = "04 - Archives/A.md", "04 - Archives/B.md"
+    (index.coffre / "04 - Archives").mkdir()
+    (index.coffre / premiere).write_text("# A\n\nPremière note.\n")
+    (index.coffre / suivante).write_text("# B\n\nContenu confidentiel zanzibar.\n")
+    lus, textes = [], []
+    lec = LecteurDossier(index.coffre)
+    lire = lec.lire
+
+    def lire_et_exclure(c):
+        lus.append(c)
+        if c == premiere:  # B est déjà listée ; son exclusion arrive pendant la passe
+            with connexion(URL) as autre:
+                exclure_a_la_main(autre, "coffre-maison", suivante)
+        return lire(c)
+
+    lec.lire = lire_et_exclure
+    embed = faux_modeles.embed_documents
+    faux_modeles.embed_documents = lambda t, m: textes.extend(t) or embed(t, m)
+    b = reindexer_coffre(bd, index, faux_modeles, lec)
+    assert suivante not in lus and not any("zanzibar" in t for t in textes)
+    assert b.nouveaux == 1 and suivante not in chemins(bd)
+    assert raisons(bd)[suivante] == ("manuelle", False)
+
+
 def test_chemin_exact_avec_crochets_exclu(bd, index, faux_modeles):
     chemin = "Notes/[2024] bilan.md"
     (index.coffre / chemin).parent.mkdir(parents=True)
