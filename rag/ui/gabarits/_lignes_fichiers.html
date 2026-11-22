@@ -1,0 +1,45 @@
+{# Tableau des fichiers et pagination ; renvoyé seul pour le filtre en direct (htmx). #}
+{% set nom = liste.source %}
+{% if liste.fichiers %}
+<div class="defilement">
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Chemin</th><th scope="col">État</th><th scope="col">Titre</th>
+      <th scope="col">Type</th><th scope="col" class="nombre">Morceaux</th>
+      <th scope="col">Modifié le</th>{% if ecrivain %}<th scope="col">Action</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in liste.fichiers %}
+    <tr>
+      <th scope="row">
+        {%- if f.etat == "indexe" -%}
+        <a href="/ui/sources/{{ nom | urlencode }}/fichier?chemin={{ f.chemin | en_requete }}">{{ f.chemin }}</a>
+        {%- else %}{{ f.chemin }}{% endif -%}
+      </th>
+      <td>{% if f.etat == "indexe" %}indexé{% else %}<span class="etiquette">exclu : {{ f.raison }}</span>{% endif %}</td>
+      <td>{{ f.titre or "—" }}</td>
+      <td>{{ f.type or "—" }}</td>
+      <td class="nombre">{{ f.morceaux }}</td>
+      <td>{% if f.modifie_le %}{{ f.modifie_le.strftime("%Y-%m-%d %H:%M") }}{% else %}—{% endif %}</td>
+      {% if ecrivain %}<td>{% if f.etat == "indexe" %}<button type="button" class="secondaire"
+          hx-post="/ui/exclusions/apercu" hx-vals='{{ {"source": nom, "motif": f.chemin, "origine": "fichiers"} | tojson }}'
+          hx-target="#apercu" hx-swap="innerHTML">Exclure</button>{% else %}—{% endif %}</td>{% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p>Aucun fichier ne correspond.</p>
+{% endif %}
+<p class="aide">{{ liste.total }} fichier{{ "s" if liste.total > 1 }}
+{%- if liste.pages > 1 %} · page {{ liste.page }} sur {{ liste.pages }}{% endif %}</p>
+{% if liste.pages > 1 %}
+<p class="pagination">
+  {% set base = "/ui/sources/" ~ (nom | urlencode) ~ "?" ~ (requete ~ "&" if requete else "") %}
+  {% if liste.page > 1 %}<a href="{{ base }}page={{ liste.page - 1 }}" hx-get="{{ base }}page={{ liste.page - 1 }}" hx-target="#resultats" hx-push-url="true">Précédente</a>{% endif %}
+  {% if liste.page < liste.pages %}<a href="{{ base }}page={{ liste.page + 1 }}" hx-get="{{ base }}page={{ liste.page + 1 }}" hx-target="#resultats" hx-push-url="true">Suivante</a>{% endif %}
+</p>
+{% endif %}

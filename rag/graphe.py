@@ -13,7 +13,9 @@ from pathlib import Path
 import psycopg
 
 from rag.exclusions import motif_exclusion
+from rag.gestion import correspond, motifs_manuels, verrouiller_source
 from rag.recherche import lien_source, normaliser
+from rag.sources import nfc
 
 log = logging.getLogger(__name__)
 
@@ -64,8 +66,11 @@ def _copier_sans_exclus(clone: Path, dest: Path, exclure: list[str]) -> None:
         rel = p.relative_to(clone)
         if rel.parts[0] == ".git" or p.is_symlink() or not p.is_file():
             continue
+        chemin = nfc(rel.as_posix())  # les chemins indexés et les motifs sont en NFC
+        if correspond(chemin, exclure):
+            continue
         contenu = p.read_bytes()
-        if motif_exclusion(rel.as_posix(), contenu, exclure) is None:
+        if motif_exclusion(chemin, contenu, exclure) is None:
             (dest / rel).parent.mkdir(parents=True, exist_ok=True)
             (dest / rel).write_bytes(contenu)
 
@@ -100,8 +105,11 @@ def extraire_structure(clone: Path, travail: Path, delai_s: int = 600, *,
 def charger_graphe(conn, source_nom: str, graphe: dict, origine: str = "structure"
                    ) -> tuple[int, int]:
     """Remplace les liens de `origine` partant de la source. Un lien peut viser un nœud d'une
-    autre source par `vers_id`."""
+    autre source par `vers_id`. Sous le verrou de la source ; les nœuds d'un fichier exclu à la
+    main entre-temps (graphify a pu tourner avant) sont écartés, avec leurs liens."""
     with conn.transaction():
+        verrouiller_source(conn, source_nom)
+        motifs = motifs_manuels(conn, source_nom)
         sid = conn.execute("SELECT id FROM sources WHERE nom = %s", (source_nom,)
                            ).fetchone()["id"]
         conn.execute("""DELETE FROM liens l USING noeuds n
@@ -109,6 +117,8 @@ def charger_graphe(conn, source_nom: str, graphe: dict, origine: str = "structur
                      (sid, origine))
         ids = {}
         for n in graphe["noeuds"]:
+            if n.get("fichier") and correspond(n["fichier"], motifs):
+                continue
             ids[n["cle"]] = conn.execute(
                 """INSERT INTO noeuds (source_id, cle, libelle, libelle_norm, type, communaute,
                                        document_id, ligne)
@@ -159,6 +169,12 @@ def _resoudre(cible: str, origine: str, par_chemin: dict, par_titre: dict, par_a
 
 
 def charger_wikiliens(conn, source_nom: str) -> tuple[int, int, int]:
+    with conn.transaction():  # notes relues et nœuds écrits sous le verrou de la source
+        verrouiller_source(conn, source_nom)
+        return _charger_wikiliens(conn, source_nom)
+
+
+def _charger_wikiliens(conn, source_nom: str) -> tuple[int, int, int]:
     docs = conn.execute(
         """SELECT d.chemin, d.titre, d.alias, d.liens_sortants FROM documents d
              JOIN sources s ON s.id = d.source_id WHERE s.nom = %s ORDER BY d.chemin""",
@@ -197,9 +213,11 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
     try:
         if source.type == "obsidian":
             n, l, non = charger_wikiliens(conn, source.nom)
+            conn.commit()  # lâche le verrou de la source si une transaction était déjà ouverte
             return f"graphe : {n} nœuds, {l} liens, {non} cibles non résolues"
         r = conn.execute("SELECT revision, graphe_revision FROM sources WHERE nom = %s",
                          (source.nom,)).fetchone()
+        motifs = motifs_manuels(conn, source.nom)
         conn.commit()
         if r is None or not r["revision"]:
             return "graphe : source pas encore indexée"
@@ -207,7 +225,7 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
             return "graphe : à jour"
         travail = Path(reglages.donnees_dir) / "graphe" / source.nom
         g = extraire_structure(lecteur.dest, travail, commande=reglages.graphify_commande,
-                               exclure=source.exclure)
+                               exclure=[*source.exclure, *motifs])
         n, l = charger_graphe(conn, source.nom, g)
         conn.execute("UPDATE sources SET graphe_revision = revision WHERE nom = %s",
                      (source.nom,))

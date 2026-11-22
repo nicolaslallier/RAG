@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_macros.html" import ligne_source %}
+{% block titre %}Sources{% endblock %}
+{% block contenu %}
+<h1>Sources</h1>
+<p class="aide">{% if en_cours %}Passe en cours : {{ en_cours.genre }}, depuis le {{ en_cours.debut.strftime("%Y-%m-%d %H:%M") }}.{% else %}Aucune passe en cours.{% endif %}</p>
+{% if not ecrivain %}<p class="aide">Lecture seule : la gestion de l'index demande le jeton privé.</p>{% endif %}
+{% if sources %}
+<div class="defilement">
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Source</th><th scope="col">Type</th><th scope="col">Visibilité</th>
+      <th scope="col">Révision</th><th scope="col">Indexée le</th>
+      <th scope="col" class="nombre">Documents</th>
+      <th scope="col" class="nombre">Exclus (auto)</th>
+      <th scope="col" class="nombre">Exclus (manuels)</th>
+      <th scope="col">Réindexation</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in sources %}{{ ligne_source(s, ecrivain) }}{% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p>Aucune source visible.</p>
+{% endif %}
+<p class="aide">Version de l'index : {% if version is not none %}{{ version }}{% else %}aucune{% endif %}</p>
+{% endblock %}

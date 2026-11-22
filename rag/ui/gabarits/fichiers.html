@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titre %}Fichiers de {{ liste.source }}{% endblock %}
+{% block contenu %}
+<h1>Fichiers de {{ liste.source }}</h1>
+<form class="filtres" method="get" action="/ui/sources/{{ liste.source | urlencode }}"
+      hx-get="/ui/sources/{{ liste.source | urlencode }}" hx-target="#resultats" hx-push-url="true"
+      hx-trigger="input changed delay:300ms from:find input, change from:find select">
+  <label for="contient">Chemin contenant</label>
+  <input id="contient" type="search" name="contient" value="{{ contient }}" autocomplete="off">
+  <label for="etat">État</label>
+  <select id="etat" name="etat">
+    <option value="">Tous</option>
+    <option value="indexe"{% if etat == "indexe" %} selected{% endif %}>Indexés</option>
+    <option value="exclu_auto"{% if etat == "exclu_auto" %} selected{% endif %}>Exclus (auto)</option>
+    <option value="exclu_manuel"{% if etat == "exclu_manuel" %} selected{% endif %}>Exclus (manuels)</option>
+  </select>
+  <button type="submit" class="secondaire">Filtrer</button>
+</form>
+<div id="apercu" aria-live="polite"></div>
+<div id="resultats">
+{% include "_lignes_fichiers.html" %}
+</div>
+{% endblock %}

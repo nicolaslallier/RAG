@@ -1,0 +1,20 @@
+{# Une ligne de l'écran Sources ; renvoyée seule après « Réindexer » (hx-swap outerHTML). #}
+{% macro ligne_source(s, ecrivain) -%}
+<tr>
+  <th scope="row"><a href="/ui/sources/{{ s.nom | urlencode }}">{{ s.nom }}</a></th>
+  <td>{{ s.type }}</td>
+  <td>{{ s.visibilite }}</td>
+  <td>{% if s.revision %}<code title="{{ s.revision }}">{{ s.revision[:19] }}</code>{% else %}—{% endif %}</td>
+  <td>{% if s.indexe_le %}{{ s.indexe_le.strftime("%Y-%m-%d %H:%M") }}{% else %}jamais{% endif %}</td>
+  <td class="nombre">{{ s.documents }}</td>
+  <td class="nombre">{{ s.exclus_auto }}</td>
+  <td class="nombre">{{ s.exclus_manuels }}</td>
+  <td>
+    {%- if s.demande_en_attente %}<span class="etiquette">en attente</span>
+    {%- elif ecrivain %}<button type="button" class="secondaire"
+        hx-post="/ui/sources/{{ s.nom | urlencode }}/reindexer"
+        hx-target="closest tr" hx-swap="outerHTML">Réindexer</button>
+    {%- else %}—{% endif -%}
+  </td>
+</tr>
+{%- endmacro %}

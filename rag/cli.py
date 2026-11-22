@@ -1,9 +1,10 @@
-"""CLI `rag` : migrer, indexer, chercher, servir."""
+"""CLI `rag` : migrer, indexer, chercher, servir, exclusions."""
 
 import argparse
 import sys
 import time
 from dataclasses import asdict
+from pathlib import Path
 
 from rag.banc.execution import ajouter_cli_banc, commande_banc
 from rag.config import PUBLIC, TOUT, Reglages, charger_config, empreinte_indexation
@@ -159,6 +160,29 @@ def _question_cli(conn, a, config, modeles, reglages, v) -> int:
     return 0
 
 
+def _exclusions_cli(conn, a) -> int:
+    from rag.gestion import MotifInvalide, exporter, importer
+    if a.action == "exporter":
+        print(exporter(conn), end="")
+        return 0
+    try:
+        texte = Path(a.fichier).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        print("fichier illisible, rien d'importé : UTF-8 attendu", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"fichier illisible, rien d'importé : {e.strerror or e}", file=sys.stderr)
+        return 1
+    try:
+        r = importer(conn, texte)
+    except MotifInvalide as e:
+        print(f"fichier invalide, rien d'importé : {e}", file=sys.stderr)
+        return 1
+    print(f"{r['ajoutees']} ajoutée(s), {r['ignorees']} ignorée(s), "
+          f"{r['retires']} document(s) retiré(s)", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="rag")
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -196,6 +220,9 @@ def main(argv: list[str] | None = None) -> int:
     pgs.add_argument("--source")
     pgs.add_argument("--max", type=int)
     sp.add_parser("servir")
+    pexc = sp.add_parser("exclusions").add_subparsers(dest="action", required=True)
+    pexc.add_parser("exporter")
+    pexc.add_parser("importer").add_argument("fichier")
     sp.add_parser("travailleur")
     for nom in ("question", "lister", "repondre"):
         pq = sp.add_parser(nom)
@@ -247,6 +274,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "migrer":
             print("\n".join(migrer(conn)) or "rien à migrer")
             return 0
+        if a.cmd == "exclusions":
+            return _exclusions_cli(conn, a)
         modeles = modeles_depuis(reglages)
         if a.cmd == "indexer":
             return _indexer(conn, reglages, config, modeles, a.source, a.complet, a.forcer)

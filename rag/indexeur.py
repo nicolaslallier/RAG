@@ -10,6 +10,7 @@ from rag.config import IndexationConf, SourceConf, empreinte_indexation
 from rag.decoupage import Morceau, decouper_note
 from rag.decoupage_code import decouper_code, langage
 from rag.exclusions import motif_exclusion
+from rag.gestion import correspond, motifs_manuels, verrouiller_source
 from rag.notes import Note, analyser_note
 from rag.recherche import normaliser, vecteur_sql
 from rag.sources import nfc
@@ -57,7 +58,15 @@ def _morceaux(source: SourceConf, chemin: str, contenu: bytes, conf: IndexationC
     return note, ms
 
 
-def _ecrire(conn, source_id, chemin, e, sha, note, ms, conf, v, modeles, existant) -> int:
+def _vecteurs(ms, conf: IndexationConf, modeles) -> dict[int, str]:
+    """Embeddings des morceaux cherchables, par ordre ; calculés avant toute écriture."""
+    cherchables = [m for m in ms if m.cherchable]
+    vecs = modeles.embed_documents([f"{m.fil}\n\n{m.texte}" for m in cherchables],
+                                   conf.modele_embedding) if cherchables else []
+    return {m.ordre: vecteur_sql(x) for m, x in zip(cherchables, vecs, strict=True)}
+
+
+def _ecrire(conn, source_id, chemin, e, sha, note, ms, v, vec_de, existant) -> int:
     titre_norm = normaliser(" ".join([note.titre, *note.alias]))
     doc_id = conn.execute(
         """INSERT INTO documents (source_id, chemin, titre, titre_norm, alias, tags, type, origine,
@@ -77,10 +86,6 @@ def _ecrire(conn, source_id, chemin, e, sha, note, ms, conf, v, modeles, existan
         conn.execute("DELETE FROM morceaux WHERE document_id = %s", (doc_id,))
     else:
         conn.execute("DELETE FROM morceaux WHERE document_id = %s AND version_id = %s", (doc_id, v))
-    cherchables = [m for m in ms if m.cherchable]
-    vecs = modeles.embed_documents([f"{m.fil}\n\n{m.texte}" for m in cherchables],
-                                   conf.modele_embedding) if cherchables else []
-    vec_de = {m.ordre: vecteur_sql(x) for m, x in zip(cherchables, vecs, strict=True)}
     tags = " ".join(note.tags)
     ids: dict[int, int] = {}
     for m in ms:
@@ -113,19 +118,26 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     ).fetchone()["id"]
     conn.commit()
     v = version_courante(conn, conf)
+    motifs = motifs_manuels(conn, source.nom)
+    conn.commit()
 
     entrees = {}
+    exclus_listage = {}  # chemin -> (entrée, raison) : écartés sur le nom, jamais lus
     for e in lecteur.lister():
         chemin = nfc(e.chemin)
         if source.type == "obsidian" and not chemin.endswith(".md"):
             continue  # pièces jointes, .gitignore, .DS_Store : hors coffre de notes
         raison = motif_exclusion(chemin, b"", source.exclure)
+        if raison is None and correspond(chemin, motifs):
+            raison = "manuelle"
         if raison is None and e.taille > 10 * conf.taille_max_octets:
             raison = "trop_gros"  # jamais lu : un blob géant ne passe pas en mémoire
             log.warning("%s : %s exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
         if raison is None:
             entrees[chemin] = e
-        elif raison != "config":
+            continue
+        exclus_listage[chemin] = (e, raison)
+        if raison not in ("config", "manuelle"):
             bilan.exclus += 1  # secret, verrou, généré : exclus sur le nom, jamais lus
     existants = {
         r["chemin"]: r for r in conn.execute(
@@ -136,16 +148,47 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     }
     emp = empreinte_indexation(conf)
     deja_exclus = {r["chemin"]: r["signature"] for r in conn.execute(
-        "SELECT chemin, signature FROM exclus WHERE source_id = %s AND empreinte = %s",
+        "SELECT chemin, signature FROM exclus WHERE source_id = %s AND empreinte = %s AND lu",
         (source_id, emp))}
     absents = existants.keys() - entrees.keys()
-    if not forcer and (not entrees or len(absents) > len(existants) / 2):
+    # exclus à la main : voulus, ils ne trahissent pas un listage partiel
+    manuels = {c for c, (_, raison) in exclus_listage.items() if raison == "manuelle"}
+    manquants = absents - manuels
+    if not forcer and ((not entrees and not manuels) or len(manquants) > len(existants) / 2):
         conn.rollback()
         raise CoffrePartielError(
-            f"{source.nom} : listage de {len(entrees)} entrées, {len(absents)} documents "
+            f"{source.nom} : listage de {len(entrees)} entrées, {len(manquants)} documents "
             f"sur {len(existants)} absents ; relancer avec forcer pour confirmer")
 
+    for chemin, (e, raison) in exclus_listage.items():
+        conn.execute(
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
+               VALUES (%s, %s, %s, %s, %s, false) ON CONFLICT (source_id, chemin) DO UPDATE
+               SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                   raison = EXCLUDED.raison, lu = false""",
+            (source_id, chemin, e.signature, emp, raison))
+    conn.commit()  # pas de verrou de ligne sur `exclus` pendant le travail lent qui suit
+
     repos = timedelta(minutes=source.repos_minutes)
+    exclus_en_passe = set()  # exclus à la main pendant la passe
+
+    def exclu_en_passe(chemin, e, ex) -> bool:
+        """Relit les motifs manuels ; si le chemin vient d'être exclu, le retire et valide."""
+        if not correspond(chemin, motifs_manuels(conn, source.nom)):
+            return False
+        if ex:
+            conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
+        conn.execute(
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
+               VALUES (%s, %s, %s, %s, 'manuelle', false)
+               ON CONFLICT (source_id, chemin) DO UPDATE
+               SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                   raison = EXCLUDED.raison, lu = false""",
+            (source_id, chemin, e.signature, emp))
+        conn.commit()
+        exclus_en_passe.add(chemin)
+        return True
+
     for chemin, e in sorted(entrees.items()):
         ex = existants.get(chemin)
         try:
@@ -158,16 +201,18 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             if not sans_repos and source.repos_minutes and e.modifie_le > maintenant - repos:
                 bilan.reportes += 1
                 continue
+            if exclu_en_passe(chemin, e, ex):  # exclu depuis le listage : jamais lu
+                continue
             contenu = lecteur.lire(chemin)
             if raison := motif_exclusion(chemin, contenu, source.exclure):
                 log.warning("%s : %s exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
                 conn.execute(
-                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison)
-                       VALUES (%s, %s, %s, %s, %s) ON CONFLICT (source_id, chemin) DO UPDATE
+                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
+                       VALUES (%s, %s, %s, %s, %s, true) ON CONFLICT (source_id, chemin) DO UPDATE
                        SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                           raison = EXCLUDED.raison""",
+                           raison = EXCLUDED.raison, lu = true""",
                     (source_id, chemin, e.signature, emp, raison))
                 conn.commit()
                 bilan.exclus += 1
@@ -179,11 +224,17 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 conn.commit()
                 bilan.inchanges += 1
                 continue
+            note, ms = _morceaux(source, chemin, contenu, conf)
+            vec_de = _vecteurs(ms, conf, modeles)
+            # relu après les embeddings (longs), dans la transaction de l'écriture, sous le
+            # verrou de la source : une exclusion validée entre-temps est vue, une exclusion
+            # qui arrive attend le commit puis retire le document écrit
+            verrouiller_source(conn, source.nom)
+            if exclu_en_passe(chemin, e, ex):
+                continue
             conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
                          (source_id, chemin))
-            note, ms = _morceaux(source, chemin, contenu, conf)
-            bilan.morceaux += _ecrire(conn, source_id, chemin, e, sha, note, ms, conf, v,
-                                      modeles, ex)
+            bilan.morceaux += _ecrire(conn, source_id, chemin, e, sha, note, ms, v, vec_de, ex)
             conn.commit()
             if ex:
                 bilan.modifies += 1
@@ -193,8 +244,17 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             conn.rollback()
             raise
 
-    conn.execute("DELETE FROM exclus WHERE source_id = %s AND NOT (chemin = ANY(%s))",
-                 (source_id, list(entrees)))
+    # oublie les fichiers disparus du listage, et les exclusions sur le nom levées depuis ; garde
+    # les exclusions manuelles posées pendant la passe (motif encore en base)
+    motifs = motifs_manuels(conn, source.nom)
+    manuelles = [r["chemin"] for r in conn.execute(
+        "SELECT chemin FROM exclus WHERE source_id = %s AND raison = 'manuelle'", (source_id,))
+        if correspond(r["chemin"], motifs)]
+    conn.execute(
+        """DELETE FROM exclus WHERE source_id = %s
+             AND (NOT (chemin = ANY(%s)) OR (NOT lu AND NOT (chemin = ANY(%s))))""",
+        (source_id, [*entrees, *exclus_listage],
+         [*exclus_listage, *exclus_en_passe, *manuelles]))
     for chemin in absents:
         conn.execute("DELETE FROM documents WHERE id = %s", (existants[chemin]["id"],))
         bilan.supprimes += 1

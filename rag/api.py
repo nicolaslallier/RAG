@@ -11,10 +11,13 @@ from types import SimpleNamespace
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.routing import Route
 
+from rag import gestion
 from rag.aiguillage import aiguiller, sources_citees
 from rag.config import (
     LIMITE_MAX,
@@ -35,6 +38,7 @@ from rag.modeles import ErreurModele, modeles_depuis
 from rag.recherche import Filtres, chercher
 from rag.reponse import repondre, repondre_flux
 from rag.rerank import reranker_depuis
+from rag.ui import STATIQUE, routeur_ui, validation_sans_cache
 
 log = logging.getLogger("rag.api")
 
@@ -115,7 +119,11 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
         lister=lambda q, f, n: _question_lister(q, f, n),
         repondre=lambda q, n: _repondre_simple(q, n),
         chemin=lambda de, vers, n: _avec_conn(chemin, de, vers, niveaux=n),
-        expliquer=lambda nom, n: _avec_conn(expliquer, nom, niveaux=n)))
+        expliquer=lambda nom, n: _avec_conn(expliquer, nom, niveaux=n),
+        sources=lambda n: _avec_conn(lambda c: {"sources": gestion.sources(c, niveaux=n),
+                                                "en_cours": gestion.passe_en_cours(c)}),
+        fichiers=lambda source, e, contient, page, n: _avec_conn(
+            gestion.fichiers, source, niveaux=n, etat=e, contient=contient, page=page)))
     mcp_asgi = mcp.streamable_http_app().routes[0].endpoint
 
     @asynccontextmanager
@@ -209,12 +217,7 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
     def route_reindexer(d: DemandeReindexer):
         with connexion(reglages.database_url) as conn:
             # Un compte seulement, et pas de 404 : ni liste ni oracle des noms de sources.
-            n = conn.execute(
-                "UPDATE sources SET demande_le = now() WHERE %(s)s::text IS NULL OR nom = %(s)s",
-                {"s": d.source}).rowcount
-            conn.execute("NOTIFY rag_reindexer")
-            conn.commit()
-        return {"demande": n}
+            return {"demande": gestion.demander_reindexation(conn, d.source)}
 
     @app.get("/etat")
     def route_etat(niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
@@ -225,8 +228,7 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                           s.demande_le IS NOT NULL AS demande_en_attente
                      FROM sources s WHERE s.visibilite = ANY(%s) ORDER BY s.nom""",
                 (sorted(niveaux),)).fetchall()
-            en_cours = conn.execute("SELECT genre, debut FROM passes WHERE fin IS NULL "
-                                    "ORDER BY debut DESC LIMIT 1").fetchone()
+            en_cours = gestion.passe_en_cours(conn)
             nuit = conn.execute("SELECT debut, fin, ok, bilan FROM passes WHERE genre = "
                                 "'nocturne' AND fin IS NOT NULL ORDER BY debut DESC LIMIT 1"
                                 ).fetchone()
@@ -237,6 +239,17 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                                  else v)
                              for k, v in nuit["bilan"].items() if k not in caches}
         return {"sources": sources, "en_cours": en_cours, "derniere_nocturne": nuit}
+
+    app.include_router(routeur_ui(
+        niveaux_de=niveaux_de, ecriture_possible=bool(reglages.jeton_prive),
+        database_url=reglages.database_url,
+        version_id=lambda: _avec_conn(version_id, empreinte)))
+    app.add_exception_handler(RequestValidationError, validation_sans_cache)
+    app.mount("/ui/statique", StaticFiles(directory=STATIQUE), name="ui_statique")
+
+    @app.get("/", include_in_schema=False)
+    def racine():
+        return RedirectResponse("/ui/", status_code=307)
 
     @app.get("/sante")
     def sante():
