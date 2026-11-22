@@ -549,3 +549,27 @@ def test_import_de_milliers_de_sources_inconnues_sans_verrou(bd, index, monkeypa
     t += "- {source: coffre-maison, motif: Accueil.md}\n"
     assert importer(bd, t) == {"ajoutees": 2001, "ignorees": 0, "retires": 1}
     assert verrous == ["coffre-maison"]
+
+
+def test_import_ne_retire_rien_d_une_source_apparue_sans_verrou(bd, index, monkeypatch):
+    # une source créée entre la prise des verrous et le retrait n'est pas verrouillée : son motif
+    # est gardé (l'indexeur l'appliquera), mais aucun document n'est retiré hors verrou
+    import rag.gestion
+    retraits, retirer = [], rag.gestion._retirer_documents
+    monkeypatch.setattr(rag.gestion, "_retirer_documents",
+                        lambda conn, sid, motif: retraits.append(sid) or retirer(conn, sid, motif))
+    verrouiller = rag.gestion.verrouiller_source
+
+    def verrouiller_puis_creer(conn, s):
+        verrouiller(conn, s)
+        with connexion(URL) as autre:  # la source « neuve » apparaît pendant l'import
+            autre.execute("INSERT INTO sources (nom, type, emplacement) "
+                          "VALUES ('neuve', 'obsidian', 'x') ON CONFLICT DO NOTHING")
+            autre.commit()
+    monkeypatch.setattr(rag.gestion, "verrouiller_source", verrouiller_puis_creer)
+    t = "- {source: coffre-maison, motif: Accueil.md}\n- {source: neuve, motif: '*'}\n"
+    assert importer(bd, t) == {"ajoutees": 2, "ignorees": 0, "retires": 1}
+    sid = bd.execute("SELECT id FROM sources WHERE nom = 'coffre-maison'").fetchone()["id"]
+    assert retraits == [sid]
+    assert {(e["source"], e["motif"]) for e in exclusions(bd)} == {
+        ("coffre-maison", "Accueil.md"), ("neuve", "*")}

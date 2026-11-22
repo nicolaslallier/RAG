@@ -120,7 +120,7 @@ CREATE TABLE exclusions_manuelles (
 ### MCP
 
 Deux outils ajoutés à `rag/mcp_serveur.py`, en lecture, mêmes niveaux que le jeton :
-- `rag_sources()` : la liste de l'écran Sources (JSON).
+- `rag_sources()` : l'écran Sources en JSON, `{"sources": [...], "en_cours": {genre, debut} | null}` (passe en cours ajoutée à la revue finale).
 - `rag_fichiers(source, etat=None, contient=None, page=1)` : la liste de l'écran Fichiers ; `etat` ∈ `indexe | exclu_auto | exclu_manuel`.
 
 Ils passent par la route MCP existante (LiteLLM `mcp_servers.rag`) ; rien ne change côté Infra.

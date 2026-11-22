@@ -320,11 +320,14 @@ def importer(conn, texte: str) -> dict:
         # verrous rempliraient la table partagée), dans le même ordre : pas d'interblocage
         connues = conn.execute("SELECT nom FROM sources WHERE nom = ANY(%s) ORDER BY nom",
                                (sorted({source for source, _, _ in lignes}),)).fetchall()
-        for r in connues:
-            verrouiller_source(conn, r["nom"])
+        verrouillees = {r["nom"] for r in connues}
+        for nom in sorted(verrouillees):
+            verrouiller_source(conn, nom)
         for source, motif, raison in lignes:
             ajoutees += _inserer(conn, source, motif, raison)
-            if s := _source(conn, source):
+            # retrait sous verrou seulement : une source apparue depuis garde son motif, que
+            # l'indexeur applique au listage et avant chaque écriture
+            if source in verrouillees and (s := _source(conn, source)):
                 retires += _retirer_documents(conn, s["id"], motif)
         conn.commit()
     except BaseException:
