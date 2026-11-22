@@ -229,6 +229,19 @@ def test_detail_par_le_lien_de_la_liste(client, index):
     assert r.headers["cache-control"] == "no-store"
 
 
+def test_detail_affiche_le_frontmatter_echappe(client, index, bd):
+    bd.execute("""UPDATE documents SET frontmatter = %s WHERE chemin = %s""",
+               ('{"type": "recette", "tags": ["recette", "boeuf"], "note": "<b>gras</b>", '
+                '"portions": 4}', PATE))
+    bd.commit()
+    connecter(client, "pub")
+    r = client.get(lien("coffre-maison", PATE))
+    assert r.status_code == 200 and "<dt>Frontmatter</dt>" in r.text
+    assert "<code>tags</code> : recette, boeuf" in r.text
+    assert "<code>note</code> : &lt;b&gt;gras&lt;/b&gt;" in r.text and "<b>gras" not in r.text
+    assert "<code>portions</code> : 4" in r.text
+
+
 def test_detail_chemin_avec_diese_et_interrogation(client, index, bd, faux_modeles):
     from pathlib import Path
 

@@ -4,6 +4,7 @@ Le cookie `rag_session` contient le jeton lui-même ; il n'est jamais affiché n
 Les écritures exigent le jeton privé, l'en-tête `HX-Request` et une `Origin` absente ou locale.
 """
 
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -65,10 +66,20 @@ async def validation_sans_cache(request: Request, exc: RequestValidationError) -
     return _sans_cache(reponse) if request.url.path.startswith("/ui/") else reponse
 
 
+def _en_texte(valeur) -> str:
+    """Valeur de frontmatter lisible : texte tel quel, liste simple jointe, sinon JSON."""
+    if isinstance(valeur, str):
+        return valeur
+    if isinstance(valeur, list) and all(isinstance(v, str | int | float) for v in valeur):
+        return ", ".join(map(str, valeur))
+    return json.dumps(valeur, ensure_ascii=False)
+
+
 def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_possible: bool,
                database_url: str, version_id: Callable[[], int | None]) -> APIRouter:
     gabarits = Jinja2Templates(directory=DOSSIER / "gabarits")  # autoescape actif (.html)
     gabarits.env.filters["en_requete"] = lambda v: quote(str(v), safe="")  # tout encodé, « / » aussi
+    gabarits.env.filters["en_texte"] = _en_texte  # texte simple : échappé par le gabarit
     routeur = APIRouter(prefix="/ui")
 
     def session(request: Request) -> frozenset[str]:

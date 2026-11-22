@@ -134,3 +134,4 @@ h2 { font-size: 1.1rem; margin: 0 0 .75rem; }
 .succes { margin: 0 0 1rem; }
 #apercu .erreur { margin-bottom: 1rem; }
 .chemins { margin: 0 0 1rem; padding-left: 1.25rem; max-height: 20rem; overflow-y: auto; overflow-wrap: anywhere; }
+.frontmatter { margin: 0; padding: 0; list-style: none; }

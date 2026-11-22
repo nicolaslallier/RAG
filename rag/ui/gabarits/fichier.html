@@ -9,6 +9,9 @@
   <dt>Type</dt><dd>{{ doc.type or "—" }}</dd>
   <dt>Tags</dt><dd>{{ doc.tags | join(", ") if doc.tags else "—" }}</dd>
   {% if doc.alias %}<dt>Alias</dt><dd>{{ doc.alias | join(", ") }}</dd>{% endif %}
+  {% if doc.frontmatter %}<dt>Frontmatter</dt><dd><ul class="frontmatter">
+    {% for cle, valeur in doc.frontmatter.items() %}<li><code>{{ cle }}</code> : {{ valeur | en_texte }}</li>
+    {% endfor %}</ul></dd>{% endif %}
   {% if doc.origine %}<dt>Origine</dt><dd>{{ doc.origine }}</dd>{% endif %}
   <dt>Modifié le</dt><dd>{% if doc.modifie_le %}{{ doc.modifie_le.strftime("%Y-%m-%d %H:%M") }}{% else %}—{% endif %}</dd>
   {% if doc.liens_sortants %}<dt>Liens sortants</dt><dd>{{ doc.liens_sortants | join(", ") }}</dd>{% endif %}
