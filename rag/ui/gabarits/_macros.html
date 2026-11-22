@@ -1,7 +1,7 @@
 {# Une ligne de l'écran Sources ; renvoyée seule après « Réindexer » (hx-swap outerHTML). #}
 {% macro ligne_source(s, ecrivain) -%}
 <tr>
-  <th scope="row">{{ s.nom }}</th>
+  <th scope="row"><a href="/ui/sources/{{ s.nom | urlencode }}">{{ s.nom }}</a></th>
   <td>{{ s.type }}</td>
   <td>{{ s.visibilite }}</td>
   <td>{% if s.revision %}<code title="{{ s.revision }}">{{ s.revision[:19] }}</code>{% else %}—{% endif %}</td>

@@ -241,7 +241,7 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
 
     app.include_router(routeur_ui(
         niveaux_de=niveaux_de, ecriture_possible=bool(reglages.jeton_prive),
-        base_url=reglages.database_url,
+        database_url=reglages.database_url,
         version_id=lambda: _avec_conn(version_id, empreinte)))
     app.mount("/ui/statique", StaticFiles(directory=STATIQUE), name="ui_statique")
 

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block titre %}{{ doc.chemin }}{% endblock %}
+{% block navigation %}
+<nav>
+  <a href="/ui/sources/{{ doc.source | urlencode }}">Fichiers de {{ doc.source }}</a>
+  <form method="post" action="/ui/deconnexion"><button type="submit" class="lien">Se déconnecter</button></form>
+</nav>
+{% endblock %}
+{% block contenu %}
+<h1>{{ doc.titre or doc.chemin }}</h1>
+<dl class="meta">
+  <dt>Source</dt><dd>{{ doc.source }}</dd>
+  <dt>Chemin</dt><dd><code>{{ doc.chemin }}</code></dd>
+  <dt>Type</dt><dd>{{ doc.type or "—" }}</dd>
+  <dt>Tags</dt><dd>{{ doc.tags | join(", ") if doc.tags else "—" }}</dd>
+  {% if doc.alias %}<dt>Alias</dt><dd>{{ doc.alias | join(", ") }}</dd>{% endif %}
+  {% if doc.origine %}<dt>Origine</dt><dd>{{ doc.origine }}</dd>{% endif %}
+  <dt>Modifié le</dt><dd>{% if doc.modifie_le %}{{ doc.modifie_le.strftime("%Y-%m-%d %H:%M") }}{% else %}—{% endif %}</dd>
+  {% if doc.liens_sortants %}<dt>Liens sortants</dt><dd>{{ doc.liens_sortants | join(", ") }}</dd>{% endif %}
+</dl>
+<h2>Morceaux ({{ doc.morceaux | length }})</h2>
+{% for m in doc.morceaux %}
+<section class="carte morceau">
+  <p class="aide">#{{ m.ordre }}{% if m.fil %} · {{ m.fil }}{% endif %}{% if m.symbole %} · <code>{{ m.symbole }}</code>{% endif %}{% if m.ligne %} · ligne {{ m.ligne }}{% endif %}</p>
+  <pre>{{ m.texte }}</pre>
+</section>
+{% else %}
+<p>Aucun morceau pour la version courante de l'index.</p>
+{% endfor %}
+{% endblock %}

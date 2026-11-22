@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 import yaml
@@ -118,7 +119,8 @@ def test_boutons_absents_pour_le_jeton_public(client):
 
 def test_reindexer_exige_l_ecrivain(client, bd):
     url = "/ui/sources/coffre-maison/reindexer"
-    assert client.post(url, headers=HX, follow_redirects=False).status_code == 303  # sans cookie
+    r = client.post(url, headers=HX, follow_redirects=False)  # sans cookie : htmx ne suit pas de 303
+    assert r.status_code == 401 and r.headers["hx-redirect"] == "/ui/connexion"
     assert connecter(client, "pub").post(url, headers=HX).status_code == 403
     connecter(client, "priv")
     assert client.post(url).status_code == 403
@@ -158,3 +160,116 @@ def test_jeton_absent_des_journaux(cfg, faux_modeles, caplog):
     c.cookies.clear()
     c.post("/ui/connexion", data={"jeton": "Zq8-secret-jeton-faux"})
     assert caplog.text and "Zq8-secret-jeton" not in caplog.text
+
+
+# --- Fichiers d'une source et détail ---------------------------------------------------------
+
+PATE = "02 - Domaines/Cuisine/Recettes/Pâté chinois.md"
+BIZARRE = "Notes/C# et ? test.md"
+
+
+def lien(source, chemin):
+    return f"/ui/sources/{source}/fichier?chemin={quote(chemin, safe='')}"
+
+
+def test_htmx_sans_session_401_et_redirection(client):
+    r = client.get("/ui/sources/coffre-maison", headers=HX, follow_redirects=False)
+    assert r.status_code == 401 and r.headers["hx-redirect"] == "/ui/connexion"
+    assert "<html" not in r.text
+    r = client.get("/ui/sources/coffre-maison", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/ui/connexion"
+    assert "hx-redirect" not in r.headers
+
+
+def test_no_store_sur_page_et_fragment(client, index):
+    connecter(client, "pub")
+    page = client.get("/ui/sources/coffre-maison")
+    frag = client.get("/ui/sources/coffre-maison", headers=HX)
+    assert page.status_code == frag.status_code == 200
+    assert page.headers["cache-control"] == frag.headers["cache-control"] == "no-store"
+    assert client.get("/ui/", follow_redirects=False).headers["cache-control"] == "no-store"
+    assert "no-store" not in client.get("/ui/statique/rag.css").headers.get("cache-control", "")
+
+
+def test_fichiers_pagines(client, index, monkeypatch):
+    monkeypatch.setattr("rag.ui.PAR_PAGE", 4)
+    connecter(client, "pub")
+    p1 = client.get("/ui/sources/coffre-maison")
+    p2 = client.get("/ui/sources/coffre-maison?page=2")
+    assert p1.status_code == p2.status_code == 200
+    assert "Kubernetes.md" in p1.text and "Accueil.md" not in p1.text
+    assert "Accueil.md" in p2.text and "Kubernetes.md" not in p2.text
+    assert "page 2 sur 2" in p2.text
+    assert "page=2" in p1.text and "<html" in p1.text
+
+
+def test_fichiers_filtre_exclus_auto_avec_raison(client, index_code):
+    connecter(client, "pub")
+    r = client.get("/ui/sources/depot-test?etat=exclu_auto")
+    assert r.status_code == 200
+    assert "logo.png" in r.text and "uv.lock" in r.text and "exclu :" in r.text
+    assert "a.py" not in r.text
+    assert "CLE=xyz" not in r.text and "CLE=xyz" not in client.get("/ui/sources/depot-test").text
+
+
+def test_fichiers_filtre_contient_en_fragment(client, index):
+    connecter(client, "pub")
+    r = client.get("/ui/sources/coffre-maison?contient=kube", headers=HX)
+    assert r.status_code == 200 and "<html" not in r.text and "<body" not in r.text
+    assert "Kubernetes.md" in r.text and "Grafana.md" not in r.text
+
+
+def test_detail_par_le_lien_de_la_liste(client, index):
+    connecter(client, "pub")
+    liste = client.get("/ui/sources/coffre-maison").text
+    href = lien("coffre-maison", PATE)
+    assert f'href="{href}"' in liste
+    r = client.get(href)
+    assert r.status_code == 200 and "Pâté chinois" in r.text and "Boeuf haché" in r.text
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_detail_chemin_avec_diese_et_interrogation(client, index, bd, faux_modeles):
+    from pathlib import Path
+
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source
+    from rag.sources import LecteurDossier
+
+    (index.coffre / BIZARRE).parent.mkdir(parents=True, exist_ok=True)
+    (index.coffre / BIZARRE).write_text("# Dièse\n\nContenu du fichier bizarre.\n")
+    src = SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian",
+                     emplacement="x")
+    indexer_source(bd, src, LecteurDossier(index.coffre),
+                   charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
+    connecter(client, "pub")
+    href = lien("coffre-maison", BIZARRE)
+    assert "%23" in href and "%3F" in href
+    assert f'href="{href}"' in client.get("/ui/sources/coffre-maison").text
+    r = client.get(href)
+    assert r.status_code == 200 and "Contenu du fichier bizarre." in r.text
+
+
+def test_source_privee_introuvable_avec_cookie_public(client, index, bd):
+    bd.execute("UPDATE sources SET visibilite = 'prive'")
+    bd.commit()
+    connecter(client, "pub")
+    for url in ("/ui/sources/coffre-maison", lien("coffre-maison", PATE),
+                "/ui/sources/absente"):
+        r = client.get(url)
+        assert r.status_code == 404 and "Source ou fichier introuvable." in r.text
+    assert connecter(client, "priv").get("/ui/sources/coffre-maison").status_code == 200
+
+
+def test_detail_document_absent_404(client, index):
+    connecter(client, "pub")
+    r = client.get(lien("coffre-maison", "n-existe-pas.md"))
+    assert r.status_code == 404 and "Source ou fichier introuvable." in r.text
+
+
+def test_bouton_exclure_seulement_pour_l_ecrivain(client, index):
+    pub = connecter(client, "pub").get("/ui/sources/coffre-maison").text
+    assert "Exclure" not in pub
+    priv = connecter(client, "priv").get("/ui/sources/coffre-maison").text
+    assert 'hx-post="/ui/exclusions/apercu"' in priv and "Exclure" in priv
+    assert """hx-vals='{"motif": "Accueil.md", "source": "coffre-maison"}'""" in priv

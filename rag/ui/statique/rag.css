@@ -114,3 +114,14 @@ th, td { padding: .5rem .75rem; text-align: left; border-bottom: 1px solid var(-
 thead th { font-size: .85rem; color: var(--discret); font-weight: 600; }
 tbody tr:last-child > * { border-bottom: none; }
 .nombre { text-align: right; font-variant-numeric: tabular-nums; }
+
+nav { display: flex; gap: 1rem; align-items: center; }
+.filtres { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-bottom: 1rem; }
+.filtres input[type=search] { width: 18rem; max-width: 100%; }
+select { font: inherit; padding: .5rem; color: var(--texte); background: var(--fond); border: 1px solid var(--bordure); border-radius: 6px; }
+.pagination { display: flex; gap: 1rem; }
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; }
+.meta dt { color: var(--discret); }
+.meta dd { margin: 0; overflow-wrap: anywhere; }
+.morceau { margin-bottom: .75rem; }
+.morceau pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9em; }
