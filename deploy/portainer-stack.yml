@@ -1,5 +1,5 @@
-# Pile Portainer « rag » (environnement 6 : Colima du Mac Studio, VM 192.168.2.66) : API, indexeur
-# et Postgres dédié. Seul `rag` publie un port, lié à 192.168.2.66.
+# Pile Portainer « rag » (environnement Mac-book : Colima du MacBook, VM 192.168.2.40) : API, indexeur
+# et Postgres dédié. Seul `rag` publie un port, lié à 192.168.2.40.
 # Envoyée comme texte par scripts/portainer-stack.sh ; les ${…} viennent de OpenBao (scripts/vault-render-env.sh).
 x-rag: &rag
   image: ghcr.io/nicolaslallier/rag:${IMAGE_TAG:?}
@@ -33,7 +33,7 @@ x-rag: &rag
 services:
   rag:
     <<: *rag
-    ports: ["192.168.2.66:8000:8000"]   # adresse de la VM seulement, jamais toutes les interfaces
+    ports: ["192.168.2.40:8000:8000"]   # adresse de la VM seulement, jamais toutes les interfaces
     mem_limit: 4g            # reranker (568M de paramètres) + torch CPU
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/sante', timeout=3)"]
