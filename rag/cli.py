@@ -207,6 +207,12 @@ def main(argv: list[str] | None = None) -> int:
         pq.add_argument("--source", action="append")
         pq.add_argument("--prive", action="store_true")
     ajouter_cli_banc(sp)
+    ps = sp.add_parser("banc-synthetique")
+    ps.add_argument("--n", type=int, default=250)
+    ps.add_argument("--graine", type=int, default=1)
+    ps.add_argument("--source", action="append")
+    ps.add_argument("--reprendre", action="store_true")
+    ps.add_argument("--ecraser", action="store_true")
     a = p.parse_args(argv)
 
     reglages = Reglages()
@@ -255,6 +261,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.cmd == "banc":
             return commande_banc(a, conn, reglages, config, modeles, _indexer)
+        if a.cmd == "banc-synthetique":
+            from rag.banc.synthetique import commande_synthetique
+            a.source = a.source or ["coffre-maison"]
+            return commande_synthetique(a, conn, config, modeles)
         from rag.api import version_id
         v = version_id(conn, empreinte_indexation(config.indexation))
         if v is None:
