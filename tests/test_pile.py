@@ -30,9 +30,9 @@ def test_noms_du_contrat():
 
 
 def test_les_variables_de_la_pile_sont_celles_du_script_de_rendu():
-    pile = set(re.findall(r"\$\{([A-Z_]+)[:}]", BRUT)) - {"IMAGE_TAG"}
+    pile = set(re.findall(r"\$\{([A-Z0-9_]+)[:}]", BRUT)) - {"IMAGE_TAG"}
     script = Path("scripts/vault-render-env.sh").read_text()
-    carte = set(re.search(r'^CLES="([^"]+)"', script, re.M).group(1).split())
+    carte = set(re.search(r'^CLES="([^"]+)"', script, re.MULTILINE).group(1).split())
     assert pile == carte
 
 
