@@ -39,7 +39,7 @@ Il s'inscrit dans une suite de 4 projets (ordre validé) :
 
 ## Contraintes
 
-- Auto-hébergé sur l'hôte Docker du homelab (`192.168.2.10`), déployé par Portainer comme le reste, secrets dans OpenBao.
+- Auto-hébergé ~~sur l'hôte Docker du homelab (`192.168.2.10`)~~ dans Colima sur le Mac Studio (VM `192.168.2.66`, voir `docs/superpowers/plans/2026-11-22-rag-maitre-4b-colima.md`), déployé par Portainer comme le reste, secrets dans OpenBao.
 - Modèles via LiteLLM (Ollama derrière) : embeddings `qwen3-embedding:0.6b` (1024 dims), génération `gemma4:26b-a4b-it-qat`. Pas de gros GPU.
 - **Le coffre vit dans S3** (SeaweedFS, bucket `obsidian`, synchronisé par Remotely Save depuis le Mac) : c'est la seule vérité (décision de Nicolas, 2026-11-21). Le dépôt git `obsidian-maison` est abandonné comme source (dernier commit le 8 novembre). `agent-musique` (Infra) lit/écrit déjà ce bucket : reprendre son accès S3 et sa règle « ne pas toucher une note modifiée depuis moins de 10 min ». Notes en français, frontmatter (`type`, `tags`, `source`, `date`…), liens `[[…]]`, commentaires `%%…%%`.
 - Le code : les dépôts `nicolaslallier/*` (AI, Infra, Jarvis, EA, DarkAngel, Final, Glee, Heaven, Midas, Moria, orchestre, mcp-fichiers…), `origin/main` seulement.
@@ -139,7 +139,7 @@ Code : par symbole (fonction, classe, méthode), préfixé par « dépôt > chem
 - **Aiguillage** : le service classe la question (règles d'abord, gemma en repli) et extrait les filtres à partir de la taxonomie réelle du coffre (types et tags présents en base, rafraîchis à l'indexation). L'appelant peut forcer le mode et les filtres. « Exhaustif » = résultat du filtre **plus** un complément issu de la recherche hybride, marqué « probable, non tagué » ; l'aiguillage a ses propres cas au banc.
 - **Graphify** : extraction structurelle (AST, sans LLM) à chaque commit sur le code ; extraction sémantique (notes et liens doc → code) la nuit seulement, par un modèle local via LiteLLM. En v1, le graphe sert `chemin`, `expliquer` et les communautés ; l'expansion reste un interrupteur. Si graphify ne tourne pas proprement en conteneur sans Claude Code, on passe au plan B (tree-sitter + networkx), sans changer le schéma.
 - **Seuil de refus** : sur le score du reranker ; sans rerank, repli sur la similarité cosinus du meilleur passage, avec un seuil calibré séparément. Jamais sur le score RRF.
-- **Hôte** : Windows, GTX 1650 (4 Go), 12 cœurs. Le reranker (568M) tourne dans le service, sur GPU s'il est libre, sinon CPU ; budget de latence cible : < 2 s pour lister et chercher, < 30 s pour répondre, avec streaming de la réponse.
+- **Hôte** : ~~Windows, GTX 1650 (4 Go), 12 cœurs~~ VM Colima du Mac Studio, arm64, 8 cœurs, sans GPU (voir `docs/superpowers/plans/2026-11-22-rag-maitre-4b-colima.md`). Le reranker (568M) tourne dans le service, sur GPU s'il est libre, sinon CPU ; budget de latence cible : < 2 s pour lister et chercher, < 30 s pour répondre, avec streaming de la réponse.
 - **Appelants v1** : le banc, Nicolas (CLI/HTTP) et un serveur MCP pour Claude Code. Réseau `infra-net` seulement, jeton dans OpenBao ; « réindexer » demande un jeton distinct.
 - **Cibles v1** fixées après la première mesure de base : la v1 est finie quand le banc tourne, que les 3 questions de Nicolas passent, et que chaque levier a été mesuré au moins une fois contre la base.
 
