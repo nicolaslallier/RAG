@@ -1,0 +1,22 @@
+{# htmx 2.0.4 (unpkg.com/htmx.org@2.0.4/dist/htmx.min.js), servi localement :
+   sha256 e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447 #}
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="same-origin">
+  <title>{% block titre %}RAG{% endblock %} · gestion de l'index</title>
+  <link rel="stylesheet" href="/ui/statique/rag.css">
+  <script src="/ui/statique/htmx.min.js" defer></script>
+</head>
+<body>
+  <header class="entete">
+    <a class="marque" href="/ui/">RAG · gestion de l'index</a>
+    {% block navigation %}{% endblock %}
+  </header>
+  <main>
+    {% block contenu %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -11,10 +11,12 @@ from types import SimpleNamespace
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.routing import Route
 
+from rag import gestion
 from rag.aiguillage import aiguiller, sources_citees
 from rag.config import (
     LIMITE_MAX,
@@ -28,7 +30,6 @@ from rag.config import (
 )
 from rag.db import connexion
 from rag.entretien import doublons, liens_entrants, orphelines
-from rag.gestion import demander_reindexation, fichiers, sources
 from rag.graphe import chemin, expliquer
 from rag.lister import lister, taxonomie
 from rag.mcp_serveur import creer_mcp
@@ -36,6 +37,7 @@ from rag.modeles import ErreurModele, modeles_depuis
 from rag.recherche import Filtres, chercher
 from rag.reponse import repondre, repondre_flux
 from rag.rerank import reranker_depuis
+from rag.ui import STATIQUE, routeur_ui
 
 log = logging.getLogger("rag.api")
 
@@ -117,9 +119,9 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
         repondre=lambda q, n: _repondre_simple(q, n),
         chemin=lambda de, vers, n: _avec_conn(chemin, de, vers, niveaux=n),
         expliquer=lambda nom, n: _avec_conn(expliquer, nom, niveaux=n),
-        sources=lambda n: _avec_conn(sources, niveaux=n),
+        sources=lambda n: _avec_conn(gestion.sources, niveaux=n),
         fichiers=lambda source, e, contient, page, n: _avec_conn(
-            fichiers, source, niveaux=n, etat=e, contient=contient, page=page)))
+            gestion.fichiers, source, niveaux=n, etat=e, contient=contient, page=page)))
     mcp_asgi = mcp.streamable_http_app().routes[0].endpoint
 
     @asynccontextmanager
@@ -213,7 +215,7 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
     def route_reindexer(d: DemandeReindexer):
         with connexion(reglages.database_url) as conn:
             # Un compte seulement, et pas de 404 : ni liste ni oracle des noms de sources.
-            return {"demande": demander_reindexation(conn, d.source)}
+            return {"demande": gestion.demander_reindexation(conn, d.source)}
 
     @app.get("/etat")
     def route_etat(niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
@@ -236,6 +238,16 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                                  else v)
                              for k, v in nuit["bilan"].items() if k not in caches}
         return {"sources": sources, "en_cours": en_cours, "derniere_nocturne": nuit}
+
+    app.include_router(routeur_ui(
+        niveaux_de=niveaux_de, ecriture_possible=bool(reglages.jeton_prive),
+        base_url=reglages.database_url,
+        version_id=lambda: _avec_conn(version_id, empreinte)))
+    app.mount("/ui/statique", StaticFiles(directory=STATIQUE), name="ui_statique")
+
+    @app.get("/", include_in_schema=False)
+    def racine():
+        return RedirectResponse("/ui/", status_code=307)
 
     @app.get("/sante")
     def sante():

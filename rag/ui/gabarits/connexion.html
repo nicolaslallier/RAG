@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titre %}Connexion{% endblock %}
+{% block contenu %}
+<section class="carte connexion">
+  <h1>Connexion</h1>
+  <form method="post" action="/ui/connexion">
+    <label for="jeton">Jeton d'accès</label>
+    <input id="jeton" name="jeton" type="password" autocomplete="off" required autofocus>
+    {% if erreur %}<p class="erreur" role="alert">{{ erreur }}</p>{% endif %}
+    <button type="submit">Se connecter</button>
+  </form>
+  <p class="aide">Le jeton de lecture montre les sources publiques ; le jeton privé montre tout
+    et permet de gérer l'index.</p>
+</section>
+{% endblock %}
