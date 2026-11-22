@@ -7,6 +7,7 @@ from collections import Counter
 from rag.banc.execution import Cas
 from rag.config import PUBLIC, BancConf
 from rag.decoupage import compter_tokens
+from rag.modeles import ErreurModele
 from rag.recherche import normaliser
 
 MIN_TOKENS = 80
@@ -61,6 +62,15 @@ def tirer(conn, version_id: int, graine: int, sources: list[str] | None = None):
         yield mid, texte, cle
 
 
+def _appel(modeles, modele, consigne, contenu, temperature) -> dict | None:
+    try:
+        return _json(modeles.generer(modele, [{"role": "system", "content": consigne},
+                                              {"role": "user", "content": contenu}],
+                                     temperature=temperature, json_mode=True))
+    except ErreurModele:  # délai dépassé, HTTP 5xx : on rejette le cas sans perdre le lot
+        return None
+
+
 def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, graine: int = 1,
                 sources: list[str] | None = None, rejets: Counter | None = None) -> list[Cas]:
     rejets = rejets if rejets is not None else Counter()
@@ -71,9 +81,7 @@ def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, gr
         if len(gardes) >= n or essais >= 3 * n:
             break
         essais += 1
-        d = _json(modeles.generer(conf.modele_synthetique, [
-            {"role": "system", "content": CONSIGNE},
-            {"role": "user", "content": texte}], temperature=0.7, json_mode=True))
+        d = _appel(modeles, conf.modele_synthetique, CONSIGNE, texte, 0.7)
         q = d.get("question") if d else None
         if not isinstance(q, str):
             rejets["json"] += 1
@@ -88,10 +96,8 @@ def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, gr
         if normaliser(q) in vues:
             rejets["doublon"] += 1
             continue
-        verdict = _json(modeles.generer(conf.modele_juge, [
-            {"role": "system", "content": CONSIGNE_JUGE},
-            {"role": "user", "content": f"Question : {q}\n\nPassage :\n{texte}"}],
-            temperature=0.0, json_mode=True))
+        verdict = _appel(modeles, conf.modele_juge, CONSIGNE_JUGE,
+                         f"Question : {q}\n\nPassage :\n{texte}", 0.0)
         if not verdict or verdict.get("ok") is not True:
             rejets["juge"] += 1
             continue

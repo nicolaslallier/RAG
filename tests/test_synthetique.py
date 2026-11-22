@@ -87,3 +87,12 @@ def test_generateur_et_juge_sont_deux_modeles(bd, long_index):
     m = FauxGenerateur([BON])
     generer_jeu(bd, m, long_index, CONFIG.banc, n=1)
     assert {a.modele for a in m.appels} == {"gemma4:26b-a4b-it-qat", "qwen3.8:27b-mlx"}
+
+
+def test_erreur_modele_est_un_rejet(bd, long_index):
+    from rag.modeles import ErreurModele
+
+    class Panne(FauxGenerateur):
+        def generer(self, *a, **k):
+            raise ErreurModele("ReadTimeout")
+    assert generer_jeu(bd, Panne([]), long_index, CONFIG.banc, n=1) == []
