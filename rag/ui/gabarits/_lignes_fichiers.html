@@ -24,7 +24,7 @@
       <td class="nombre">{{ f.morceaux }}</td>
       <td>{% if f.modifie_le %}{{ f.modifie_le.strftime("%Y-%m-%d %H:%M") }}{% else %}—{% endif %}</td>
       {% if ecrivain %}<td>{% if f.etat == "indexe" %}<button type="button" class="secondaire"
-          hx-post="/ui/exclusions/apercu" hx-vals='{{ {"source": nom, "motif": f.chemin} | tojson }}'
+          hx-post="/ui/exclusions/apercu" hx-vals='{{ {"source": nom, "motif": f.chemin, "origine": "fichiers"} | tojson }}'
           hx-target="#apercu" hx-swap="innerHTML">Exclure</button>{% else %}—{% endif %}</td>{% endif %}
     </tr>
     {% endfor %}

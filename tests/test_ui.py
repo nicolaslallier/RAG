@@ -272,7 +272,7 @@ def test_bouton_exclure_seulement_pour_l_ecrivain(client, index):
     assert "Exclure" not in pub
     priv = connecter(client, "priv").get("/ui/sources/coffre-maison").text
     assert 'hx-post="/ui/exclusions/apercu"' in priv and "Exclure" in priv
-    assert """hx-vals='{"motif": "Accueil.md", "source": "coffre-maison"}'""" in priv
+    assert """hx-vals='{"motif": "Accueil.md", "origine": "fichiers", "source": "coffre-maison"}'""" in priv
 
 
 def test_bouton_exclure_absent_des_lignes_deja_exclues(client, index_code):
@@ -368,6 +368,29 @@ def test_apercu_depuis_le_bouton_de_la_liste_des_fichiers(client_priv):
                          data={"source": "coffre-maison", "motif": "Accueil.md"})
     assert r.status_code == 200 and "1 document sera retiré de l'index" in r.text
     assert 'name="raison"' in r.text and 'value="Accueil.md"' in r.text
+
+
+def test_exclusion_depuis_les_fichiers_rafraichit_la_page(client_priv, bd):
+    r = client_priv.post("/ui/exclusions/apercu", headers=HX,
+                         data={"source": "coffre-maison", "motif": "Accueil.md",
+                               "origine": "fichiers"})
+    assert r.status_code == 200 and 'name="origine" value="fichiers"' in r.text
+    r = client_priv.post("/ui/exclusions", headers=HX,
+                         data={"source": "coffre-maison", "motif": "Accueil.md",
+                               "origine": "fichiers"})
+    assert r.status_code == 200 and r.headers["hx-refresh"] == "true"
+    assert "1 document retiré." in r.text and 'id="liste-exclusions"' not in r.text
+    assert "Accueil.md" not in chemins_indexes(bd)
+
+
+def test_exclusion_depuis_les_exclusions_garde_la_liste_hors_bande(client_priv):
+    r = client_priv.post("/ui/exclusions/apercu", headers=HX,
+                         data={"source": "coffre-maison", "motif": "Accueil.md"})
+    assert 'name="origine" value="exclusions"' in r.text
+    r = client_priv.post("/ui/exclusions", headers=HX,
+                         data={"source": "coffre-maison", "motif": "Accueil.md",
+                               "origine": "exclusions"})
+    assert "hx-refresh" not in r.headers and 'id="liste-exclusions"' in r.text
 
 
 def test_gros_motif_exige_la_seconde_confirmation(client_priv, bd):

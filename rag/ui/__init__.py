@@ -49,6 +49,7 @@ PAGE_MAX = 1_000_000  # garde-fou avant la requête (OFFSET) ; la page est ramen
 ETATS = ("indexe", "exclu_auto", "exclu_manuel")
 INTROUVABLE = "Source ou fichier introuvable."
 GROS_APERCU = 100  # au-delà, seconde confirmation (case à cocher)
+ORIGINE_FICHIERS = "fichiers"  # aperçu lancé depuis l'écran des fichiers
 IMPORT_MAX = 1024 * 1024  # octets du fichier importé
 IMPORT_MARGE = 16 * 1024  # enveloppe multipart tolérée au-delà, pour refuser tôt sur Content-Length
 
@@ -198,7 +199,8 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
     @routeur.post("/exclusions/apercu", response_class=HTMLResponse,
                   dependencies=[Depends(ecrivain)])
     def apercu_exclusion(request: Request, source: Annotated[str, Form()],
-                         motif: Annotated[str, Form()], raison: Annotated[str, Form()] = ""):
+                         motif: Annotated[str, Form()], raison: Annotated[str, Form()] = "",
+                         origine: Annotated[str, Form()] = "exclusions"):
         if len(raison.strip()) > RAISON_MAX:
             return message(request, f"La raison fait au plus {RAISON_MAX} caractères.", 400,
                            erreur=True)
@@ -210,14 +212,16 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
         except SourceInconnue:
             raise HTTPException(404, "source inconnue", headers=SANS_CACHE) from None
         return page_ui(request, "_apercu.html", source=source, motif=motif.strip(),
-                       raison=raison.strip(), total=a["total"], chemins=a["chemins"],
+                       raison=raison.strip(), origine=ORIGINE_FICHIERS if origine == ORIGINE_FICHIERS
+                       else "exclusions", total=a["total"], chemins=a["chemins"],
                        gros=a["total"] > GROS_APERCU, raison_max=RAISON_MAX)
 
     @routeur.post("/exclusions", response_class=HTMLResponse, dependencies=[Depends(ecrivain)])
     def ajouter_exclusion(request: Request, niveaux: Annotated[frozenset[str], Depends(session)],
                           source: Annotated[str, Form()], motif: Annotated[str, Form()],
                           raison: Annotated[str, Form()] = "",
-                          confirme_gros: Annotated[str, Form()] = ""):
+                          confirme_gros: Annotated[str, Form()] = "",
+                          origine: Annotated[str, Form()] = "exclusions"):
         try:
             with connexion(database_url) as conn:
                 total = apercu(conn, source, motif)["total"]
@@ -230,8 +234,12 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
         except SourceInconnue:
             raise HTTPException(404, "source inconnue", headers=SANS_CACHE) from None
         log.info("exclusion manuelle ajoutée : %s, %d documents retirés", source, n)
-        return message(request, f"{pluriel(n, 'document')} retiré{'s' if n > 1 else ''}.",
-                       niveaux=niveaux)
+        texte = f"{pluriel(n, 'document')} retiré{'s' if n > 1 else ''}."
+        if origine == ORIGINE_FICHIERS:  # pas de liste d'exclusions sur cet écran : on recharge
+            reponse = message(request, texte)
+            reponse.headers["HX-Refresh"] = "true"
+            return reponse
+        return message(request, texte, niveaux=niveaux)
 
     @routeur.post("/exclusions/annuler", response_class=HTMLResponse,
                   dependencies=[Depends(ecrivain)])

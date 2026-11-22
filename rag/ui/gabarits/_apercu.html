@@ -12,6 +12,7 @@
   <form class="formulaire" hx-post="/ui/exclusions" hx-target="#apercu" hx-swap="innerHTML">
     <input type="hidden" name="source" value="{{ source }}">
     <input type="hidden" name="motif" value="{{ motif }}">
+    <input type="hidden" name="origine" value="{{ origine }}">
     <label for="apercu-raison">Raison (facultative)</label>
     <input id="apercu-raison" name="raison" value="{{ raison }}" maxlength="{{ raison_max }}" autocomplete="off">
     {% if gros %}
