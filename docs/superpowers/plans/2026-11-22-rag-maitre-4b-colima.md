@@ -4,7 +4,7 @@
 
 **Décision de Nicolas (2026-11-22) :** la pile `rag` tourne « Sur Colima du Mac » : le Mac Studio, `192.168.2.35`. Le plan 4 la mettait sur l'hôte `192.168.2.10` (Windows/WSL), sur `infra-net`, sans port publié.
 
-**Ce document :** les faits constatés (lecture seule), les options comparées, une recommandation, le contrat amendé, les tâches à modifier dans la PR #5, les tâches Infra et les étapes manuelles. Aucun code n'est changé ici.
+**Ce document :** les faits constatés (lecture seule), les options comparées et ce que Nicolas a retenu (« OK aux recommandations », avec le Postgres dédié), le contrat amendé, les tâches à modifier dans la PR #5, les tâches Infra et les étapes manuelles. Aucun code n'est changé ici.
 
 ## 0. La cible
 
@@ -36,7 +36,7 @@ Essais faits depuis le Mac **et** depuis un conteneur de Colima (`docker exec ra
 
 La résolution des noms `*.infra.famillelallier.net` marche dans les conteneurs de Colima (résolveur `192.168.5.1` de la VM → DNS du LAN → `192.168.2.10`).
 
-**Aucune nouvelle exposition n'est donc nécessaire côté Infra pour les sorties du RAG.** Le précédent existe : `CLAUDE.md` (« DarkAngel: runs on the Mac Studio ») décrit DarkAngel joignant Postgres par `${LAN_IP}:5432` depuis cette même VM.
+**Aucune nouvelle exposition n'est donc nécessaire côté Infra pour les sorties du RAG** (et le Postgres du LAN, sans TLS, n'est finalement pas utilisé : voir 2.1). Le précédent existe : `CLAUDE.md` (« DarkAngel: runs on the Mac Studio ») décrit DarkAngel joignant Postgres par `${LAN_IP}:5432` depuis cette même VM.
 
 **Ce qui manque, c'est le sens inverse** : LiteLLM (sur `192.168.2.10`) doit joindre le serveur MCP du RAG (`http://rag:8000/mcp` dans le contrat). Hors d'`infra-net`, le nom `rag` n'existe plus : il faut un port publié sur la VM. Précédent : `dev-gateway` publie `192.168.2.66:2222` (lié à l'adresse LAN de la VM, pas à `0.0.0.0`).
 
@@ -72,7 +72,7 @@ La résolution des noms `*.infra.famillelallier.net` marche dans les conteneurs 
 | Exploitation | pgAdmin, sauvegarde nocturne, exporter : déjà là | ni pgAdmin ni sauvegarde ; sans gravité, la base se reconstruit par `rag indexer --complet` | comme A |
 | Ce qui devient inutile | rien | la base `rag` de l'Infra, `RAG_DB_PASSWORD` dans `infra/env`, `rag` dans `APP_DATABASES` | rien |
 
-**Recommandation : A.** Rien à construire, la base est déjà provisionnée, et c'est le chemin que l'Infra documente pour une application sur cette VM. Le seul défaut est le clair sur le LAN ; s'il gêne Nicolas pour les notes `prive`, prendre B (une demi-journée, décrit en annexe), pas C.
+**Décision de Nicolas : B, le Postgres dédié.** Rien de `prive` ne doit passer en clair sur le LAN, et A y faisait passer le contenu des notes. La base `rag` déjà créée dans le Postgres de l'Infra n'est plus utilisée ; elle est laissée en place, rien n'est supprimé.
 
 ### 2.2 S3 (coffre)
 
@@ -83,7 +83,7 @@ La résolution des noms `*.infra.famillelallier.net` marche dans les conteneurs 
 | Travail | `AWS_CA_BUNDLE=/etc/rag/infra-ca.crt` dans la pile (lu par boto3, aucun code) | une URL |
 | Risque | Python 3.13 active `VERIFY_X509_STRICT` ; la CA maison l'a déjà fait échouer pour httpx (PR #2). boto3 passe par urllib3 : **à prouver par un essai réel** avant de s'y fier | aucun |
 
-**Recommandation : le vhost TLS**, avec un test vivant ; si la CA est refusée, corriger `client_s3` (lui passer le contexte de `contexte_tls`) plutôt que de retomber sur le port en clair.
+**Retenu : le vhost TLS**, avec un test vivant ; si la CA est refusée, corriger `client_s3` (lui passer le contexte de `contexte_tls`), jamais le port en clair.
 
 ### 2.3 Entrée : comment LiteLLM (et plus tard l'agent-doc) joint le RAG
 
@@ -93,7 +93,7 @@ La résolution des noms `*.infra.famillelallier.net` marche dans les conteneurs 
 | Infra | `url: http://192.168.2.66:8000/mcp` dans `litellm/config.yaml` | `listen 8000` dans nginx, alias `rag` sur `infra-net` : le contrat garde `http://rag:8000/mcp` | un vhost de plus |
 | Risque | `RAG_JETON` et les réponses en clair entre `.10` et `.66` ; l'API devient joignable par tout le LAN, protégée par ses jetons (32 caractères au moins, refus au démarrage sinon) ; le routeur ne redirige pas 8000 | le même en clair sur le tronçon nginx → VM, et un service de plus dans nginx | chiffre le tronçon client → nginx seulement |
 
-**Recommandation : A.** B et C ajoutent de la configuration Infra sans retirer le tronçon en clair. Le port n'est pas lié à `0.0.0.0`.
+**Décision de Nicolas : A, accepté.** Le port est lié à `192.168.2.66` seulement, jamais à `0.0.0.0` (un port sans adresse serait aussi relayé sur `192.168.2.35`). Conséquence : `RAG_JETON_PRIVE` ne s'utilise que depuis le Mac Studio lui-même, pour que rien de `prive` ne traverse le LAN en clair.
 
 ### 2.4 Image
 
@@ -102,21 +102,22 @@ La résolution des noms `*.infra.famillelallier.net` marche dans les conteneurs 
 | Durée de build | un seul passage | double |
 | Utilité d'amd64 | aucune : plus rien ne tourne sur `.10` | garde un repli vers `.10` |
 
-**Recommandation : `linux/arm64` seul**, construit sur un runner GitHub `ubuntu-24.04-arm` (natif) ; si ce type de runner n'est pas offert au dépôt privé, `docker/setup-qemu-action` sur `ubuntu-latest` (plus lent, mais il n'y a que des roues à dépaqueter).
+**Retenu : `linux/arm64` seul**, construit sur un runner GitHub `ubuntu-24.04-arm` (natif) ; si ce type de runner n'est pas offert au dépôt privé, `docker/setup-qemu-action` sur `ubuntu-latest` (plus lent, mais il n'y a que des roues à dépaqueter).
 
 ### 2.5 Mémoire
 
-Les limites du plan 4 (`rag` 4g, `rag-indexeur` 2g) sont des plafonds, pas des réservations. Estimation dans la VM de 8 Gio :
+Les limites (`rag` 4g, `rag-indexeur` 2g, `rag-postgres` 1g) sont des plafonds, pas des réservations. Estimation dans la VM de 8 Gio :
 
 | | rerank inactif (config actuelle) | rerank actif |
 |---|---|---|
 | `rag` (API) | ≈ 0,3 Gio | ≈ 3 Gio |
 | `rag-indexeur` | < 1 Gio | < 1 Gio |
+| `rag-postgres` (comme `rag-dev-postgres` aujourd'hui : 527 Mio) | ≈ 0,5 Gio | ≈ 0,5 Gio |
 | Déjà là (bases de dev, agent, `dev-*`) | 0,9 Gio | 0,9 Gio |
 | Deux sessions de dev au plafond | 3 Gio | 3 Gio |
-| **Total au pire** | **≈ 5,2 Gio : ça tient** | **≈ 7,9 Gio : à la limite** |
+| **Total au pire** | **≈ 5,7 Gio : ça tient** | **≈ 8,4 Gio : ça ne tient pas** |
 
-**Recommandation : garder 4g et 2g, ne pas agrandir la VM maintenant.** L'hôte n'a pas de marge (0,25 Go libres) : chaque Gio donné à la VM est pris à Ollama. Si le rerank passe à `actif: true`, mesurer d'abord (plan 4, tâche 6, step 7), puis choisir entre arrêter les bases de dev inutiles (`pg-coffre`, `pg-usine-doc`, `rag-dev-postgres` : 0,7 Gio) et passer la VM à 10 Gio. Dans la VM Linux, torch n'a pas accès au GPU d'Apple (pas de MPS) : le rerank reste sur CPU, 8 cœurs M4.
+**Décision de Nicolas : garder 4g et 2g, ne pas agrandir la VM.** L'hôte n'a pas de marge (0,25 Go libres) : chaque Gio donné à la VM est pris à Ollama. Avant d'activer le rerank, **libérer d'abord les bases de dev de la VM** (`pg-coffre`, `pg-usine-doc`, puis `rag-dev-postgres` une fois les plans finis : ≈ 0,7 Gio, ce qui ramène le pire cas à ≈ 7,7 Gio), mesurer (R-7), et n'agrandir la VM qu'ensuite si la mesure l'exige. C'est une étape manuelle de Nicolas (section 6) : **aucun agent ne supprime un conteneur ou un volume.** Dans la VM Linux, torch n'a pas accès au GPU d'Apple (pas de MPS) : le rerank reste sur CPU, 8 cœurs M4.
 
 ## 3. Contrat amendé
 
@@ -124,32 +125,38 @@ Ce tableau remplace le bloc des trois fichiers. Les lignes changées sont marqu�
 
 | Élément | Valeur | Fourni par |
 |---|---|---|
-| Réseau **(changé)** | Réseau par défaut de la pile, dans la VM Colima du Mac Studio (`192.168.2.66`) ; **pas d'`infra-net`**. Un seul port publié : `192.168.2.66:8000` (service `rag`), LAN seulement, jamais `0.0.0.0` ; aucun vhost NGINX | RAG |
-| Pile **(changé)** | Portainer `rag`, **environnement 6** (Colima du Mac Studio, par l'agent `192.168.2.66:9001`) ; services `rag` (API, port 8000) et `rag-indexeur` ; fichier `deploy/portainer-stack.yml` du dépôt RAG, envoyé comme texte | RAG |
+| Réseau **(changé)** | Réseau par défaut de la pile, dans la VM Colima du Mac Studio ; **pas d'`infra-net`**. Un seul port publié : `192.168.2.66:8000` (service `rag`), lié à cette adresse seulement, jamais `0.0.0.0` ; `rag-indexeur` et `rag-postgres` ne publient rien ; aucun vhost NGINX | RAG |
+| Pile **(changé)** | Portainer `rag`, **environnement 6** (Colima du Mac Studio, par l'agent `192.168.2.66:9001`) ; services `rag` (API, port 8000), `rag-indexeur` et **`rag-postgres`** ; fichier `deploy/portainer-stack.yml` du dépôt RAG, envoyé comme texte | RAG |
 | Image **(changé)** | `ghcr.io/nicolaslallier/rag:sha-<7 car.>` (paquet privé), **`linux/arm64`** ; contient la CA de l'Infra (certificat public) en `/etc/rag/infra-ca.crt` | RAG |
-| Base **(changé)** | base `rag`, rôle `rag`, hôte **`192.168.2.10:5432`** (relais nginx de l'Infra, sans TLS) ; mot de passe `RAG_DB_PASSWORD` (lettres et chiffres seulement) ; extension `vector` créée par `make provision-app`, `unaccent` et `pg_trgm` créées par la migration du RAG | Infra provisionne, RAG migre |
+| Base **(changé)** | **Postgres dédié dans la pile** : service `rag-postgres`, `pgvector/pgvector:0.8.6-pg18-bookworm` épinglé par digest (arm64), volume nommé `rag-pgdata`, aucun port publié, joignable seulement sur le réseau de la pile (`rag-postgres:5432`) ; base `rag`, rôle `rag` (propriétaire de son instance) ; mot de passe `RAG_DB_PASSWORD` (lettres et chiffres seulement) ; `vector`, `unaccent` et `pg_trgm` créées par la migration du RAG. La base `rag` du Postgres de l'Infra (`192.168.2.10`) **n'est plus utilisée ; elle est laissée en place, rien n'est supprimé** | **RAG** |
 | OpenBao | secret KV v2 `infra/rag` (chemin d'API `infra/data/rag`) ; politique `rag-deploy` (lecture de ce secret seulement) ; clés : `RAG_DB_PASSWORD`, `RAG_LITELLM_CLE`, `RAG_JETON`, `RAG_JETON_PRIVE` (facultative), `RAG_JETON_REINDEXER`, `RAG_GITHUB_JETON`, `RAG_S3_SECRET_KEY`, `RAG_COFFRE_PREFIXE` (facultative) | Infra (politique), Nicolas (valeurs) |
 | LiteLLM **(changé)** | **`https://litellm.infra.famillelallier.net`**, vérifié par la CA de l'Infra (`RAG_LITELLM_CA`) ; clé d'alias `rag`, équipe `agents` (modèles locaux seulement) ; modèles utilisés : `qwen3-embedding:0.6b`, `gemma4:26b-a4b-it-qat`, `qwen3.8:27b-mlx` (juge) | Infra |
 | S3 (coffre) **(changé)** | **`https://s3.infra.famillelallier.net`**, vérifié par la CA de l'Infra (`AWS_CA_BUNDLE`) ; bucket `obsidian`, identité `rag` en **`Read,List`**, secret `RAG_S3_SECRET_KEY` ; préfixe du coffre `RAG_COFFRE_PREFIXE` = valeur de `ORGANIZER_VAULT_PREFIX` de l'Infra | Infra |
 | GitHub (code) | `RAG_GITHUB_JETON` : jeton à portée fine, `Contents: Read` sur les dépôts `nicolaslallier/*` | Nicolas |
-| MCP **(changé)** | LiteLLM `mcp_servers.rag` → **`http://192.168.2.66:8000/mcp`**, `Authorization: Bearer` = `RAG_MCP_TOKEN` (même valeur que `RAG_JETON`) ; outils `rag_chercher`, `rag_lister`, `rag_repondre`, `rag_chemin`, `rag_expliquer` ; équipes `[admin]` | Infra (config), RAG (serveur) |
+| MCP **(changé)** | LiteLLM `mcp_servers.rag` → **`http://192.168.2.66:8000/mcp`**, `Authorization: Bearer` = `RAG_MCP_TOKEN` (même valeur que `RAG_JETON`, niveau `public-maison`) ; outils `rag_chercher`, `rag_lister`, `rag_repondre`, `rag_chemin`, `rag_expliquer` ; équipes `[admin]` | Infra (config), RAG (serveur) |
 | Runner **(précisé)** | `runner-rag`, label `rag`, dépôt `nicolaslallier/RAG`, `GH_RUNNER_TOKEN_RAG`, sans socket Docker ; **reste sur `192.168.2.10`** : il n'appelle que Portainer et OpenBao, par URL ; variable `PORTAINER_ENDPOINT_ID` = `6` | Infra |
-| Env. des conteneurs **(changé)** | `RAG_DATABASE_URL`, `RAG_LITELLM_URL`, **`RAG_LITELLM_CA`**, `RAG_LITELLM_CLE`, `RAG_JETON`, `RAG_JETON_PRIVE`, `RAG_JETON_REINDEXER`, `RAG_GITHUB_JETON`, `RAG_S3_ENDPOINT`, `RAG_S3_ACCESS_KEY`, `RAG_S3_SECRET_KEY`, **`AWS_CA_BUNDLE`**, `RAG_COFFRE_BUCKET`, `RAG_COFFRE_PREFIXE`, `RAG_DONNEES_DIR`, `RAG_CONFIG` | RAG |
-| Niveaux de visibilité | `RAG_JETON` → `public-maison` ; `RAG_JETON_PRIVE` → `public-maison` + `prive` ; `RAG_JETON_REINDEXER` → réindexation seulement, aucune lecture | RAG |
+| Env. des conteneurs **(changé)** | `RAG_DATABASE_URL`, `RAG_LITELLM_URL`, **`RAG_LITELLM_CA`**, `RAG_LITELLM_CLE`, `RAG_JETON`, `RAG_JETON_PRIVE`, `RAG_JETON_REINDEXER`, `RAG_GITHUB_JETON`, `RAG_S3_ENDPOINT`, `RAG_S3_ACCESS_KEY`, `RAG_S3_SECRET_KEY`, **`AWS_CA_BUNDLE`**, `RAG_COFFRE_BUCKET`, `RAG_COFFRE_PREFIXE`, `RAG_DONNEES_DIR`, `RAG_CONFIG` ; pour `rag-postgres` : `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PASSWORD` (= `RAG_DB_PASSWORD`) | RAG |
+| Niveaux de visibilité **(précisé)** | `RAG_JETON` → `public-maison` ; `RAG_JETON_PRIVE` → `public-maison` + `prive`, **à n'utiliser que depuis le Mac Studio lui-même** (le port 8000 est en HTTP) ; `RAG_JETON_REINDEXER` → réindexation seulement, aucune lecture | RAG |
 
-Valeurs en double à garder égales : inchangé (`RAG_DB_PASSWORD` et `RAG_S3_SECRET_KEY` dans `infra/env` et `infra/rag` ; `RAG_MCP_TOKEN` = `RAG_JETON`).
+Valeurs en double à garder égales **(changé)** : `RAG_S3_SECRET_KEY` (`infra/env` et `infra/rag`) ; `RAG_MCP_TOKEN` (`infra/env`) = `RAG_JETON` (`infra/rag`). **`RAG_DB_PASSWORD` n'est plus un double** : seule la copie d'`infra/rag` compte ; celle d'`infra/env` ne sert plus qu'à la base inutilisée de l'Infra.
 
 Contraintes globales du plan 4 amendées :
 
-- « Le service n'est joignable que sur `infra-net` : aucun `ports:` » devient : **un seul `ports:`, sur le service `rag`, lié à `192.168.2.66` ; `rag-indexeur` n'en a aucun ; aucun vhost NGINX.**
-- « Rien ne sort du homelab pour les modèles » : inchangé, mais les appels à LiteLLM, S3 et Postgres traversent maintenant le LAN (Postgres en clair, voir 2.1).
+- « Le service n'est joignable que sur `infra-net` : aucun `ports:` » devient : **un seul `ports:`, sur le service `rag`, lié à `192.168.2.66` ; aucun autre service n'en a ; aucun vhost NGINX.**
+- **Rien de `prive` ne passe en clair sur le LAN** : la base est dans la pile, le coffre et les modèles sont joints en TLS, le MCP de LiteLLM n'a que le jeton `public-maison`, et `RAG_JETON_PRIVE` ne s'utilise que depuis le Mac Studio. Ce qui passe en clair entre `192.168.2.10` et `192.168.2.66` : `RAG_JETON` et les réponses `public-maison` du MCP (accepté par Nicolas).
+- « Rien ne sort du homelab pour les modèles » : inchangé.
 - Le repli « GPU (GTX 1650) » du plan 4, tâche 6, step 7, disparaît : pas de GPU dans la VM.
 
 ### Ce qui devient inutile côté Infra
 
-- Rien à ajouter à `infra-net` pour le RAG ; pas d'alias, pas de relais, pas de port à ouvrir : 5432, 8333 et les vhosts existent déjà.
-- La phrase « on `infra-net` … no published port » du README de l'Infra et de `CLAUDE.md` est fausse pour le RAG : à réécrire (tâche I-1).
-- **Reste nécessaire, sans changement** : `runner-rag` sur `192.168.2.10`, la base `rag`, la clé LiteLLM `rag`, l'identité S3 `rag`, le secret `infra/rag` et la politique `rag-deploy`. Rien de ce que Nicolas a déjà fait n'est perdu.
+- Rien à ajouter à `infra-net` pour le RAG ; pas d'alias, pas de relais, pas de port à ouvrir.
+- **La base `rag` du Postgres de l'Infra, `rag` dans `APP_DATABASES` et `RAG_DB_PASSWORD` dans `infra/env` ne servent plus.** On les laisse : rien n'est supprimé, ni par un agent ni par ce plan. La sauvegarde nocturne de l'Infra continuera de vider une base vide, sans conséquence.
+- La phrase « on `infra-net` … no published port » et la ligne « Database » du README de l'Infra et de `CLAUDE.md` sont fausses pour le RAG : à réécrire (tâche I-1).
+- **Reste nécessaire, sans changement** : `runner-rag` sur `192.168.2.10`, la clé LiteLLM `rag`, l'identité S3 `rag`, le secret `infra/rag` et la politique `rag-deploy`.
+
+### Sauvegarde
+
+Aucune, et c'est voulu : `rag-pgdata` ne contient rien d'irremplaçable, la base se reconstruit par `rag indexer --complet` depuis le coffre (S3) et GitHub. Seuls `banc/` et `config/` (dans git) sont irremplaçables, comme au plan 4. À savoir : le volume vit dans la VM, donc `colima delete` l'efface (comme `rag-donnees`) ; une réindexation complète est alors à prévoir.
 
 ## 4. Tâches à modifier dans la PR #5 (dépôt RAG)
 
@@ -158,49 +165,73 @@ Même discipline que le plan 4 : test qui échoue, code, test vert, commit.
 - [ ] **R-0 : le contrat.** Remplacer le bloc des trois fichiers (`…-0-index.md`, `…-4-deploiement.md`, `…-infra.md`) par le tableau de la section 3 ; dans la spec, ligne « Auto-hébergé sur l'hôte Docker du homelab (`192.168.2.10`) » et ligne « Hôte : Windows, GTX 1650 », renvoyer à ce document.
 - [ ] **R-1 : la CA dans l'image** (plan 4, tâche 1). Ajouter `deploy/infra-ca.crt` (copie de `~/Code/Infra/certs/infra-ca.crt`, certificat public, pas de clé) et `COPY deploy/infra-ca.crt /etc/rag/infra-ca.crt` dans le `Dockerfile`. Test : `docker run --rm rag:local python -c "import ssl; ssl.create_default_context().load_verify_locations('/etc/rag/infra-ca.crt')"` sort en 0. Une rotation de la CA de l'Infra demande un commit ici : l'écrire dans le README.
 - [ ] **R-2 : la pile** (plan 4, tâche 2). Dans `deploy/portainer-stack.yml` :
-  - `RAG_DATABASE_URL: postgresql://rag:${RAG_DB_PASSWORD:?}@192.168.2.10:5432/rag`
-  - `RAG_LITELLM_URL: https://litellm.infra.famillelallier.net` et `RAG_LITELLM_CA: /etc/rag/infra-ca.crt`
-  - `RAG_S3_ENDPOINT: https://s3.infra.famillelallier.net` et `AWS_CA_BUNDLE: /etc/rag/infra-ca.crt`
-  - retirer `networks: [infra-net]` de l'ancre et le bloc `networks:` du bas (réseau par défaut de la pile) ;
-  - service `rag` : `ports: ["192.168.2.66:8000:8000"]` ; `rag-indexeur` : rien.
-  - `tests/test_pile.py` : `test_aucun_port_publie_et_reseau_externe` devient `test_un_seul_port_lie_au_lan` (`rag` publie exactement `192.168.2.66:8000:8000`, `rag-indexeur` n'a pas de `ports`, aucun service ni la pile ne nomme `infra-net`, aucune liaison `0.0.0.0` ni port nu) ; `test_noms_du_contrat` attend les nouvelles URL et les deux variables de CA.
-- [ ] **R-3 : boto3 et la CA maison** (nouveau). Test vivant (`-m vivant`) : `client_s3(Reglages()).list_objects_v2(Bucket="obsidian", MaxKeys=1)` contre `https://s3.infra.famillelallier.net` avec `AWS_CA_BUNDLE`. S'il échoue sur `VERIFY_X509_STRICT`, faire passer `client_s3` par le contexte de `rag.modeles.contexte_tls` (paramètre `verify=` de boto3 ou `Reglages.s3_ca`), sans désactiver la vérification.
+  - nouveau service `rag-postgres` :
+    ```yaml
+    rag-postgres:
+      image: pgvector/pgvector:0.8.6-pg18-bookworm@sha256:<digest de l'index multi-arch>
+      environment:
+        POSTGRES_USER: rag
+        POSTGRES_DB: rag
+        POSTGRES_PASSWORD: ${RAG_DB_PASSWORD:?}
+      volumes: [rag-pgdata:/var/lib/postgresql]
+      shm_size: 256m           # construction parallèle de l'index HNSW
+      mem_limit: 1g
+      security_opt: ["no-new-privileges:true"]
+      restart: unless-stopped
+      healthcheck:
+        test: [CMD-SHELL, "pg_isready -U rag -d rag"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+        start_period: 30s
+    ```
+    Pas de `ports:`, pas de `networks:` (réseau par défaut de la pile). Le digest : celui que l'Infra épingle déjà dans `docker-compose.postgres.yml` (`sha256:2ba9ca5f2e7daa0f0e7723cba1ee9167bab54efd3640516a44ac1a928dd67e7a`). Il couvre `linux/arm64` : c'est le digest de l'image arm64 que `rag-dev-postgres` fait déjà tourner sur cette VM (`docker image inspect`). `read_only`, `cap_drop: [ALL]` et `user: 1000` ne s'appliquent pas à ce service : l'image officielle démarre en root pour préparer son volume, puis descend à `postgres`.
+  - `RAG_DATABASE_URL: postgresql://rag:${RAG_DB_PASSWORD:?}@rag-postgres:5432/rag` ; `depends_on: {rag-postgres: {condition: service_healthy}}` sur `rag` et `rag-indexeur` (l'attente de la base de la PR #5 reste, pour un redémarrage de Postgres seul) ;
+  - `RAG_LITELLM_URL: https://litellm.infra.famillelallier.net` et `RAG_LITELLM_CA: /etc/rag/infra-ca.crt` ;
+  - `RAG_S3_ENDPOINT: https://s3.infra.famillelallier.net` et `AWS_CA_BUNDLE: /etc/rag/infra-ca.crt` ;
+  - retirer `networks: [infra-net]` de l'ancre et le bloc `networks:` du bas ; ajouter `rag-pgdata:` aux volumes ;
+  - service `rag` : `ports: ["192.168.2.66:8000:8000"]` ; les deux autres : rien.
+  - `tests/test_pile.py` : `test_aucun_port_publie_et_reseau_externe` devient `test_un_seul_port_lie_au_lan` (`rag` publie exactement `192.168.2.66:8000:8000`, ni `rag-indexeur` ni `rag-postgres` n'ont de `ports`, rien ne nomme `infra-net`, aucune liaison `0.0.0.0` ni port nu) ; `test_durcissement` : `user`, `read_only` et `cap_drop` pour `rag` et `rag-indexeur`, `no-new-privileges`, `mem_limit` et `restart` pour les trois ; `test_noms_du_contrat` : les nouvelles URL, les deux variables de CA, `@rag-postgres:5432/rag`, services = `{rag, rag-indexeur, rag-postgres}`, image de `rag-postgres` épinglée par `@sha256:` ; un test `test_la_base_n_est_pas_sur_le_lan` (`192.168.2.10` absent de `RAG_DATABASE_URL`).
+  - La migration `001_socle.sql` crée déjà `vector`, `unaccent` et `pg_trgm` : rien à changer. `rag` est le rôle initial de l'instance, il en a le droit.
+  - À écrire dans le README : `POSTGRES_PASSWORD` n'est lu qu'à la création du volume. Tourner `RAG_DB_PASSWORD` demande donc `ALTER ROLE rag PASSWORD …` dans le conteneur avant de redéployer (ou de supprimer le volume et de réindexer).
+- [ ] **R-3 : boto3 et la CA maison** (nouveau). Test vivant (`-m vivant`) : `client_s3(Reglages()).list_objects_v2(Bucket="obsidian", MaxKeys=1)` contre `https://s3.infra.famillelallier.net` avec `AWS_CA_BUNDLE`. S'il échoue sur `VERIFY_X509_STRICT`, faire passer `client_s3` par le contexte de `rag.modeles.contexte_tls` (paramètre `verify=` de boto3 ou `Reglages.s3_ca`), sans désactiver la vérification et **sans retomber sur `http://192.168.2.10:8333`** (le contenu du coffre y passerait en clair).
 - [ ] **R-4 : l'image arm64** (plan 4, tâche 4). `deploy.yml`, job `image` : `platforms: linux/arm64` et `runs-on: ubuntu-24.04-arm` (repli : `ubuntu-latest` + `docker/setup-qemu-action` épinglé par sha) ; retirer le commentaire « amd64 seul (hôte de déploiement) ». Trivy analyse le digest poussé, inchangé. `tests/test_workflows.py` : un test `test_l_image_est_arm64`. La CI (`ci.yml`) reste sur `ubuntu-latest` : elle ne lance pas l'image.
-- [ ] **R-5 : scripts** (plan 4, tâche 3). Aucun changement de code. Commentaire d'en-tête de `scripts/portainer-stack.sh` : « Portainer de l'Infra, environnement de Colima ».
-- [ ] **R-6 : README** (plan 4, tâche 5). Tableau du contrat de la section 3 ; étape manuelle 3 : `PORTAINER_ENDPOINT_ID` = `6` ; étape 4 : le registre `ghcr.io` doit être autorisé **sur l'environnement 6** ; « Exploitation » : les journaux se lisent dans Portainer (environnement 6) ou par `docker --context colima logs` sur le Mac — **pas dans Loki** (Alloy ne lit que l'hôte `192.168.2.10`) ; ajouter : le service s'arrête si le Mac Studio ou Colima s'arrête.
+- [ ] **R-5 : scripts** (plan 4, tâche 3). Aucun changement de code : `RAG_DB_PASSWORD` reste une clé obligatoire. Commentaire d'en-tête de `scripts/portainer-stack.sh` : « Portainer de l'Infra, environnement de Colima ».
+- [ ] **R-6 : README** (plan 4, tâche 5). Tableau du contrat de la section 3 ; étapes manuelles de la section 6 ; « Exploitation » : les journaux se lisent dans Portainer (environnement 6) ou par `docker --context colima logs` sur le Mac — **pas dans Loki** (Alloy ne lit que l'hôte `192.168.2.10`) ; `RAG_JETON_PRIVE` ne s'utilise que depuis le Mac Studio ; le service s'arrête si le Mac Studio ou Colima s'arrête ; « Sauvegarde » : le paragraphe de la section 3.
 - [ ] **R-7 : vérification du premier déploiement** (plan 4, tâche 6). Remplacer :
-  - step 3 : « Sur l'hôte » → sur le Mac Studio, `docker --context colima exec rag-rag-1 …` ; `docker network inspect infra-net` → supprimé ; `docker --context colima port rag-rag-1` montre **seulement** `8000/tcp -> 192.168.2.66:8000` ; depuis une autre machine du LAN, `curl -s -o /dev/null -w '%{http_code}' http://192.168.2.66:8000/etat` → `401`.
+  - step 3 : « Sur l'hôte » → sur le Mac Studio, `docker --context colima exec rag-rag-1 …` ; `docker network inspect infra-net` → supprimé ; `docker --context colima port rag-rag-1` montre **seulement** `8000/tcp -> 192.168.2.66:8000`, et rien pour `rag-rag-postgres-1` ni `rag-rag-indexeur-1` ; depuis une autre machine du LAN, `curl -s -o /dev/null -w '%{http_code}' http://192.168.2.66:8000/etat` → `401`, `nc -z 192.168.2.66 5432` et `nc -z 192.168.2.35 8000` échouent.
   - step 4 : `curl` depuis le Mac sur `http://192.168.2.66:8000/etat`.
-  - step 7 : « Latence sur l'hôte réel » = la VM Colima (CPU arm64, 8 cœurs) ; replis : `rerank.candidats: 15`, puis rerank réservé à `repondre` ; plus de repli GPU. Ajouter : `docker --context colima stats --no-stream` pendant le banc, noter le pic de `rag-rag-1` dans `docs/mesures.md`.
+  - step 7 : « Latence sur l'hôte réel » = la VM Colima (CPU arm64, 8 cœurs) ; replis : `rerank.candidats: 15`, puis rerank réservé à `repondre` ; plus de repli GPU. Ajouter : `docker --context colima stats --no-stream` pendant le banc, noter le pic de `rag-rag-1` et de `rag-rag-postgres-1` dans `docs/mesures.md`.
   - step 8 : inchangé, après la PR B amendée (I-2).
 
 ## 5. Tâches Infra
 
-- [ ] **I-1 (PR de doc, peut partir tout de suite).** `README.md` (« RAG (RAG repo) ») et `CLAUDE.md` : la pile est sur l'environnement 6, hors d'`infra-net`, un port `192.168.2.66:8000` ; recopier le tableau de la section 3 (en anglais, selon la convention du dépôt). Recopier ce plan dans `Infra/docs/superpowers/plans/`.
+- [ ] **I-1 (PR de doc, peut partir tout de suite).** `README.md` (« RAG (RAG repo) ») et `CLAUDE.md` : la pile est sur l'environnement 6, hors d'`infra-net`, avec son propre Postgres et un port `192.168.2.66:8000` ; recopier le tableau de la section 3 (en anglais, selon la convention du dépôt) ; noter que la base `rag`, `rag` dans `APP_DATABASES` et `RAG_DB_PASSWORD` d'`infra/env` ne servent plus et sont laissés en place. Recopier ce plan dans `Infra/docs/superpowers/plans/`. **Ne rien retirer** de `.env.example`, `check-env.sh` ni `APP_DATABASES` dans cette PR : `make up` exige encore ces variables.
 - [ ] **I-2 (PR B du plan Infra, tâche 7, amendée).** `litellm/config.yaml` : `url: http://192.168.2.66:8000/mcp` ; `scripts/test_mcp_policy.py` : `test_the_rag_server_is_registered_in_litellm` attend cette URL. Prérequis réécrit : depuis `192.168.2.10`, `curl -s -o /dev/null -w '%{http_code}' -X POST http://192.168.2.66:8000/mcp` répond `401`. Le reste de la tâche 7 ne change pas.
 - [ ] **I-3 (facultatif, hors RAG).** Corriger les six contradictions de la section 1, dont l'enregistrement DNS `s3.famillelallier.net` / `data.famillelallier.net` → `192.168.2.68` et `colima-studio-cadvisor-1` qui redémarre en boucle.
-- Rien à faire sur : `docker-compose.runners.yml`, `stacks.conf`, nginx, OpenBao, `teams.yaml`, le provisionnement de la base et de S3.
+- Rien à faire sur : `docker-compose.runners.yml`, `stacks.conf`, nginx, OpenBao, `teams.yaml`, le provisionnement S3.
 
 ## 6. Étapes manuelles pour Nicolas
 
-1. **Trancher l'option de base** (2.1).
-2. Portainer → Environments : confirmer que l'environnement de `192.168.2.66` porte l'identifiant `6`.
-3. Portainer → Registries : `ghcr.io` avec un jeton `read:packages`, **autorisé sur l'environnement 6** (plan 4, étape manuelle 4, autre environnement).
-4. GitHub → `nicolaslallier/RAG` → Settings → Environments → `production` : variable `PORTAINER_ENDPOINT_ID` = `6` ; secrets `PORTAINER_API_KEY` et `BAO_TOKEN` comme prévu.
-5. Mac Studio : Colima doit démarrer avec la session (`brew services start colima` ou équivalent) et le Mac ne doit pas dormir ; la réservation DHCP de `192.168.2.66` doit rester.
+Aucune n'est faite par un agent.
+
+1. **Portainer → Environments** : vérifier que l'environnement de la VM Colima du Mac Studio (`192.168.2.66:9001`) porte bien l'identifiant **6**. Si ce n'est pas 6, le dire avant la fusion : `PORTAINER_ENDPOINT_ID` (étape 3) prend la vraie valeur.
+2. **Portainer → Registries** : `ghcr.io` avec un jeton `read:packages` ; puis Environments → cet environnement → Registries : **autoriser `ghcr.io` sur l'environnement 6** (le paquet `rag` est privé ; sans cela le déploiement échoue au tirage de l'image).
+3. **GitHub → `nicolaslallier/RAG` → Settings → Environments → `production`** : variable `PORTAINER_ENDPOINT_ID` = `6` ; secrets `PORTAINER_API_KEY` et `BAO_TOKEN` comme au plan 4.
+4. **OpenBao** : rien à changer. `RAG_DB_PASSWORD` d'`infra/rag` devient le mot de passe du Postgres dédié à sa première création.
+5. **Mac Studio** : Colima démarre avec la session (`brew services start colima` ou équivalent), le Mac ne dort pas, la réservation DHCP de `192.168.2.66` reste.
 6. Après la fusion de la PR #5 : suivre R-7.
 7. Après le premier déploiement : fusionner I-2, mettre `RAG_MCP_TOKEN` dans `infra/env`, `make up stack=platform` (inchangé).
+8. **Avant d'activer le rerank** (`rerank.actif: true`) : libérer la mémoire de la VM en arrêtant puis supprimant les bases de dev devenues inutiles — `docker --context colima rm -f pg-coffre pg-usine-doc`, et `rag-dev-postgres` **une fois les plans 1 à 4 finis** (plus aucun test local n'en a besoin). Vérifier par `docker --context colima stats --no-stream`. N'agrandir la VM (`colima stop && colima start --memory 10`) que si la mesure de R-7 le demande encore.
+9. **La base `rag` du Postgres de l'Infra** : ne rien faire. Elle reste, vide.
 
 ## 7. Risques ouverts
 
-1. **Identifiant de l'environnement** : `6` vient de la doc de l'Infra, pas de l'API de Portainer ; à confirmer (étape manuelle 2).
-2. **Postgres en clair sur le LAN** (option A) : accepté ou non par Nicolas pour les notes `prive`.
-3. **boto3 et la CA maison** sous Python 3.13 : R-3 le prouve ou le corrige.
-4. **Mémoire de l'hôte** : 0,25 Go libres sur 36 avec les modèles chargés. Le RAG avec rerank actif ajoute jusqu'à 3 Gio réellement utilisés dans la VM.
-5. **Runner arm64 de GitHub** pour un dépôt privé : s'il manque, le build passe par QEMU (plus lent).
-6. **Disponibilité** : le RAG dépend maintenant de deux machines (Mac Studio pour le service, portable pour Postgres, LiteLLM, S3, Portainer).
-7. **Adresse en dur** (`192.168.2.66`) à deux endroits (pile RAG, `litellm/config.yaml`) : un changement de bail DHCP casse le MCP sans bruit. Réservation DHCP obligatoire.
-
-## Annexe — option B, Postgres dédié (si le clair sur le LAN est refusé)
-
-Ajouter à la pile un service `rag-postgres` (`pgvector/pgvector:0.8.6-pg18-bookworm` épinglé par digest, `POSTGRES_USER=rag`, `POSTGRES_DB=rag`, `POSTGRES_PASSWORD=${RAG_DB_PASSWORD:?}`, volume `rag-pgdata:/var/lib/postgresql`, `mem_limit: 1g`, contrôle de santé `pg_isready`, aucun port) ; `RAG_DATABASE_URL` vise `rag-postgres:5432` ; `depends_on` avec `condition: service_healthy` sur les deux services. `rag` est alors superutilisateur de sa base : la migration crée `vector` elle-même, comme en dev. Contrat : ligne « Base » → « fournie par RAG » ; la base `rag` de l'Infra, `rag` dans `APP_DATABASES` et la copie de `RAG_DB_PASSWORD` dans `infra/env` deviennent inutiles. Pas de sauvegarde : la base se reconstruit par `rag indexer --complet`.
+1. **Identifiant de l'environnement** : `6` vient de la doc de l'Infra, pas de l'API de Portainer ; vérifié par Nicolas (étape manuelle 1).
+2. **boto3 et la CA maison** sous Python 3.13 : R-3 le prouve ou le corrige.
+3. **Mémoire** : 0,25 Go libres sur l'hôte avec les modèles chargés ; avec le rerank actif, le pire cas dépasse la VM tant que les bases de dev ne sont pas libérées (étape manuelle 8).
+4. **Runner arm64 de GitHub** pour un dépôt privé : s'il manque, le build passe par QEMU (plus lent).
+5. **Disponibilité** : le RAG dépend de deux machines (Mac Studio pour le service et sa base, portable pour LiteLLM, S3, Portainer).
+6. **Adresse en dur** (`192.168.2.66`) à deux endroits (pile RAG, `litellm/config.yaml`) : un changement de bail DHCP casse le MCP sans bruit. Réservation DHCP obligatoire.
+7. **Port 8000 en HTTP sur le LAN** (accepté) : `RAG_JETON` y circule en clair ; un appel fait avec `RAG_JETON_PRIVE` depuis une autre machine ferait passer du `prive` en clair, d'où la règle « depuis le Mac Studio seulement ». Pour un appelant `prive` distant, il faudra d'abord du TLS.
+8. **Rotation de `RAG_DB_PASSWORD`** : sans effet sur un volume existant (voir R-2).
