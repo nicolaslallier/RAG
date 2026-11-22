@@ -102,3 +102,16 @@ def test_cli_banc_generation(env_cli, tmp_path, monkeypatch, faux_modeles):  # n
     assert cli.main(["banc", "--jeu", str(jeu), "--generation", "--sans-indexer",
                      "--echantillon", "1"]) == 0
     assert list((tmp_path / "banc/resultats").glob("*-relecture.md"))
+
+
+def test_une_panne_du_modele_n_arrete_pas_le_banc(bd, index, faux_modeles):
+    from rag.modeles import ErreurModele
+
+    class Lent(Scripte):
+        def generer(self, modele, messages, temperature, json_mode=False):
+            if modele != CONFIG.banc.modele_juge and not json_mode and "pâté" in str(messages):
+                raise ErreurModele("ReadTimeout")
+            return super().generer(modele, messages, temperature, json_mode)
+    r = executer_generation(bd, CAS, CONFIG, Lent(faux_modeles), index.version)
+    assert r["resume"]["erreurs_modele"] == 1 and r["resume"]["n"] == 4
+    assert r["resume"]["fidelite_moy"] == 5.0

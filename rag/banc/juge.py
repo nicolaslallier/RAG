@@ -57,18 +57,12 @@ def executer_generation(conn, cas, config: Config, modeles, version_id: int,
         ligne = {"id": c.id, "question": c.question, "nature": c.nature, "mode": dec.mode,
                  "mode_attendu": c.mode_attendu, "raison": "", "fidelite": None,
                  "pertinence": None, "passages": [], "reponse": ""}
-        if dec.mode == "lister":
-            r = lister(conn, c.question, dec.filtres, config, modeles, version_id,
-                       niveaux=PUBLIC, reranker=reranker)
-            ligne |= {"refus": not r["elements"],
-                      "reponse": "\n".join(f"- {e['titre']} ({e['certitude']})"
-                                           for e in r["elements"])}
-        else:
-            r = repondre(conn, c.question, config, modeles, version_id, niveaux=PUBLIC,
-                         filtres=dec.filtres, reranker=reranker)
-            ligne |= {"refus": r.refus, "raison": r.raison, "reponse": r.texte}
+        try:
+            ligne |= _executer_cas(conn, c, dec, config, modeles, version_id, reranker)
+        except ErreurModele as e:  # gemma peut dépasser 300 s : le cas est noté, le banc continue
+            ligne |= {"refus": False, "raison": "erreur_modele", "reponse": str(e)}
         ligne["latence_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-        if dec.mode == "repondre" and not ligne["refus"]:
+        if dec.mode == "repondre" and not ligne["refus"] and ligne["raison"] != "erreur_modele":
             passages = chercher(conn, c.question, config.recherche, modeles, version_id,
                                 config.indexation.modele_embedding, niveaux=PUBLIC,
                                 filtres=dec.filtres, limite=config.reponse.passages,
@@ -77,8 +71,25 @@ def executer_generation(conn, cas, config: Config, modeles, version_id: int,
             ligne |= juger(modeles, config.banc.modele_juge, c.question, ligne["passages"],
                            ligne["reponse"])
         lignes.append(ligne)
-    sans = [x["refus"] for x in lignes if x["nature"] == "sans_reponse"]
-    avec = [x["refus"] for x in lignes if x["nature"] != "sans_reponse"]
+    return _resume(lignes)
+
+
+def _executer_cas(conn, c, dec, config, modeles, version_id, reranker) -> dict:
+    if dec.mode == "lister":
+        r = lister(conn, c.question, dec.filtres, config, modeles, version_id, niveaux=PUBLIC,
+                   reranker=reranker)
+        return {"refus": not r["elements"], "reponse": "\n".join(
+            f"- {e['titre']} ({e['certitude']})" for e in r["elements"])}
+    r = repondre(conn, c.question, config, modeles, version_id, niveaux=PUBLIC,
+                 filtres=dec.filtres, reranker=reranker)
+    return {"refus": r.refus, "raison": r.raison, "reponse": r.texte}
+
+
+def _resume(lignes: list[dict]) -> dict:
+    erreurs = sum(x["raison"] == "erreur_modele" for x in lignes)
+    lignes_ok = [x for x in lignes if x["raison"] != "erreur_modele"]
+    sans = [x["refus"] for x in lignes_ok if x["nature"] == "sans_reponse"]
+    avec = [x["refus"] for x in lignes_ok if x["nature"] != "sans_reponse"]
     jugees = [x for x in lignes if x["mode"] == "repondre" and not x["refus"]]
     aiguilles = [x for x in lignes if x["mode_attendu"]]
     return {"cas": lignes, "resume": {
@@ -91,7 +102,7 @@ def executer_generation(conn, cas, config: Config, modeles, version_id: int,
                                  / len(aiguilles), 4) if aiguilles else None,
         "latence_p95_ms": _centile([x["latence_ms"] for x in lignes], 0.95),
         "juges_illisibles": sum(x["fidelite"] is None for x in jugees),
-        "n": len(lignes)}}
+        "erreurs_modele": erreurs, "n": len(lignes)}}
 
 
 def ecrire_relecture(rapport: dict, chemin: Path, n: int) -> Path:
