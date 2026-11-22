@@ -109,3 +109,28 @@ def test_contexte_tls_ca_maison(tmp_path):
     for c in (ctx, defaut):
         assert c.verify_mode == ssl.CERT_REQUIRED and c.check_hostname
     assert defaut.verify_flags & ssl.VERIFY_X509_STRICT
+
+
+def test_generer_flux_lit_le_sse():
+    vu = []
+
+    def gerer(req):
+        vu.append(json.loads(req.content))
+        ev = [{"choices": [{"delta": {"role": "assistant"}}]},
+              {"choices": [{"delta": {"content": "Du cidre "}}]},
+              {"choices": [{"delta": {"content": "[1]."}}]}]
+        corps = "".join(f"data: {json.dumps(e)}\n\n" for e in ev) + "data: [DONE]\n\n"
+        return httpx.Response(200, text=corps, headers={"content-type": "text/event-stream"})
+
+    m = Modeles("http://x", "k", client=httpx.Client(transport=httpx.MockTransport(gerer)))
+    assert list(m.generer_flux("g", [{"role": "user", "content": "q"}], 0.1)) == [
+        "Du cidre ", "[1]."]
+    assert vu[0]["stream"] is True and vu[0]["temperature"] == 0.1
+
+
+def test_generer_flux_erreur_http():
+    m = Modeles("http://x", "secret", client=httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(500))))
+    with pytest.raises(ErreurModele) as e:
+        list(m.generer_flux("g", [], 0))
+    assert "secret" not in str(e.value)

@@ -1,6 +1,8 @@
 """Client LiteLLM (seul fournisseur de modèles) : embeddings et génération."""
 
+import json
 import ssl
+from collections.abc import Iterator
 from pathlib import Path
 
 import httpx
@@ -65,6 +67,27 @@ class Modeles:
             return self._post("/v1/chat/completions", corps)["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError):
             raise ErreurModele("réponse de génération inattendue") from None
+
+    def generer_flux(self, modele: str, messages: list[dict], temperature: float) -> Iterator[str]:
+        corps = {"model": modele, "messages": messages, "temperature": temperature,
+                 "stream": True}
+        try:
+            with self.client.stream("POST", f"{self.url}/v1/chat/completions", json=corps,
+                                    headers=self.entetes) as r:
+                r.raise_for_status()
+                for ligne in r.iter_lines():
+                    if not ligne.startswith("data:"):
+                        continue
+                    data = ligne[5:].strip()
+                    if data == "[DONE]":
+                        return
+                    choix = json.loads(data).get("choices") or [{}]
+                    if fragment := (choix[0].get("delta") or {}).get("content"):
+                        yield fragment
+        except httpx.HTTPStatusError as e:
+            raise ErreurModele(f"LiteLLM flux : HTTP {e.response.status_code}") from None
+        except (httpx.HTTPError, ValueError) as e:
+            raise ErreurModele(f"LiteLLM flux : {type(e).__name__}") from None
 
 
 def modeles_depuis(reglages) -> Modeles:
