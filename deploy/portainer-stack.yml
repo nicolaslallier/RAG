@@ -29,6 +29,10 @@ x-rag: &rag
   security_opt: ["no-new-privileges:true"]
   tmpfs: [/tmp]
   restart: unless-stopped
+  # La VM Colima du MacBook ne résout pas le DNS de la maison : vhosts de l'Infra en dur.
+  extra_hosts:
+    - "litellm.infra.famillelallier.net:192.168.2.10"
+    - "s3.infra.famillelallier.net:192.168.2.10"
 
 services:
   rag:
