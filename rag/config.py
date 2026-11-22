@@ -30,6 +30,7 @@ class Reglages(BaseSettings):
     litellm_ca: Path | None = None
     jeton: str = ""
     jeton_prive: str = ""
+    jeton_reindexer: str = ""
     github_jeton: str = ""
     graphify_commande: str = "graphify"   # en dev : spike/graphify/en-conteneur.sh (sans réseau)
     donnees_dir: Path = Path("donnees")

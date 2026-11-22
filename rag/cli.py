@@ -178,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
     pgs.add_argument("--source")
     pgs.add_argument("--max", type=int)
     sp.add_parser("servir")
+    sp.add_parser("travailleur")
     for nom in ("question", "lister", "repondre"):
         pq = sp.add_parser(nom)
         pq.add_argument("question")
@@ -198,6 +199,13 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run(create_app(reglages), host="0.0.0.0", port=8000)
         return 0
     config = charger_config(reglages.config)
+    if a.cmd == "travailleur":
+        import logging
+
+        from rag.travailleur import boucle
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        boucle(reglages, config, modeles_depuis(reglages))
+        return 0
     with connexion(reglages.database_url) as conn:
         if a.cmd == "migrer":
             print("\n".join(migrer(conn)) or "rien à migrer")

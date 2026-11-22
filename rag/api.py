@@ -51,6 +51,11 @@ class Demande(BaseModel):
     limite: int = Field(10, ge=1, le=50)
 
 
+class DemandeReindexer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source: str | None = Field(None, max_length=200)
+
+
 class DemandeQuestion(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(max_length=2000)
@@ -103,6 +108,49 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                 jeton, reglages.jeton_prive.encode()):
             return TOUT
         raise HTTPException(401, "jeton invalide")
+
+    def jeton_reindexer(authorization: str = Header(default="")) -> None:
+        if not reglages.jeton_reindexer:
+            raise HTTPException(503, "réindexation non configurée")
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(401, "jeton invalide")
+        jeton = authorization.removeprefix("Bearer ").strip().encode()
+        if jeton and hmac.compare_digest(jeton, reglages.jeton_reindexer.encode()):
+            return
+        niveaux_du_jeton(authorization)  # jeton de lecture valide : 403, sinon 401
+        raise HTTPException(403, "ce jeton ne permet pas de réindexer")
+
+    @app.post("/reindexer", status_code=202, dependencies=[Depends(jeton_reindexer)])
+    def route_reindexer(d: DemandeReindexer):
+        with connexion(reglages.database_url) as conn:
+            noms = [r["nom"] for r in conn.execute(
+                "UPDATE sources SET demande_le = now() WHERE %(s)s::text IS NULL OR nom = %(s)s "
+                "RETURNING nom", {"s": d.source})]
+            if d.source and not noms:
+                raise HTTPException(404, "source inconnue")
+            conn.execute("NOTIFY rag_reindexer")
+            conn.commit()
+        return {"demande": sorted(noms)}
+
+    @app.get("/etat")
+    def route_etat(niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
+        with connexion(reglages.database_url) as conn:
+            sources = conn.execute(
+                """SELECT s.nom, s.type, s.revision, s.indexe_le,
+                          (SELECT count(*) FROM documents d WHERE d.source_id = s.id) AS documents,
+                          s.demande_le IS NOT NULL AS demande_en_attente
+                     FROM sources s WHERE s.visibilite = ANY(%s) ORDER BY s.nom""",
+                (sorted(niveaux),)).fetchall()
+            en_cours = conn.execute("SELECT genre, debut FROM passes WHERE fin IS NULL "
+                                    "ORDER BY debut DESC LIMIT 1").fetchone()
+            nuit = conn.execute("SELECT debut, fin, ok, bilan FROM passes WHERE genre = "
+                                "'nocturne' AND fin IS NOT NULL ORDER BY debut DESC LIMIT 1"
+                                ).fetchone()
+            caches = {r["nom"] for r in conn.execute(
+                "SELECT nom FROM sources WHERE NOT visibilite = ANY(%s)", (sorted(niveaux),))}
+        if nuit:  # le bilan ne nomme pas une source que ce jeton ne voit pas
+            nuit["bilan"] = {k: v for k, v in nuit["bilan"].items() if k not in caches}
+        return {"sources": sources, "en_cours": en_cours, "derniere_nocturne": nuit}
 
     @app.get("/sante")
     def sante():
