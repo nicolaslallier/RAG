@@ -73,6 +73,7 @@ recherche:
   seuil_flou: 0.4
   instruction_requete: "Given a web search query, retrieve relevant passages that answer the query"
   rerank: {actif: false, modele: "BAAI/bge-reranker-v2-m3", candidats: 30, garder: 8}
+  poids_source: {obsidian: 1.0, code: 0.6}   # banc 2026-11-22 : voir docs/mesures-plan-2.md
   graphe: {expansion: false, depuis: 3, attenuation: 0.5, plafond: 5}
 reponse:
   modele: "gemma4:26b-a4b-it-qat"

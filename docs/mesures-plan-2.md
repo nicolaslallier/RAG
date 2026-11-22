@@ -82,3 +82,29 @@ des listes plein texte et floue, qui balaient encore tous les morceaux.
   courants (`format`, `documents`, `compare`, `service`) à des fonctions homonymes : corrigé, un
   libellé n'est retenu que s'il a une forme de code (`_` ou casse chameau) ou s'il est cité entre
   backticks.
+
+## Poids par type de source (`recherche.poids_source`), 2026-11-22
+
+Accord de Nicolas (« Oui, poids par source »). Le score RRF de chaque morceau est multiplié par le
+poids de son type de source (`obsidian`, `code` ; 1.0 si absent). La liste floue garde maintenant
+20 places **par type de source** : les chemins de code ne chassent plus les titres de notes (cause
+de `keycloak-machine`). Banc sur `rag_plan2`, `--sans-indexer` ; « code » = les 11 questions de code
+avec attendus (les 3 `sans_reponse` ne comptent pas dans le rappel).
+
+| poids code | coffre rappel@10 | coffre MRR | coffre nDCG@10 | code rappel@10 | code MRR |
+|---|---|---|---|---|---|
+| (coffre seul, sans code) | 0,886 | 0,930 | 0,853 | — | — |
+| 1.0 | 0,812 | 0,883 | 0,781 | 0,522 | 0,727 |
+| 0.8 | 0,858 | 0,919 | 0,835 | 0,522 | 0,712 |
+| **0.6** | **0,872** | **0,933** | **0,846** | **0,522** | **0,700** |
+| 0.5 | 0,872 | 0,933 | 0,847 | 0,431 | 0,682 |
+| 0.4 | 0,881 | 0,933 | 0,855 | 0,431 | 0,606 |
+| 0.3 | 0,881 | 0,933 | 0,855 | 0,310 | 0,500 |
+| 0.2 | 0,881 | 0,933 | 0,855 | 0,310 | 0,500 |
+
+**Retenu : `code: 0.6`** dans `config/rag.yaml` et `config/dev.yaml`. C'est la plus haute valeur qui
+atteint la cible du coffre (rappel@10 ≥ 0,87, MRR ≥ 0,91) ; le rappel du code y est inchangé par
+rapport à 1.0 (0,522) et son MRR ne perd que 0,03. En dessous de 0,6, le code s'effondre
+(0,43 puis 0,31) pour un gain du coffre de 0,01. Rappel du coffre encore à −0,014 de la
+référence sans code (sous le seuil de 0,02). Les questions de code sont encore `propose` : à
+remesurer après correction par Nicolas.
