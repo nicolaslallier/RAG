@@ -231,6 +231,10 @@ def main(argv: list[str] | None = None) -> int:
 
         from rag.travailleur import boucle
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        from rag.demarrage import attendre_base, verifier_reglages
+        verifier_reglages(reglages, "travailleur")
+        # Postgres pas encore prêt : attendre plutôt que boucler en redémarrage.
+        attendre_base(lambda: connexion(reglages.database_url), url=reglages.database_url).close()
         boucle(reglages, config, modeles_depuis(reglages))
         return 0
     if a.cmd == "migrer":  # au démarrage du conteneur : attendre Postgres plutôt que redémarrer

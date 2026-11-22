@@ -8,7 +8,7 @@ RUN apt-get update && apt-get upgrade -y \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=uv /uv /usr/local/bin/uv
 
-# ponytail: groupe `rerank` vide tant que le plan 3 n'est pas fusionné ; `--build-arg GROUPES=` pour construire sans.
+# Le reranker (torch CPU) est dans l'image ; `--build-arg GROUPES=` construit sans, pour un essai rapide.
 ARG GROUPES="--group rerank"
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app

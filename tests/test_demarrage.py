@@ -164,3 +164,29 @@ def test_url_invalide_echoue_sans_reessai(capsys):
 def test_pas_de_documentation_openapi(faux_modeles):
     c = TestClient(create_app(reglages(), faux_modeles))
     assert all(c.get(u).status_code == 404 for u in ("/docs", "/redoc", "/openapi.json"))
+
+
+def test_travailleur_verifie_puis_attend_la_base(monkeypatch, tmp_path):
+    import rag.cli
+    import rag.demarrage
+    import rag.travailleur
+    vraie, essais, lance = rag.cli.connexion, [], []
+
+    def connexion(url):
+        essais.append(url)
+        if len(essais) == 1:
+            raise psycopg.OperationalError("injoignable")
+        return vraie(URL)
+    monkeypatch.setattr(rag.cli, "connexion", connexion)
+    monkeypatch.setattr(rag.demarrage.time, "sleep", lambda s: None)
+    monkeypatch.setattr(rag.travailleur, "boucle", lambda *a, **k: lance.append(1))
+    d = yaml.safe_load(Path("config/rag.yaml").read_text())
+    d["sources"] = []
+    f = tmp_path / "rag.yaml"
+    f.write_text(yaml.safe_dump(d))
+    for k, v in {**OK, "config": str(f)}.items():
+        monkeypatch.setenv(f"RAG_{k.upper()}", v)
+    assert rag.cli.main(["travailleur"]) == 0 and len(essais) == 2 and lance == [1]
+    monkeypatch.setenv("RAG_JETON", "court")
+    with pytest.raises(ErreurConfig, match="RAG_JETON"):
+        rag.cli.main(["travailleur"])
