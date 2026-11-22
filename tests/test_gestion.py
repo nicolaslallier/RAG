@@ -1,15 +1,22 @@
+import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 
 from rag.config import SourceConf, charger_config
 from rag.db import connexion
 from rag.gestion import correspond
-from rag.graphe import maj_graphe
+from rag.graphe import _copier_sans_exclus, maj_graphe
 from rag.indexeur import indexer_source
-from rag.sources import LecteurDossier
-from tests.conftest import URL
+from rag.sources import LecteurDossier, nfc
+from tests.conftest import URL, git
 
 CONF = charger_config(Path("config/rag.yaml")).indexation
+
+
+def nfd(s):
+    return unicodedata.normalize("NFD", s)
+
+
 RESSOURCES = {"03 - Ressources/Grafana.md", "03 - Ressources/Kubernetes.md"}
 
 
@@ -82,21 +89,24 @@ def test_documents_exclus_a_la_main_non_comptes_comme_absents(bd, index, faux_mo
     assert chemins(bd) == set() and b.supprimes == 6
 
 
+def exclure_pendant_les_embeddings(faux_modeles, chemin):
+    """L'exclusion arrive (autre connexion) pendant le calcul des vecteurs du document."""
+    embed = faux_modeles.embed_documents
+
+    def embed_et_exclure(textes, modele):
+        with connexion(URL) as autre:
+            exclure_a_la_main(autre, "coffre-maison", chemin)
+        return embed(textes, modele)
+
+    faux_modeles.embed_documents = embed_et_exclure
+
+
 def test_exclusion_posee_pendant_la_passe_n_est_pas_ecrite(bd, index, faux_modeles):
     nouvelle = "04 - Archives/Nouvelle.md"
     (index.coffre / nouvelle).parent.mkdir(parents=True)
     (index.coffre / nouvelle).write_text("# Nouvelle\n\nAjoutée après la première passe.\n")
-    lec = LecteurDossier(index.coffre)
-    lire = lec.lire
-
-    def lire_et_exclure(chemin):
-        if chemin == nouvelle:
-            with connexion(URL) as autre:
-                exclure_a_la_main(autre, "coffre-maison", nouvelle)
-        return lire(chemin)
-
-    lec.lire = lire_et_exclure
-    b = reindexer_coffre(bd, index, faux_modeles, lec)
+    exclure_pendant_les_embeddings(faux_modeles, nouvelle)
+    b = reindexer_coffre(bd, index, faux_modeles)
     assert nouvelle not in chemins(bd) and b.nouveaux == 0
     assert raisons(bd)[nouvelle] == ("manuelle", False)
 
@@ -104,19 +114,41 @@ def test_exclusion_posee_pendant_la_passe_n_est_pas_ecrite(bd, index, faux_model
 def test_exclusion_pendant_la_passe_retire_le_document_existant(bd, index, faux_modeles):
     chemin = "Accueil.md"
     (index.coffre / chemin).write_text("# Accueil\n\nModifiée.\n")
-    lec = LecteurDossier(index.coffre)
-    lire = lec.lire
-
-    def lire_et_exclure(c):
-        if c == chemin:
-            with connexion(URL) as autre:
-                exclure_a_la_main(autre, "coffre-maison", chemin)
-        return lire(c)
-
-    lec.lire = lire_et_exclure
-    b = reindexer_coffre(bd, index, faux_modeles, lec)
+    exclure_pendant_les_embeddings(faux_modeles, chemin)
+    b = reindexer_coffre(bd, index, faux_modeles)
     assert chemin not in chemins(bd) and b.modifies == 0
     assert raisons(bd)[chemin] == ("manuelle", False)
+
+
+def test_chemin_exact_avec_crochets_exclu(bd, index, faux_modeles):
+    chemin = "Notes/[2024] bilan.md"
+    (index.coffre / chemin).parent.mkdir(parents=True)
+    (index.coffre / chemin).write_text("# Bilan 2024\n\nL'année en revue.\n")
+    exclure_a_la_main(bd, "coffre-maison", chemin)  # « [2024] » serait une classe pour fnmatch
+    reindexer_coffre(bd, index, faux_modeles)
+    assert chemin not in chemins(bd)
+    assert raisons(bd)[chemin] == ("manuelle", False)
+
+
+def test_motif_nfd_couvre_un_chemin_nfc(bd, index, faux_modeles):
+    assert correspond(nfc("Pâté chinois.md"), [nfd("Pâté chinois.md")])
+    assert correspond(nfd("Recettes/Pâté.md"), [nfc("Recettes/*")])
+    exclure_a_la_main(bd, "coffre-maison", nfd("02 - Domaines/Cuisine/Recettes/Pâté chinois.md"))
+    bd.execute("DELETE FROM documents WHERE chemin = %s",
+               (nfc("02 - Domaines/Cuisine/Recettes/Pâté chinois.md"),))
+    bd.commit()
+    reindexer_coffre(bd, index, faux_modeles)
+    assert nfc("02 - Domaines/Cuisine/Recettes/Pâté chinois.md") not in chemins(bd)
+
+
+def test_copie_pour_graphify_sans_fichier_nfd_exclu_en_nfc(depot, tmp_path):
+    (depot / nfd("Équipe.py")).write_text("x = 1\n")
+    git(depot, "add", "-A")
+    git(depot, "commit", "-qm", "nfd")
+    copie = tmp_path / "copie"
+    _copier_sans_exclus(depot, copie, [nfc("Équipe.py")])
+    assert (copie / "a.py").exists()
+    assert not any(nfc(p.name) == nfc("Équipe.py") for p in copie.rglob("*"))
 
 
 def test_exclusion_annulee_ne_laisse_pas_de_ligne_perimee(bd, index, faux_modeles):

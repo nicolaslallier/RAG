@@ -6,6 +6,8 @@ Pour l'instant : les exclusions manuelles (motifs fnmatch par source, comme `exc
 from collections.abc import Iterable
 from fnmatch import fnmatch
 
+from rag.sources import nfc
+
 
 def motifs_manuels(conn, source: str) -> list[str]:
     """Motifs exclus à la main pour la source `source` (son nom)."""
@@ -14,5 +16,10 @@ def motifs_manuels(conn, source: str) -> list[str]:
 
 
 def correspond(chemin: str, motifs: Iterable[str]) -> bool:
-    """Vrai si un motif couvre le chemin ; `*` traverse les `/`, comme `exclure:`."""
-    return any(fnmatch(chemin, m) for m in motifs)
+    """Vrai si un motif couvre le chemin ; `*` traverse les `/`, comme `exclure:`.
+
+    L'égalité exacte prime (un chemin exclu tel quel peut contenir `[`, `?` ou `*`) ;
+    chemin et motifs sont comparés en NFC.
+    """
+    chemin = nfc(chemin)
+    return any(chemin == m or fnmatch(chemin, m) for m in map(nfc, motifs))

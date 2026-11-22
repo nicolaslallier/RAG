@@ -58,7 +58,15 @@ def _morceaux(source: SourceConf, chemin: str, contenu: bytes, conf: IndexationC
     return note, ms
 
 
-def _ecrire(conn, source_id, chemin, e, sha, note, ms, conf, v, modeles, existant) -> int:
+def _vecteurs(ms, conf: IndexationConf, modeles) -> dict[int, str]:
+    """Embeddings des morceaux cherchables, par ordre ; calculés avant toute écriture."""
+    cherchables = [m for m in ms if m.cherchable]
+    vecs = modeles.embed_documents([f"{m.fil}\n\n{m.texte}" for m in cherchables],
+                                   conf.modele_embedding) if cherchables else []
+    return {m.ordre: vecteur_sql(x) for m, x in zip(cherchables, vecs, strict=True)}
+
+
+def _ecrire(conn, source_id, chemin, e, sha, note, ms, v, vec_de, existant) -> int:
     titre_norm = normaliser(" ".join([note.titre, *note.alias]))
     doc_id = conn.execute(
         """INSERT INTO documents (source_id, chemin, titre, titre_norm, alias, tags, type, origine,
@@ -78,10 +86,6 @@ def _ecrire(conn, source_id, chemin, e, sha, note, ms, conf, v, modeles, existan
         conn.execute("DELETE FROM morceaux WHERE document_id = %s", (doc_id,))
     else:
         conn.execute("DELETE FROM morceaux WHERE document_id = %s AND version_id = %s", (doc_id, v))
-    cherchables = [m for m in ms if m.cherchable]
-    vecs = modeles.embed_documents([f"{m.fil}\n\n{m.texte}" for m in cherchables],
-                                   conf.modele_embedding) if cherchables else []
-    vec_de = {m.ordre: vecteur_sql(x) for m, x in zip(cherchables, vecs, strict=True)}
     tags = " ".join(note.tags)
     ids: dict[int, int] = {}
     for m in ms:
@@ -199,6 +203,9 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 conn.commit()
                 bilan.inchanges += 1
                 continue
+            note, ms = _morceaux(source, chemin, contenu, conf)
+            vec_de = _vecteurs(ms, conf, modeles)
+            # relu après les embeddings (longs), dans la transaction de l'écriture
             if correspond(chemin, motifs_manuels(conn, source.nom)):  # exclu pendant la passe
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
@@ -214,9 +221,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 continue
             conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
                          (source_id, chemin))
-            note, ms = _morceaux(source, chemin, contenu, conf)
-            bilan.morceaux += _ecrire(conn, source_id, chemin, e, sha, note, ms, conf, v,
-                                      modeles, ex)
+            bilan.morceaux += _ecrire(conn, source_id, chemin, e, sha, note, ms, v, vec_de, ex)
             conn.commit()
             if ex:
                 bilan.modifies += 1

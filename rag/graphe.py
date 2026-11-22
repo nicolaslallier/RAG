@@ -13,8 +13,9 @@ from pathlib import Path
 import psycopg
 
 from rag.exclusions import motif_exclusion
-from rag.gestion import motifs_manuels
+from rag.gestion import correspond, motifs_manuels
 from rag.recherche import lien_source, normaliser
+from rag.sources import nfc
 
 log = logging.getLogger(__name__)
 
@@ -65,8 +66,11 @@ def _copier_sans_exclus(clone: Path, dest: Path, exclure: list[str]) -> None:
         rel = p.relative_to(clone)
         if rel.parts[0] == ".git" or p.is_symlink() or not p.is_file():
             continue
+        chemin = nfc(rel.as_posix())  # les chemins indexés et les motifs sont en NFC
+        if correspond(chemin, exclure):
+            continue
         contenu = p.read_bytes()
-        if motif_exclusion(rel.as_posix(), contenu, exclure) is None:
+        if motif_exclusion(chemin, contenu, exclure) is None:
             (dest / rel).parent.mkdir(parents=True, exist_ok=True)
             (dest / rel).write_bytes(contenu)
 
