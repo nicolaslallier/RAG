@@ -29,6 +29,19 @@ def correspond(chemin: str, motifs: Iterable[str]) -> bool:
     return any(chemin == m or fnmatch(chemin, m) for m in map(nfc, motifs))
 
 
+_VERROUS_SOURCES = 0x52414753  # « RAGS » : espace des verrous consultatifs par source
+
+
+def verrouiller_source(conn, source: str) -> None:
+    """Verrou consultatif de la transaction en cours sur `source` (son nom), lâché au commit.
+
+    Pris par l'exclusion (exclure, importer) et par l'écriture d'un document ou de nœuds de la
+    source : une exclusion validée ne croise jamais une de ces écritures.
+    """
+    conn.execute("SELECT pg_advisory_xact_lock(%s::int, hashtext(%s))",
+                 (_VERROUS_SOURCES, source))
+
+
 class SourceInconnue(Exception):
     """Source absente ou invisible pour ces niveaux (même exception : on ne distingue pas)."""
 
@@ -211,6 +224,7 @@ def exclure(conn, source: str, motif: str, raison: str | None = None) -> int:
     """Exclut `motif` de `source` tout de suite ; retourne le nombre de documents retirés."""
     motif, raison = valider_motif(motif), _valider_raison(raison)
     try:
+        verrouiller_source(conn, source)  # attend l'écriture en cours d'un document de la source
         s = _source_connue(conn, source)
         _inserer(conn, source, motif, raison)
         n = _retirer_documents(conn, s["id"], motif)
@@ -302,6 +316,8 @@ def importer(conn, texte: str) -> dict:
     lignes = _lignes_import(texte)
     ajoutees = retires = 0
     try:
+        for source in sorted({source for source, _, _ in lignes}):  # même ordre : pas d'interblocage
+            verrouiller_source(conn, source)
         for source, motif, raison in lignes:
             ajoutees += _inserer(conn, source, motif, raison)
             if s := _source(conn, source):

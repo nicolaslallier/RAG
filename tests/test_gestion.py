@@ -1,3 +1,5 @@
+import threading
+import time
 import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,8 +25,9 @@ from rag.gestion import (
     passe_en_cours,
     sources,
     valider_motif,
+    verrouiller_source,
 )
-from rag.graphe import _copier_sans_exclus, charger_wikiliens, maj_graphe
+from rag.graphe import _copier_sans_exclus, charger_graphe, charger_wikiliens, maj_graphe
 from rag.indexeur import indexer_source
 from rag.sources import LecteurDossier, nfc
 from tests.conftest import URL, git
@@ -459,3 +462,77 @@ def test_lignes_exclus_du_listage_non_verrouillees_pendant_la_lecture(bd, index,
     reindexer_coffre(bd, index, faux_modeles, lec)
     assert lus == ["Accueil.md"] and bloques == []
     assert raisons(bd)["03 - Ressources/Grafana.md"] == ("manuelle", False)
+
+
+# --- Verrou par source : une exclusion ne croise pas l'écriture d'un document ou de nœuds ------
+
+def en_fond(f, *a):
+    """Lance `f(conn, *a)` sur une autre connexion, dans un fil ; le résultat dans `fil.r`."""
+    fil = threading.Thread(target=lambda: setattr(fil, "r", _avec_autre(f, *a)), daemon=True)
+    fil.start()
+    return fil
+
+
+def _avec_autre(f, *a):
+    with connexion(URL) as autre:
+        r = f(autre, *a)
+        autre.commit()
+        return r
+
+
+def bloque_par_le_verrou(source, f, *a):
+    """Vrai si `f` attend qu'une autre transaction lâche le verrou de `source`, puis finit."""
+    with connexion(URL) as tenant:
+        verrouiller_source(tenant, source)
+        fil = en_fond(f, *a)
+        time.sleep(0.3)
+        bloque = fil.is_alive()
+        tenant.rollback()
+    fil.join(5)
+    return bloque and not fil.is_alive()
+
+
+def test_exclusion_attend_l_ecriture_du_document_puis_le_retire(bd, index, faux_modeles,
+                                                                 monkeypatch):
+    nouvelle = "04 - Archives/Nouvelle.md"
+    (index.coffre / nouvelle).parent.mkdir(parents=True)
+    (index.coffre / nouvelle).write_text("# Nouvelle\n\nAjoutée après la première passe.\n")
+    import rag.indexeur
+    ecrire, vu = rag.indexeur._ecrire, {}
+
+    def ecrire_puis_exclure(conn, source_id, chemin, *a):
+        n = ecrire(conn, source_id, chemin, *a)
+        if chemin == nouvelle:  # écrit, pas encore validé : l'exclusion doit attendre
+            vu["fil"] = en_fond(exclure, "coffre-maison", nouvelle)
+            time.sleep(0.3)
+            vu["attend"] = vu["fil"].is_alive()
+        return n
+
+    monkeypatch.setattr(rag.indexeur, "_ecrire", ecrire_puis_exclure)
+    b = reindexer_coffre(bd, index, faux_modeles)
+    vu["fil"].join(5)
+    assert b.nouveaux == 1 and vu["attend"] is True and vu["fil"].r == 1
+    assert nouvelle not in chemins(bd) and raisons(bd)[nouvelle] == ("manuelle", False)
+
+
+def test_exclure_et_importer_prennent_le_verrou_de_la_source(bd, index):
+    assert bloque_par_le_verrou("coffre-maison", exclure, "coffre-maison", "Accueil.md")
+    t = "- {source: coffre-maison, motif: '05 - Journal/**'}\n- {source: future, motif: x}\n"
+    assert bloque_par_le_verrou("coffre-maison", importer, t)
+    assert {"Accueil.md", "05 - Journal/2026-11-20.md"}.isdisjoint(chemins(bd))
+
+
+def test_charger_wikiliens_prend_le_verrou_de_la_source(bd, index):
+    assert bloque_par_le_verrou("coffre-maison", charger_wikiliens, "coffre-maison")
+    assert bd.execute("SELECT 1 FROM noeuds WHERE cle = 'Accueil.md'").fetchone()
+
+
+def test_charger_graphe_ignore_les_fichiers_exclus_entre_temps(bd, index_code):
+    # graphify a tourné avant l'exclusion ; ses nœuds de a.py ne reviennent pas
+    exclure(bd, "depot-test", "a.py")
+    g = {"noeuds": [{"cle": "a", "libelle": "aide", "type": "fonction", "fichier": "a.py"},
+                    {"cle": "g", "libelle": "Guide", "type": "fichier",
+                     "fichier": "docs/guide.md"}],
+         "liens": [{"de": "g", "vers": "a", "type": "cite", "confiance": "EXTRAIT"}]}
+    assert bloque_par_le_verrou("depot-test", charger_graphe, "depot-test", g)
+    assert {r["cle"] for r in bd.execute("SELECT cle FROM noeuds")} == {"g"}

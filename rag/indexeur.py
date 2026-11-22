@@ -10,7 +10,7 @@ from rag.config import IndexationConf, SourceConf, empreinte_indexation
 from rag.decoupage import Morceau, decouper_note
 from rag.decoupage_code import decouper_code, langage
 from rag.exclusions import motif_exclusion
-from rag.gestion import correspond, motifs_manuels
+from rag.gestion import correspond, motifs_manuels, verrouiller_source
 from rag.notes import Note, analyser_note
 from rag.recherche import normaliser, vecteur_sql
 from rag.sources import nfc
@@ -226,7 +226,10 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 continue
             note, ms = _morceaux(source, chemin, contenu, conf)
             vec_de = _vecteurs(ms, conf, modeles)
-            # relu après les embeddings (longs), dans la transaction de l'écriture
+            # relu après les embeddings (longs), dans la transaction de l'écriture, sous le
+            # verrou de la source : une exclusion validée entre-temps est vue, une exclusion
+            # qui arrive attend le commit puis retire le document écrit
+            verrouiller_source(conn, source.nom)
             if exclu_en_passe(chemin, e, ex):
                 continue
             conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
