@@ -81,15 +81,20 @@ texte AS (SELECT id, row_number() OVER (ORDER BY rang DESC, id) AS r FROM (
             SELECT m.id, ts_rank_cd(m.tsv, (SELECT ts FROM q)) AS rang """ + _DE + """
                AND m.tsv @@ (SELECT ts FROM q)
              ORDER BY rang DESC, m.id LIMIT %(top_texte)s) x),
-flou AS (SELECT id, row_number() OVER (ORDER BY sim DESC, id) AS r FROM (
-           SELECT m.id, greatest(word_similarity(%(qnorm)s, d.titre_norm),
-                                 word_similarity(%(qnorm)s, lower(coalesce(m.symbole, '')))) AS sim
-           """ + _DE + """) x
-          WHERE sim >= %(seuil_flou)s ORDER BY sim DESC, id LIMIT 20),
-fusion AS (SELECT id, sum(poids / (%(rrf_k)s + r)) AS score FROM (
-             SELECT id, r, %(p_vecteur)s::float AS poids FROM vecteur
-   UNION ALL SELECT id, r, %(p_texte)s FROM texte
-   {flou}) u WHERE poids > 0 GROUP BY id)
+-- 20 places floues par type de source : les chemins de code ne chassent pas les titres de notes
+flou AS (SELECT id, r FROM (
+           SELECT id, row_number() OVER (PARTITION BY type ORDER BY sim DESC, id) AS r FROM (
+             SELECT m.id, s.type, greatest(word_similarity(%(qnorm)s, d.titre_norm),
+                    word_similarity(%(qnorm)s, lower(coalesce(m.symbole, '')))) AS sim
+             """ + _DE + """) x
+            WHERE sim >= %(seuil_flou)s) y WHERE r <= 20),
+fusion AS (SELECT u.id, sum(poids * CASE s.type WHEN 'code' THEN %(ps_code)s::float
+                                     ELSE %(ps_obsidian)s::float END / (%(rrf_k)s + r)) AS score
+             FROM (SELECT id, r, %(p_vecteur)s::float AS poids FROM vecteur
+         UNION ALL SELECT id, r, %(p_texte)s FROM texte
+         {flou}) u JOIN morceaux m ON m.id = u.id JOIN documents d ON d.id = m.document_id
+             JOIN sources s ON s.id = d.source_id
+            WHERE poids > 0 GROUP BY u.id)
 SELECT m.id AS morceau_id, d.id AS document_id, s.nom AS source, s.type AS type_source,
        d.chemin, d.titre, m.fil, m.symbole, m.ligne, d.origine, m.parent_id, f.score,
        1 - (m.embedding <=> %(vec)s::halfvec) AS cosinus, coalesce(p.texte, m.texte) AS texte
@@ -112,6 +117,8 @@ def chercher(conn, question: str, conf: RechercheConf, modeles, version_id: int,
         "top_vecteur": conf.top_vecteur, "top_texte": conf.top_texte,
         "seuil_flou": conf.seuil_flou, "rrf_k": conf.rrf_k, "p_vecteur": conf.poids.vecteur,
         "p_texte": conf.poids.texte, "p_flou": conf.poids.flou, "lim_sql": limite * 4,
+        "ps_code": conf.poids_source.get("code", 1.0),
+        "ps_obsidian": conf.poids_source.get("obsidian", 1.0),
     }
     clauses = _clauses(filtres, params)
     sql = _SQL.format(filtres=" ".join(clauses),

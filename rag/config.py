@@ -94,6 +94,7 @@ class RechercheConf(_Strict):
     instruction_requete: str
     rerank: RerankConf
     graphe: GrapheConf
+    poids_source: dict[Literal["obsidian", "code"], float] = {}   # par type de source ; 1.0 absent
 
 
 class ReponseConf(_Strict):
