@@ -140,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     ps.add_argument("--n", type=int, default=250)
     ps.add_argument("--graine", type=int, default=1)
     ps.add_argument("--source", action="append")
+    ps.add_argument("--reprendre", action="store_true")
     a = p.parse_args(argv)
 
     reglages = Reglages()

@@ -76,14 +76,20 @@ def _appel(modeles, modele, consigne, contenu, temperature) -> dict | None | typ
 
 
 def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, graine: int = 1,
-                sources: list[str] | None = None, rejets: Counter | None = None) -> list[Cas]:
+                sources: list[str] | None = None, rejets: Counter | None = None,
+                deja: list[Cas] | None = None) -> list[Cas]:
+    """`deja` : cas d'une génération interrompue, gardés tels quels ; leurs morceaux ne sont
+    pas redemandés."""
     rejets = rejets if rejets is not None else Counter()
-    gardes: list[Cas] = []
-    vues: set[str] = set()
+    gardes: list[Cas] = list(deja or [])
+    vues = {normaliser(c.question) for c in gardes}
+    faits = {c.id for c in gardes}
     essais = 0
     for mid, texte, cle in tirer(conn, version_id, graine, sources):
         if len(gardes) >= n or essais >= 3 * n:
             break
+        if f"syn-{mid}" in faits:
+            continue
         essais += 1
         d = _appel(modeles, conf.modele_synthetique, CONSIGNE, texte, 0.7)
         if d is _Panne:
@@ -121,11 +127,13 @@ def commande_synthetique(a, conn, config, modeles) -> int:
     from dataclasses import asdict
     from pathlib import Path
 
+    from rag.banc.execution import charger_jeu
     from rag.indexeur import version_courante
     rejets = Counter()
-    cas = generer_jeu(conn, modeles, version_courante(conn, config.indexation), config.banc,
-                      a.n, a.graine, a.source, rejets)
     sortie = Path("banc/synthetique.jsonl")
+    deja = charger_jeu(sortie) if a.reprendre and sortie.exists() else []
+    cas = generer_jeu(conn, modeles, version_courante(conn, config.indexation), config.banc,
+                      a.n, a.graine, a.source, rejets, deja)
     sortie.write_text("".join(json.dumps(asdict(c), ensure_ascii=False) + "\n" for c in cas))
     print(f"gardés : {len(cas)} ; rejetés : {sum(rejets.values())} "
           f"({', '.join(f'{k} {v}' for k, v in rejets.most_common()) or 'aucun'})")

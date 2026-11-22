@@ -95,3 +95,10 @@ def test_erreur_modele_est_un_rejet(bd, long_index):
         def generer(self, *a, **k):
             raise ErreurModele("ReadTimeout")
     assert generer_jeu(bd, Panne([]), long_index, CONFIG.banc, n=1) == []
+
+
+def test_reprise_garde_les_cas_et_saute_leurs_morceaux(bd, long_index):
+    premier = generer_jeu(bd, FauxGenerateur([BON]), long_index, CONFIG.banc, n=1)
+    m = FauxGenerateur(['{"question": "Quelle est la couleur du ciel le soir ?"}'])
+    cas = generer_jeu(bd, m, long_index, CONFIG.banc, n=2, deja=premier)
+    assert cas[0] == premier[0] and len(cas) == 2 and cas[1].id != cas[0].id
