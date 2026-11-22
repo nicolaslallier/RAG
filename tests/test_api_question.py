@@ -126,3 +126,17 @@ def test_rerank_indisponible_l_api_demarre_quand_meme(cfg, faux_modeles):
         res = c.post("/chercher", json={"question": "poulet"}, headers=auth)
         assert res.status_code == 200 and res.json()["resultats"][0]["rerank"] is None
         assert c.get("/docs").status_code == 404 and c.get("/openapi.json").status_code == 404
+
+
+def test_repondre_applique_le_bonus_de_source(cfg, faux_modeles, monkeypatch):
+    from rag import api
+    vu = []
+    vrai = api.repondre
+
+    def espion(*a, **k):
+        vu.append(k.get("bonus_sources"))
+        return vrai(*a, **k)
+    monkeypatch.setattr(api, "repondre", espion)
+    c = faire(cfg, Generation(faux_modeles))
+    c.post("/repondre", json={"question": "poulet au cidre dans coffre-maison"}, headers=auth)
+    assert vu == [["coffre-maison"]]

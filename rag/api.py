@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.routing import Route
 
-from rag.aiguillage import aiguiller
+from rag.aiguillage import aiguiller, sources_citees
 from rag.config import (
     LIMITE_MAX,
     NOM_MAX,
@@ -169,7 +169,10 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
         with connexion(reglages.database_url) as conn:
             v = version_id(conn, empreinte) or 0
             return repondre(conn, question, config, modeles, v, niveaux=niveaux,
-                            reranker=reranker)
+                            reranker=reranker, bonus_sources=_bonus(conn, question, niveaux))
+
+    def _bonus(conn, question, niveaux):  # source nommée : bonus de score (config mesurée)
+        return sources_citees(question, taxonomie(conn, niveaux=niveaux))
 
     @app.exception_handler(ErreurModele)
     def _modele_indisponible(request: Request, e: ErreurModele):
@@ -259,7 +262,8 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
     def _lister(conn, question: str, f: Filtres, niveaux) -> dict:
         v = version_id(conn, empreinte)
         if v is None:
-            return {"mode": "regroupement", "filtres": asdict(f), "elements": [], "total": 0}
+            return {"mode": "regroupement", "filtres": asdict(f), "elements": [], "total": 0,
+                    "tronque": False}
         return lister(conn, question, f, config, modeles, v, niveaux=niveaux, reranker=reranker)
 
     def _repondre(question: str, f: Filtres, niveaux, flux: bool, avant=(), bonus=None):
@@ -287,7 +291,10 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
 
     @app.post("/repondre")
     def route_repondre(d: DemandeRepondre, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
-        return _repondre(d.question, Filtres(**d.filtres.model_dump()), niveaux, d.flux)
+        with connexion(reglages.database_url) as conn:
+            bonus = _bonus(conn, d.question, niveaux)
+        return _repondre(d.question, Filtres(**d.filtres.model_dump()), niveaux, d.flux,
+                         bonus=bonus)
 
     @app.post("/question")
     def route_question(d: DemandeQuestion, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):

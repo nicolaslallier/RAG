@@ -105,3 +105,13 @@ def test_aucun_outil_de_reindexation():
 def test_entrees_trop_longues_refusees(client, nom, args):
     res = rpc(client, "tools/call", {"name": nom, "arguments": args})
     assert res["isError"] is True
+
+
+def test_rag_repondre_applique_le_bonus_de_source(client, monkeypatch):
+    from rag import api
+    vu = []
+    vrai = api.repondre
+    monkeypatch.setattr(api, "repondre", lambda *a, **k: vu.append(k["bonus_sources"])
+                        or vrai(*a, **k))
+    outil(client, "rag_repondre", {"question": "poulet au cidre dans coffre-maison"})
+    assert vu == [["coffre-maison"]]
