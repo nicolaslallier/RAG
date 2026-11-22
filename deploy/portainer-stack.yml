@@ -1,0 +1,69 @@
+# Pile Portainer « rag » (environnement 6 : Colima du Mac Studio, VM 192.168.2.66) : API, indexeur
+# et Postgres dédié. Seul `rag` publie un port, lié à 192.168.2.66.
+# Envoyée comme texte par scripts/portainer-stack.sh ; les ${…} viennent de OpenBao (scripts/vault-render-env.sh).
+x-rag: &rag
+  image: ghcr.io/nicolaslallier/rag:${IMAGE_TAG:?}
+  environment: &env
+    RAG_DATABASE_URL: postgresql://rag:${RAG_DB_PASSWORD:?}@rag-postgres:5432/rag
+    RAG_LITELLM_URL: https://litellm.infra.famillelallier.net
+    RAG_LITELLM_CA: /etc/rag/infra-ca.crt
+    RAG_LITELLM_CLE: ${RAG_LITELLM_CLE:?}
+    RAG_JETON: ${RAG_JETON:?}
+    RAG_JETON_PRIVE: ${RAG_JETON_PRIVE:-}
+    RAG_JETON_REINDEXER: ${RAG_JETON_REINDEXER:?}
+    RAG_GITHUB_JETON: ${RAG_GITHUB_JETON:?}
+    RAG_S3_ENDPOINT: https://s3.infra.famillelallier.net
+    AWS_CA_BUNDLE: /etc/rag/infra-ca.crt
+    RAG_S3_ACCESS_KEY: rag
+    RAG_S3_SECRET_KEY: ${RAG_S3_SECRET_KEY:?}
+    RAG_COFFRE_BUCKET: obsidian
+    RAG_COFFRE_PREFIXE: ${RAG_COFFRE_PREFIXE:-}
+    RAG_DONNEES_DIR: /donnees
+    RAG_CONFIG: /app/config/rag.yaml
+  volumes: [rag-donnees:/donnees]
+  depends_on:
+    rag-postgres: {condition: service_healthy}
+  user: "1000:1000"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: [/tmp]
+  restart: unless-stopped
+
+services:
+  rag:
+    <<: *rag
+    ports: ["192.168.2.66:8000:8000"]   # adresse de la VM seulement, jamais toutes les interfaces
+    mem_limit: 4g            # reranker (568M de paramètres) + torch CPU
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/sante', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s     # premier démarrage : téléchargement du reranker
+  rag-indexeur:
+    <<: *rag
+    command: ["sh", "-c", "rag migrer && exec rag travailleur"]
+    mem_limit: 2g
+
+  rag-postgres:
+    image: pgvector/pgvector:0.8.6-pg18-bookworm@sha256:2ba9ca5f2e7daa0f0e7723cba1ee9167bab54efd3640516a44ac1a928dd67e7a
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_DB: rag
+      POSTGRES_PASSWORD: ${RAG_DB_PASSWORD:?}   # lu à la création du volume seulement
+    volumes: [rag-pgdata:/var/lib/postgresql]
+    shm_size: 256m           # construction parallèle de l'index HNSW
+    mem_limit: 1g
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U rag -d rag"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  rag-donnees:
+  rag-pgdata:

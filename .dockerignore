@@ -1,0 +1,8 @@
+.git
+.venv
+donnees
+banc
+tests
+docs
+spike
+**/.env*

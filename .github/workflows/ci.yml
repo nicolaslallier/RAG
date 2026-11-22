@@ -1,0 +1,32 @@
+# Tests, lint et shellcheck. Appelé aussi par deploy.yml avant toute construction d'image.
+name: ci
+
+on: [pull_request, workflow_call]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg18-bookworm
+        env:
+          POSTGRES_USER: rag
+          POSTGRES_PASSWORD: rag   # base jetable du job
+          POSTGRES_DB: rag
+        ports: ["5434:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rag" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      # ponytail: pas de `ruff format --check` : le dépôt n'est pas formaté par ruff (45 fichiers) ;
+      # l'ajouter après un reformatage unique, une fois les plans en cours fusionnés.
+      - run: uv run pytest -m "not vivant and not lent"
+      - run: shellcheck scripts/*.sh

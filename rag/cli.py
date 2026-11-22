@@ -220,7 +220,10 @@ def main(argv: list[str] | None = None) -> int:
         import uvicorn
 
         from rag.api import create_app
-        uvicorn.run(create_app(reglages), host="0.0.0.0", port=8000)
+        from rag.demarrage import verifier_reglages
+        verifier_reglages(reglages, "api")
+        uvicorn.run(create_app(reglages), host="0.0.0.0", port=8000,
+                    access_log=False, proxy_headers=False)
         return 0
     config = charger_config(reglages.config)
     if a.cmd == "travailleur":
@@ -228,9 +231,19 @@ def main(argv: list[str] | None = None) -> int:
 
         from rag.travailleur import boucle
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        from rag.demarrage import attendre_base, verifier_reglages
+        verifier_reglages(reglages, "travailleur")
+        # Postgres pas encore prêt : attendre plutôt que boucler en redémarrage.
+        attendre_base(lambda: connexion(reglages.database_url), url=reglages.database_url).close()
         boucle(reglages, config, modeles_depuis(reglages))
         return 0
-    with connexion(reglages.database_url) as conn:
+    if a.cmd == "migrer":  # au démarrage du conteneur : attendre Postgres plutôt que redémarrer
+        from rag.demarrage import attendre_base
+        ouvrir = attendre_base(lambda: connexion(reglages.database_url),
+                               url=reglages.database_url)
+    else:
+        ouvrir = connexion(reglages.database_url)
+    with ouvrir as conn:
         if a.cmd == "migrer":
             print("\n".join(migrer(conn)) or "rien à migrer")
             return 0
