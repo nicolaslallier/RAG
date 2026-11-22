@@ -17,6 +17,12 @@ PUBLIC: frozenset[str] = frozenset({"public-maison"})
 TOUT: frozenset[str] = frozenset({"public-maison", "prive"})
 
 
+# Bornes des entrées, partagées par l'API HTTP et le serveur MCP.
+QUESTION_MAX = 2000
+NOM_MAX = 500
+LIMITE_MAX = 50
+
+
 class ErreurConfig(Exception):
     pass
 

@@ -15,7 +15,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.routing import Route
 
 from rag.aiguillage import aiguiller
-from rag.config import PUBLIC, TOUT, Reglages, charger_config, empreinte_indexation
+from rag.config import (
+    LIMITE_MAX,
+    NOM_MAX,
+    PUBLIC,
+    QUESTION_MAX,
+    TOUT,
+    Reglages,
+    charger_config,
+    empreinte_indexation,
+)
 from rag.db import connexion
 from rag.entretien import doublons, liens_entrants, orphelines
 from rag.graphe import chemin, expliquer
@@ -39,21 +48,21 @@ class FiltresEntree(BaseModel):
 
 class DemandeChemin(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    de: str = Field(max_length=500)
-    vers: str = Field(max_length=500)
+    de: str = Field(max_length=NOM_MAX)
+    vers: str = Field(max_length=NOM_MAX)
     max_sauts: int = Field(6, ge=1, le=10)
 
 
 class DemandeExpliquer(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    nom: str = Field(max_length=500)
+    nom: str = Field(max_length=NOM_MAX)
     limite: int = Field(20, ge=1, le=100)
 
 
 class Demande(BaseModel):
-    question: str = Field(max_length=2000)
+    question: str = Field(max_length=QUESTION_MAX)
     filtres: FiltresEntree = FiltresEntree()
-    limite: int = Field(10, ge=1, le=50)
+    limite: int = Field(10, ge=1, le=LIMITE_MAX)
 
 
 class DemandeReindexer(BaseModel):
@@ -63,7 +72,7 @@ class DemandeReindexer(BaseModel):
 
 class DemandeQuestion(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    question: str = Field(max_length=2000)
+    question: str = Field(max_length=QUESTION_MAX)
     mode: Literal["lister", "repondre"] | None = None
     filtres: FiltresEntree | None = None
     flux: bool = False
@@ -71,7 +80,7 @@ class DemandeQuestion(BaseModel):
 
 class DemandeLister(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    question: str = Field(max_length=2000)
+    question: str = Field(max_length=QUESTION_MAX)
     filtres: FiltresEntree = FiltresEntree()
 
 

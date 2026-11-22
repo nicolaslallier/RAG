@@ -92,3 +92,16 @@ def test_mcp_respecte_les_niveaux(client, bd):
 
 def test_aucun_outil_de_reindexation():
     assert "reindex" not in Path("rag/mcp_serveur.py").read_text().lower()
+
+
+@pytest.mark.parametrize("nom,args", [
+    ("rag_chercher", {"question": "x" * 2001}),
+    ("rag_chercher", {"question": "x", "limite": 51}),
+    ("rag_lister", {"question": "x" * 2001}),
+    ("rag_repondre", {"question": "x" * 2001}),
+    ("rag_chemin", {"de": "a" * 501, "vers": "b"}),
+    ("rag_expliquer", {"nom": "a" * 501}),
+])
+def test_entrees_trop_longues_refusees(client, nom, args):
+    res = rpc(client, "tools/call", {"name": nom, "arguments": args})
+    assert res["isError"] is True
