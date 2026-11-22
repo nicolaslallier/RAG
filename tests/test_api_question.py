@@ -111,3 +111,18 @@ def test_panne_du_modele_donne_503_pas_500(cfg, faux_modeles):
     c = faire(cfg, Generation(faux_modeles, panne=True))
     r = c.post("/repondre", json={"question": "poulet au cidre"}, headers=auth)
     assert r.status_code == 503 and r.json() == {"detail": "modèle indisponible"}
+
+
+def test_rerank_indisponible_l_api_demarre_quand_meme(cfg, faux_modeles):
+    d = yaml.safe_load(Path(cfg).read_text())
+    d["recherche"]["rerank"]["actif"] = True
+    Path(cfg).write_text(yaml.safe_dump(d))
+
+    class Casse:
+        def noter(self, q, t):
+            raise OSError("téléchargement impossible")
+    r = Reglages(database_url=URL, litellm_url="http://x", jeton="pub", config=cfg)
+    with TestClient(create_app(r, Generation(faux_modeles), reranker=Casse())) as c:
+        res = c.post("/chercher", json={"question": "poulet"}, headers=auth)
+        assert res.status_code == 200 and res.json()["resultats"][0]["rerank"] is None
+        assert c.get("/docs").status_code == 404 and c.get("/openapi.json").status_code == 404

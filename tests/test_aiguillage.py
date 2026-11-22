@@ -101,3 +101,10 @@ def test_questions_degenerees(q):
 def test_regles_corrigees_au_banc(q, mode):
     from rag.aiguillage import _mode_par_regles
     assert _mode_par_regles(normaliser(q)) == mode
+
+
+def test_en_mode_repondre_la_source_est_un_bonus_pas_un_filtre():
+    d = aiguiller("Quelle est l'architecture de mon projet AI ?", TAXO, JAMAIS, "g")
+    assert d.filtres.sources is None and d.bonus_sources == ["AI"]
+    d = aiguiller("Liste les fichiers Dockerfile dans Infra", TAXO, JAMAIS, "g")
+    assert d.filtres.sources == ["Infra"] and d.bonus_sources is None

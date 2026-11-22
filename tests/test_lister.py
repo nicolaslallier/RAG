@@ -80,3 +80,16 @@ def test_taxonomie(bd, index_mixte):
     t = taxonomie(bd, niveaux=PUBLIC)
     assert t["types"]["recette"] == 3 and t["tags"]["poulet"] == 2
     assert sorted(t["sources"]) == ["Infra", "coffre-maison"]
+
+
+def test_troncature_signalee(bd, tmp_path, faux_modeles, monkeypatch):
+    from rag import lister as mod
+    from rag.indexeur import version_courante
+    monkeypatch.setattr(mod, "PLAFOND", 3)
+    notes = {f"R/R{i}.md": f"---\ntype: recette\n---\n# R{i}\n\nPlat {i}.\n" for i in range(5)}
+    indexer_coffre(bd, tmp_path, faux_modeles, notes)
+    v = version_courante(bd, CONFIG.indexation)
+    r = lister(bd, "x", Filtres(type="recette"), CONFIG, faux_modeles, v, niveaux=PUBLIC)
+    assert r["tronque"] is True and [e["certitude"] for e in r["elements"]].count("tague") == 3
+    r = lister(bd, "x", Filtres(), CONFIG, faux_modeles, v, niveaux=PUBLIC)
+    assert r["tronque"] is False

@@ -13,8 +13,12 @@ class Reranker:
             return []
         if self._ce is None:
             from sentence_transformers import CrossEncoder
-            self._ce = CrossEncoder(self.modele, max_length=512,
-                                    cache_folder=str(self.cache) if self.cache else None)
+            cache = str(self.cache) if self.cache else None
+            try:  # modèle en cache : aucun appel au Hub (équivaut à HF_HUB_OFFLINE=1)
+                self._ce = CrossEncoder(self.modele, max_length=512, cache_folder=cache,
+                                        local_files_only=True)
+            except OSError:  # premier démarrage : téléchargement unique
+                self._ce = CrossEncoder(self.modele, max_length=512, cache_folder=cache)
         # une seule sortie : sentence-transformers applique déjà la sigmoïde (scores 0..1)
         return [float(x) for x in self._ce.predict([(question, t) for t in textes])]
 

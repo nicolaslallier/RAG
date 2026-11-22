@@ -66,7 +66,7 @@ def executer_generation(conn, cas, config: Config, modeles, version_id: int,
             passages = chercher(conn, c.question, config.recherche, modeles, version_id,
                                 config.indexation.modele_embedding, niveaux=PUBLIC,
                                 filtres=dec.filtres, limite=config.reponse.passages,
-                                reranker=reranker)
+                                reranker=reranker, bonus_sources=dec.bonus_sources)
             ligne["passages"] = [f"{p.fil}\n{p.texte}" for p in passages]
             ligne |= juger(modeles, config.banc.modele_juge, c.question, ligne["passages"],
                            ligne["reponse"])
@@ -81,7 +81,7 @@ def _executer_cas(conn, c, dec, config, modeles, version_id, reranker) -> dict:
         return {"refus": not r["elements"], "reponse": "\n".join(
             f"- {e['titre']} ({e['certitude']})" for e in r["elements"])}
     r = repondre(conn, c.question, config, modeles, version_id, niveaux=PUBLIC,
-                 filtres=dec.filtres, reranker=reranker)
+                 filtres=dec.filtres, reranker=reranker, bonus_sources=dec.bonus_sources)
     return {"refus": r.refus, "raison": r.raison, "reponse": r.texte}
 
 

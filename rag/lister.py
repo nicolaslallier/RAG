@@ -60,7 +60,10 @@ def lister(conn, question: str, filtres: Filtres, config: Config, modeles, versi
     if filtres.type is not None or filtres.tags:
         params = {"niveaux": sorted(niveaux)}
         sql = _DOCS.format(filtres=" ".join(_clauses(filtres, params)))
-        docs = conn.execute(sql + f" ORDER BY d.titre, d.id LIMIT {PLAFOND}", params).fetchall()
+        docs = conn.execute(sql + f" ORDER BY d.titre, d.id LIMIT {PLAFOND + 1}",
+                            params).fetchall()
+        tronque = len(docs) > PLAFOND
+        docs = docs[:PLAFOND]
         elements = [_element(d, "tague") for d in docs]
         actif = config.recherche.rerank.actif
         pertinents = [r for r in cherche(replace(filtres, type=None, tags=None), 30)
@@ -69,6 +72,7 @@ def lister(conn, question: str, filtres: Filtres, config: Config, modeles, versi
         mode = "metadonnees"
     else:
         elements = _par_document(conn, cherche(filtres, 50), niveaux, set())
-        mode = "regroupement"
+        mode, tronque = "regroupement", False
     f = {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in asdict(filtres).items()}
-    return {"mode": mode, "filtres": f, "elements": elements, "total": len(elements)}
+    return {"mode": mode, "filtres": f, "elements": elements, "total": len(elements),
+            "tronque": tronque}

@@ -39,6 +39,7 @@ def passe(conn, genre: str, config, reglages, modeles, sources: list[str] | None
         return {"ignoree": "passe en cours"}
     bilan: dict = {}
     try:
+        fermer_interrompues(conn)  # verrou tenu : une passe sans fin est forcément orpheline
         pid = conn.execute("INSERT INTO passes (genre) VALUES (%s) RETURNING id",
                            (genre,)).fetchone()["id"]
         conn.commit()
@@ -49,7 +50,11 @@ def passe(conn, genre: str, config, reglages, modeles, sources: list[str] | None
                 lecteur = lecteur_pour(src, reglages)
                 b = indexer_source(conn, src, lecteur, config.indexation, modeles,
                                    sans_repos=genre != "incrementale")
-                bilan[src.nom] = asdict(b) | {"graphe": maj_graphe(conn, src, lecteur, reglages)}
+                graphe = maj_graphe(conn, src, lecteur, reglages)
+                if "ÉCHEC" in graphe:  # le message d'erreur reste au journal (maj_graphe)
+                    bilan[src.nom] = asdict(b) | {"erreur": "echec"}
+                else:
+                    bilan[src.nom] = asdict(b) | {"graphe": graphe}
             except Exception:
                 conn.rollback()
                 log.exception("%s : passe en échec", src.nom)
@@ -92,23 +97,40 @@ def tour(conn, config, reglages, modeles, maintenant: datetime | None = None) ->
     genre, sources = prochaine(maintenant or datetime.now(MTL), derniere, demandes)
     b = passe(conn, genre, config, reglages, modeles, sources)
     if "ignoree" not in b:  # une demande arrivée pendant la passe reste pour la suivante
-        conn.execute("UPDATE sources SET demande_le = NULL WHERE demande_le <= %s", (t0,))
+        conn.execute("UPDATE sources SET demande_le = NULL "
+                     "WHERE nom = ANY(%s) AND demande_le <= %s", (demandes, t0))
         conn.commit()
     return b
 
 
-def boucle(reglages, config, modeles) -> None:  # pragma: no cover - boucle sans fin
-    with connexion(reglages.database_url) as conn:
-        log.info("%d passe(s) interrompue(s) fermée(s)", fermer_interrompues(conn))
-    ecoute = connexion(reglages.database_url)
+def _ecouter(url: str):
+    ecoute = connexion(url)
     ecoute.autocommit = True
     ecoute.execute("LISTEN rag_reindexer")
-    while True:
+    return ecoute
+
+
+def boucle(reglages, config, modeles, tours: int | None = None, pause_s: float = 30) -> None:
+    """Sans fin (tours=None). Toute erreur, y compris une connexion LISTEN morte : journal,
+    pause, puis connexion d'écoute rouverte."""
+    with connexion(reglages.database_url) as conn:
+        log.info("%d passe(s) interrompue(s) fermée(s)", fermer_interrompues(conn))
+    ecoute = None
+    n = 0
+    while tours is None or n < tours:
+        n += 1
         try:
+            if ecoute is None or ecoute.closed:
+                ecoute = _ecouter(reglages.database_url)
             for _ in ecoute.notifies(timeout=ATTENTE_S, stop_after=1):
+                pass
+            for _ in ecoute.notifies(timeout=0):  # vider la file : un tour sert tout
                 pass
             with connexion(reglages.database_url) as conn:
                 log.info("passe : %s", tour(conn, config, reglages, modeles))
         except Exception:
-            log.exception("tour en échec ; reprise dans 30 s")
-            time.sleep(30)
+            log.exception("tour en échec ; reprise dans %s s", pause_s)
+            if ecoute is not None:
+                ecoute.close()
+            ecoute = None
+            time.sleep(pause_s)

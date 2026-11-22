@@ -73,7 +73,7 @@ def _moyennes(lignes: list[dict]) -> dict:
 
 def executer(conn, cas: list[Cas], config: Config, modeles, version_id: int,
              etiquette: str = "", reranker=None) -> dict:
-    from rag.aiguillage import aiguiller
+    from rag.aiguillage import aiguiller, sources_citees
     from rag.lister import taxonomie
     taxo = taxonomie(conn, niveaux=PUBLIC)
     lignes = []
@@ -82,7 +82,8 @@ def executer(conn, cas: list[Cas], config: Config, modeles, version_id: int,
                 if c.mode_attendu else None)
         t0 = time.perf_counter()
         r = chercher(conn, c.question, config.recherche, modeles, version_id,
-                     config.indexation.modele_embedding, niveaux=PUBLIC, limite=10, reranker=reranker)
+                     config.indexation.modele_embedding, niveaux=PUBLIC, limite=10, reranker=reranker,
+                     bonus_sources=sources_citees(c.question, taxo))
         latence = (time.perf_counter() - t0) * 1000
         obtenus = list(dict.fromkeys(x.cle for x in r))
         a = set(c.attendus)

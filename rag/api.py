@@ -3,6 +3,7 @@
 import asyncio
 import hmac
 import json
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date
@@ -34,6 +35,8 @@ from rag.modeles import ErreurModele, modeles_depuis
 from rag.recherche import Filtres, chercher
 from rag.reponse import repondre, repondre_flux
 from rag.rerank import reranker_depuis
+
+log = logging.getLogger("rag.api")
 
 
 class FiltresEntree(BaseModel):
@@ -117,12 +120,21 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
 
     @asynccontextmanager
     async def cycle(app):
+        nonlocal config, reranker
         async with mcp.session_manager.run():
             if reranker is not None:  # charge le modèle hors de la boucle d'événements
-                await asyncio.to_thread(reranker.noter, "x", ["x"])
+                try:
+                    await asyncio.to_thread(reranker.noter, "x", ["x"])
+                except Exception:  # téléchargement raté : l'API démarre, rerank désactivé
+                    log.exception("rerank indisponible : désactivé (refus au cosinus)")
+                    rr = config.recherche.rerank.model_copy(update={"actif": False})
+                    config = config.model_copy(update={"recherche": config.recherche.model_copy(
+                        update={"rerank": rr})})
+                    reranker = None
             yield
 
-    app = FastAPI(title="RAG maître", lifespan=cycle)
+    app = FastAPI(title="RAG maître", lifespan=cycle, docs_url=None, redoc_url=None,
+                  openapi_url=None)
 
     class RouteMcp:  # application ASGI (une instance, pas une fonction) : 401 avant le MCP
         async def __call__(self, scope, receive, send):
@@ -193,14 +205,13 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
     @app.post("/reindexer", status_code=202, dependencies=[Depends(jeton_reindexer)])
     def route_reindexer(d: DemandeReindexer):
         with connexion(reglages.database_url) as conn:
-            noms = [r["nom"] for r in conn.execute(
-                "UPDATE sources SET demande_le = now() WHERE %(s)s::text IS NULL OR nom = %(s)s "
-                "RETURNING nom", {"s": d.source})]
-            if d.source and not noms:
-                raise HTTPException(404, "source inconnue")
+            # Un compte seulement, et pas de 404 : ni liste ni oracle des noms de sources.
+            n = conn.execute(
+                "UPDATE sources SET demande_le = now() WHERE %(s)s::text IS NULL OR nom = %(s)s",
+                {"s": d.source}).rowcount
             conn.execute("NOTIFY rag_reindexer")
             conn.commit()
-        return {"demande": sorted(noms)}
+        return {"demande": n}
 
     @app.get("/etat")
     def route_etat(niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
@@ -251,7 +262,7 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
             return {"mode": "regroupement", "filtres": asdict(f), "elements": [], "total": 0}
         return lister(conn, question, f, config, modeles, v, niveaux=niveaux, reranker=reranker)
 
-    def _repondre(question: str, f: Filtres, niveaux, flux: bool, avant=()):
+    def _repondre(question: str, f: Filtres, niveaux, flux: bool, avant=(), bonus=None):
         if flux:
             def evenements():
                 yield from avant
@@ -259,14 +270,15 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                     v = version_id(conn, empreinte) or 0
                     try:
                         yield from repondre_flux(conn, question, config, modeles, v,
-                                                 niveaux=niveaux, filtres=f, reranker=reranker)
+                                                 niveaux=niveaux, filtres=f, reranker=reranker,
+                                                 bonus_sources=bonus)
                     except ErreurModele:  # en plein flux : plus de code HTTP possible
                         yield {"type": "erreur", "detail": "modèle indisponible"}
             return StreamingResponse(_sse(evenements()), media_type="text/event-stream")
         with connexion(reglages.database_url) as conn:
             v = version_id(conn, empreinte) or 0
             return asdict(repondre(conn, question, config, modeles, v, niveaux=niveaux,
-                                   filtres=f, reranker=reranker))
+                                   filtres=f, reranker=reranker, bonus_sources=bonus))
 
     @app.post("/lister")
     def route_lister(d: DemandeLister, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
@@ -284,14 +296,16 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                             config.reponse.modele, d.mode,
                             Filtres(**d.filtres.model_dump()) if d.filtres else None)
             tete = {"mode": dec.mode, "aiguillage": {"par": dec.par,
-                                                     "filtres": asdict(dec.filtres)}}
+                                                     "filtres": asdict(dec.filtres),
+                                                     "bonus_sources": dec.bonus_sources}}
             if dec.mode == "lister":  # le « mode » de lister (metadonnees…) devient mode_liste
                 corps = _lister(conn, d.question, dec.filtres, niveaux)
                 return tete | {"mode_liste": corps.pop("mode")} | corps
         if d.flux:
             return _repondre(d.question, dec.filtres, niveaux, True,
-                             [{"type": "aiguillage"} | tete])
-        return tete | _repondre(d.question, dec.filtres, niveaux, False)
+                             [{"type": "aiguillage"} | tete], dec.bonus_sources)
+        return tete | _repondre(d.question, dec.filtres, niveaux, False,
+                                bonus=dec.bonus_sources)
 
     @app.post("/chemin")
     def route_chemin(d: DemandeChemin, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):

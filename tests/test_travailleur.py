@@ -176,12 +176,11 @@ def test_reindexer_exige_son_jeton(client, bd, cfg, reglages, faux_modeles):
     assert client.post("/reindexer", json={},
                        headers={"Authorization": "Bearer faux"}).status_code == 401
     r = client.post("/reindexer", json={"source": "coffre-maison"}, headers=auth_reindexer)
-    assert r.status_code == 202 and r.json()["demande"] == ["coffre-maison"]
+    assert r.status_code == 202 and r.json() == {"demande": 1}
     assert bd.execute("SELECT demande_le FROM sources").fetchone()["demande_le"]
-    assert client.post("/reindexer", json={"source": "inconnue"},
-                       headers=auth_reindexer).status_code == 404
-    assert client.post("/reindexer", json={}, headers=auth_reindexer).json()["demande"] == [
-        "coffre-maison"]
+    r = client.post("/reindexer", json={"source": "inconnue"}, headers=auth_reindexer)
+    assert r.status_code == 202 and r.json() == {"demande": 0}  # pas d'oracle des noms
+    assert client.post("/reindexer", json={}, headers=auth_reindexer).json() == {"demande": 1}
     assert client.post("/chercher", json={"question": "x"},
                        headers=auth_reindexer).status_code == 401  # ce jeton ne lit rien
 
@@ -233,3 +232,70 @@ def test_etat_n_expose_aucun_message_d_exception(client, bd, cfg, reglages, faux
     e = client.get("/etat", headers=auth).json()["derniere_nocturne"]
     assert e["ok"] is False and e["bilan"]["coffre-maison"] == {"erreur": "echec"}
     assert "/srv/secret" not in str(bd.execute("SELECT bilan FROM passes").fetchone())
+
+
+def test_echec_du_graphe_sans_message(bd, coffre, reglages, faux_modeles, monkeypatch):
+    monkeypatch.setattr(travailleur, "maj_graphe", lambda *a, **k: "graphe : ÉCHEC /srv/secret")
+    passe(bd, "demandee", config_pour(("coffre-maison", coffre)), reglages, faux_modeles)
+    p = bd.execute("SELECT * FROM passes").fetchone()
+    assert p["ok"] is False and p["bilan"]["coffre-maison"]["erreur"] == "echec"
+    assert "/srv/secret" not in str(p["bilan"])
+
+
+def test_passe_ferme_les_orphelines(bd, coffre, reglages, faux_modeles):
+    bd.execute("INSERT INTO passes (genre) VALUES ('incrementale')")
+    bd.commit()
+    passe(bd, "demandee", config_pour(("coffre-maison", coffre)), reglages, faux_modeles)
+    assert compte(bd, "passes") == 2 and bd.execute(
+        "SELECT count(*) n FROM passes WHERE fin IS NULL").fetchone()["n"] == 0
+
+
+def test_demande_d_une_autre_source_non_servie_reste(bd, tmp_path, coffre, reglages,
+                                                     faux_modeles):
+    b2 = ecrire(tmp_path / "b", {"x.md": "# X\n\nun\n"})
+    conf = config_pour(("coffre-maison", coffre), ("source-b", b2))
+    passe(bd, "demandee", conf, reglages, faux_modeles)
+    bd.execute("UPDATE sources SET demande_le = now() WHERE nom = 'coffre-maison'")
+    bd.commit()
+    vraie = travailleur.prochaine
+    try:  # le tour ne sert que coffre-maison ; source-b demandée « pendant » reste
+        travailleur.prochaine = lambda m, d, dem: (bd.execute(
+            "UPDATE sources SET demande_le = now() - interval '1 hour' WHERE nom = 'source-b'"),
+            bd.commit(), vraie(m, d, dem))[2]
+        tour(bd, conf, reglages, faux_modeles)
+    finally:
+        travailleur.prochaine = vraie
+    restes = [r["nom"] for r in bd.execute("SELECT nom FROM sources WHERE demande_le IS NOT NULL")]
+    assert restes == ["source-b"]
+
+
+def test_boucle_rouvre_l_ecoute_apres_une_erreur(bd, reglages, monkeypatch):
+    ouvertures, tours = [], []
+
+    class Ecoute:
+        closed = False
+
+        def __init__(self):
+            ouvertures.append(self)
+
+        def notifies(self, timeout, stop_after=None):
+            if len(ouvertures) == 1:
+                raise OSError("connexion perdue")
+            return iter(())
+
+        def close(self):
+            self.closed = True
+    monkeypatch.setattr(travailleur, "_ecouter", lambda url: Ecoute())
+    monkeypatch.setattr(travailleur, "tour", lambda *a: tours.append(1) or {})
+    travailleur.boucle(reglages, BASE, None, tours=2, pause_s=0)
+    assert len(ouvertures) == 2 and ouvertures[0].closed and tours == [1]
+
+
+def test_indexer_cli_respecte_le_verrou(bd, coffre, reglages, faux_modeles):
+    from rag.cli import _indexer
+    with connexion(URL) as bd2:
+        bd2.execute("SELECT pg_advisory_lock(7241)")
+        assert _indexer(bd, reglages, config_pour(("coffre-maison", coffre)), faux_modeles) == 3
+        bd2.execute("SELECT pg_advisory_unlock(7241)")
+    assert _indexer(bd, reglages, config_pour(("coffre-maison", coffre)), faux_modeles,
+                    complet=True) == 0

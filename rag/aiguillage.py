@@ -25,6 +25,7 @@ class Decision:
     mode: Literal["lister", "repondre"]
     filtres: Filtres = field(default_factory=Filtres)
     par: Literal["appelant", "regles", "modele", "defaut"] = "defaut"
+    bonus_sources: list[str] | None = None   # mode répondre : source citée = bonus, pas filtre
 
 
 # Avant les règles « répondre » : « c'est quoi mes menus », « qu'est-ce que j'ai sur ma liste »,
@@ -56,7 +57,7 @@ def _mode_par_modele(question: str, modeles, modele: str) -> str | None:
     return mode if mode in ("lister", "repondre") else None
 
 
-def _sources(question: str, taxo: dict) -> list[str] | None:
+def sources_citees(question: str, taxo: dict) -> list[str] | None:
     mots = re.findall(r"[\w-]+", question)
     bas = {m.lower() for m in mots}
     # Nom court (AI) : casse exacte, sinon « j'ai » deviendrait un filtre ; sinon sans casse.
@@ -66,9 +67,9 @@ def _sources(question: str, taxo: dict) -> list[str] | None:
 
 
 def _filtres(question: str, taxo: dict, mode: str) -> Filtres:
-    f = Filtres(sources=_sources(question, taxo))
+    f = Filtres(sources=sources_citees(question, taxo))
     if mode != "lister":
-        return f
+        return Filtres()
     q = _SOURCES_DITES.sub(" ", normaliser(question).replace("’", "'"))
     types = {normaliser(t): t for t in taxo.get("types", {})}
     tags = {normaliser(t): t for t in taxo.get("tags", {})}
@@ -98,4 +99,5 @@ def aiguiller(question: str, taxo: dict, modeles, modele: str, mode_force: str |
     else:
         mode, par = "repondre", "defaut"
     f = filtres_forces if filtres_forces is not None else _filtres(question, taxo, mode)
-    return Decision(mode=mode, filtres=f, par=par)
+    bonus = sources_citees(question, taxo) if mode == "repondre" else None
+    return Decision(mode=mode, filtres=f, par=par, bonus_sources=bonus)

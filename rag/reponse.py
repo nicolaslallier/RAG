@@ -48,11 +48,13 @@ def _sources(passages: list[Resultat], cites: list[int]) -> list[dict]:
              "origine": p.origine, "cite": i in cites} for i, p in enumerate(passages, 1)]
 
 
-def _passages(conn, question, config: Config, modeles, version_id, niveaux, filtres, reranker):
+def _passages(conn, question, config: Config, modeles, version_id, niveaux, filtres, reranker,
+              bonus_sources=None):
     """(passages, raison de refus avant LLM ou "")."""
     r = chercher(conn, question, config.recherche, modeles, version_id,
                  config.indexation.modele_embedding, niveaux=niveaux, filtres=filtres,
-                 limite=config.reponse.passages, reranker=reranker)
+                 limite=config.reponse.passages, reranker=reranker,
+                 bonus_sources=bonus_sources)
     if not r:
         return [], "aucun_passage"
     if doit_refuser(r, config.reponse, config.recherche.rerank.actif):
@@ -66,9 +68,9 @@ def _est_refus(texte: str) -> bool:
 
 def repondre(conn, question: str, config: Config, modeles, version_id: int, *,
              niveaux: frozenset[str], filtres: Filtres | None = None,
-             reranker=None) -> Reponse:
+             reranker=None, bonus_sources: list[str] | None = None) -> Reponse:
     passages, raison = _passages(conn, question, config, modeles, version_id, niveaux, filtres,
-                                 reranker)
+                                 reranker, bonus_sources)
     if raison:
         return Reponse(True, REFUS, raison)
     messages = construire_messages(question, passages)
@@ -92,9 +94,9 @@ def repondre(conn, question: str, config: Config, modeles, version_id: int, *,
 
 def repondre_flux(conn, question: str, config: Config, modeles, version_id: int, *,
                   niveaux: frozenset[str], filtres: Filtres | None = None,
-                  reranker=None) -> Iterator[dict]:
+                  reranker=None, bonus_sources: list[str] | None = None) -> Iterator[dict]:
     passages, raison = _passages(conn, question, config, modeles, version_id, niveaux, filtres,
-                                 reranker)
+                                 reranker, bonus_sources)
     yield {"type": "sources", "sources": _sources(passages, [])}
     if raison:
         yield {"type": "texte", "delta": REFUS}

@@ -112,6 +112,7 @@ class RechercheConf(_Strict):
     instruction_requete: str
     rerank: RerankConf
     graphe: GrapheConf
+    bonus_source: Annotated[float, Field(ge=0)] = 0.0   # × (1 + bonus) si la question nomme la source
     poids_source: dict[Literal["obsidian", "code"], Annotated[float, Field(ge=0)]] = {}   # par type de source ; 1.0 absent
 
 

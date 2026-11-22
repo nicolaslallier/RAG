@@ -17,6 +17,21 @@ from rag.sources import ErreurSource, lecteur_pour
 
 
 def _indexer(conn, reglages, config, modeles, noms=None, complet=False, forcer=False) -> int:
+    from rag.travailleur import VERROU
+    if not conn.execute("SELECT pg_try_advisory_lock(%s) AS ok", (VERROU,)).fetchone()["ok"]:
+        conn.commit()
+        print("une passe d'indexation est en cours (travailleur) : réessayer plus tard",
+              file=sys.stderr)
+        return 3
+    try:
+        return _indexer_verrouille(conn, reglages, config, modeles, noms, complet, forcer)
+    finally:
+        conn.rollback()
+        conn.execute("SELECT pg_advisory_unlock(%s)", (VERROU,))
+        conn.commit()
+
+
+def _indexer_verrouille(conn, reglages, config, modeles, noms, complet, forcer) -> int:
     code = 0
     for src in config.sources:
         if noms and src.nom not in noms:
@@ -136,7 +151,8 @@ def _question_cli(conn, a, config, modeles, reglages, v) -> int:
                                niveaux=niveaux, reranker=rr))
     else:
         _afficher_reponse(repondre(conn, a.question, config, modeles, v, niveaux=niveaux,
-                                   filtres=dec.filtres, reranker=rr))
+                                   filtres=dec.filtres, reranker=rr,
+                                   bonus_sources=dec.bonus_sources))
     print(f"({time.monotonic() - debut:.1f} s)")
     return 0
 

@@ -106,7 +106,8 @@ SELECT m.id AS morceau_id, d.id AS document_id, s.nom AS source, s.type AS type_
 
 def chercher(conn, question: str, conf: RechercheConf, modeles, version_id: int,
              modele_embedding: str, *, niveaux: frozenset[str], filtres: Filtres | None = None,
-             limite: int = 10, reranker=None) -> list[Resultat]:
+             limite: int = 10, reranker=None,
+             bonus_sources: list[str] | None = None) -> list[Resultat]:
     if conf.rerank.actif and reranker is None:
         raise ErreurConfig("rerank actif sans reranker")
     if not niveaux or not question.strip():
@@ -130,6 +131,11 @@ def chercher(conn, question: str, conf: RechercheConf, modeles, version_id: int,
         conn.execute("SET LOCAL hnsw.iterative_scan = relaxed_order")
         conn.execute("SET LOCAL hnsw.ef_search = 200")  # 40 par défaut : rappel@10 -0,07 au banc
         lignes = conn.execute(sql, params).fetchall()
+    if bonus_sources and conf.bonus_source:
+        for r in lignes:
+            if r["source"] in bonus_sources:
+                r["score"] = float(r["score"]) * (1 + conf.bonus_source)
+        lignes.sort(key=lambda r: (-r["score"], r["morceau_id"]))
     out, parents_vus = [], set()
     for r in lignes:
         if r["parent_id"] is not None:  # parent_enfant : un seul résultat par parent

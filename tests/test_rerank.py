@@ -75,3 +75,16 @@ def test_vrai_reranker_en_francais():
         ["Poulet cidre et Boursin : 2 poitrines de poulet, cidre de pomme.",
          "Tableau de bord Grafana du homelab."])
     assert 0 <= s[1] < s[0] <= 1
+
+
+def test_bonus_de_source(bd, index, index_code, faux_modeles):
+    conf = CONF.recherche.model_copy(update={"bonus_source": 10.0})
+    q = "déployer le service guide poulet"
+    sans = chercher(bd, q, conf, faux_modeles, index.version, M, niveaux=PUBLIC)
+    avec = chercher(bd, q, conf, faux_modeles, index.version, M, niveaux=PUBLIC,
+                    bonus_sources=["coffre-maison"])
+    assert avec[0].source == "coffre-maison"
+    assert {r.source for r in avec} == {r.source for r in sans} | {r.source for r in avec}
+    nul = chercher(bd, q, CONF.recherche, faux_modeles, index.version, M, niveaux=PUBLIC,
+                   bonus_sources=["coffre-maison"])
+    assert [r.cle for r in nul] == [r.cle for r in sans]  # bonus 0 : rien ne change
