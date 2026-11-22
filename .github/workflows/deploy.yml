@@ -1,0 +1,118 @@
+# Construit l'image, la publie sur GHCR (paquet privé), puis met à jour la pile « rag » dans
+# Portainer depuis le runner auto-hébergé `rag` (le Portainer de l'Infra est sur le LAN).
+#
+# AUCUN workflow de ce dépôt ne doit avoir de déclencheur pull_request_target, issue_comment
+# ou workflow_run pouvant atteindre le label self-hosted `rag`.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    # Ce qui ne peut changer aucun conteneur ne mérite pas un redéploiement.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'banc/**'
+  workflow_dispatch:
+
+# Un déploiement à la fois, jamais annulé en vol : Portainer resterait à mi-déploiement.
+concurrency:
+  group: deploy-rag
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Le déploiement rejoue la CI : rien n'est construit si elle échoue.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ghcr.io/nicolaslallier/rag
+          tags: |
+            type=sha
+
+      # ponytail: amd64 seul (hôte de déploiement).
+      - id: construire
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/nicolaslallier/rag@${{ steps.construire.outputs.digest }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+
+  deploy:
+    needs: image
+    # Pas de déploiement d'une autre branche lancée par workflow_dispatch.
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, rag]
+    timeout-minutes: 15
+    # L'environnement `production` (limité à main) porte PORTAINER_API_KEY et BAO_TOKEN.
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Déployer par Portainer
+        shell: bash
+        env:
+          PORTAINER_URL: ${{ vars.PORTAINER_URL || 'https://portainer.infra.famillelallier.net' }}
+          PORTAINER_ENDPOINT_ID: ${{ vars.PORTAINER_ENDPOINT_ID }}
+          VAULT_URL: ${{ vars.VAULT_URL || 'https://vault.infra.famillelallier.net' }}
+          VAULT_SECRET_PATH: ${{ vars.VAULT_SECRET_PATH }}
+          # CA de l'Infra montée dans le runner (vérifie Portainer et OpenBao).
+          PORTAINER_CA_CERT: ${{ vars.INFRA_CA_CERT_PATH || '/etc/rag/infra-ca.crt' }}
+          VAULT_CA_CERT: ${{ vars.INFRA_CA_CERT_PATH || '/etc/rag/infra-ca.crt' }}
+          PORTAINER_API_KEY: ${{ secrets.PORTAINER_API_KEY }}
+          BAO_TOKEN: ${{ secrets.BAO_TOKEN }}
+          GITHUB_SHA_FULL: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for v in PORTAINER_API_KEY BAO_TOKEN PORTAINER_ENDPOINT_ID; do
+            [ -n "${!v}" ] || { echo "::error::$v absent (secret ou variable de l'environnement production)"; exit 1; }
+          done
+          [ -n "$VAULT_SECRET_PATH" ] || unset VAULT_SECRET_PATH
+          umask 077
+          export RAG_STACK_ENV="$RUNNER_TEMP/rag.env"
+          trap 'rm -f "$RAG_STACK_ENV"' EXIT
+          # Chaque script ne reçoit que le secret dont il a besoin.
+          PORTAINER_API_KEY= scripts/vault-render-env.sh
+          # Le tag que le job image vient de pousser (metadata-action : sha-<7 car.>).
+          printf 'IMAGE_TAG=sha-%s\n' "${GITHUB_SHA_FULL::7}" >> "$RAG_STACK_ENV"
+          BAO_TOKEN= scripts/portainer-stack.sh up
