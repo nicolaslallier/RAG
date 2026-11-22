@@ -20,6 +20,7 @@ from rag.gestion import (
     fichier,
     fichiers,
     importer,
+    passe_en_cours,
     sources,
     valider_motif,
 )
@@ -239,6 +240,15 @@ def test_sources_distingue_exclus_auto_et_manuels(bd, index):
     bd.commit()
     (s,) = sources(bd, niveaux=PUBLIC)
     assert (s["exclus_auto"], s["exclus_manuels"]) == (2, 1)
+
+
+def test_passe_en_cours(bd, index):
+    assert passe_en_cours(bd) is None
+    bd.execute("INSERT INTO passes (genre, fin) VALUES ('nocturne', now())")
+    bd.execute("INSERT INTO passes (genre) VALUES ('demandee')")
+    bd.commit()
+    p = passe_en_cours(bd)
+    assert p["genre"] == "demandee" and p["debut"] is not None and set(p) == {"genre", "debut"}
 
 
 def test_sources_cache_une_source_privee_au_jeton_public(bd, index):

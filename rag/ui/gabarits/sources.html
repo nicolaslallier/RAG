@@ -3,6 +3,7 @@
 {% block titre %}Sources{% endblock %}
 {% block contenu %}
 <h1>Sources</h1>
+<p class="aide">{% if en_cours %}Passe en cours : {{ en_cours.genre }}, depuis le {{ en_cours.debut.strftime("%Y-%m-%d %H:%M") }}.{% else %}Aucune passe en cours.{% endif %}</p>
 {% if not ecrivain %}<p class="aide">Lecture seule : la gestion de l'index demande le jeton privé.</p>{% endif %}
 {% if sources %}
 <div class="defilement">

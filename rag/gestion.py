@@ -47,6 +47,12 @@ def sources(conn, *, niveaux: frozenset[str]) -> list[dict]:
         (sorted(niveaux),)).fetchall()
 
 
+def passe_en_cours(conn) -> dict | None:
+    """Passe d'indexation commencée et pas finie (la plus récente) : genre et début, sinon `None`."""
+    return conn.execute("SELECT genre, debut FROM passes WHERE fin IS NULL "
+                        "ORDER BY debut DESC LIMIT 1").fetchone()
+
+
 def _source_visible(conn, source: str, niveaux: frozenset[str]) -> int:
     r = conn.execute("SELECT id FROM sources WHERE nom = %s AND visibilite = ANY(%s)",
                      (source, sorted(niveaux))).fetchone()

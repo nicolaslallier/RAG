@@ -120,7 +120,13 @@ def test_rag_repondre_applique_le_bonus_de_source(client, monkeypatch):
 
 def test_rag_sources_liste_les_sources(client):
     d = outil(client, "rag_sources", {})
-    assert [x["nom"] for x in d] == ["coffre-maison"]
+    assert [x["nom"] for x in d["sources"]] == ["coffre-maison"] and d["en_cours"] is None
+
+
+def test_rag_sources_donne_la_passe_en_cours(client, bd):
+    bd.execute("INSERT INTO passes (genre) VALUES ('demandee')")
+    bd.commit()
+    assert outil(client, "rag_sources", {})["en_cours"]["genre"] == "demandee"
 
 
 def test_rag_fichiers_indexes(client):
@@ -142,7 +148,7 @@ def test_rag_fichiers_borne_la_page(client):
 def test_rag_sources_et_fichiers_respectent_les_niveaux(client, bd):
     bd.execute("UPDATE sources SET visibilite = 'prive'")
     bd.commit()
-    assert outil(client, "rag_sources", {}) == []
+    assert outil(client, "rag_sources", {})["sources"] == []
     res = rpc(client, "tools/call", {"name": "rag_fichiers",
                                      "arguments": {"source": "coffre-maison"}})
     assert res["isError"] is True and "source inconnue" in res["content"][0]["text"]

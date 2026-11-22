@@ -120,7 +120,8 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
         repondre=lambda q, n: _repondre_simple(q, n),
         chemin=lambda de, vers, n: _avec_conn(chemin, de, vers, niveaux=n),
         expliquer=lambda nom, n: _avec_conn(expliquer, nom, niveaux=n),
-        sources=lambda n: _avec_conn(gestion.sources, niveaux=n),
+        sources=lambda n: _avec_conn(lambda c: {"sources": gestion.sources(c, niveaux=n),
+                                                "en_cours": gestion.passe_en_cours(c)}),
         fichiers=lambda source, e, contient, page, n: _avec_conn(
             gestion.fichiers, source, niveaux=n, etat=e, contient=contient, page=page)))
     mcp_asgi = mcp.streamable_http_app().routes[0].endpoint
@@ -227,8 +228,7 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                           s.demande_le IS NOT NULL AS demande_en_attente
                      FROM sources s WHERE s.visibilite = ANY(%s) ORDER BY s.nom""",
                 (sorted(niveaux),)).fetchall()
-            en_cours = conn.execute("SELECT genre, debut FROM passes WHERE fin IS NULL "
-                                    "ORDER BY debut DESC LIMIT 1").fetchone()
+            en_cours = gestion.passe_en_cours(conn)
             nuit = conn.execute("SELECT debut, fin, ok, bilan FROM passes WHERE genre = "
                                 "'nocturne' AND fin IS NOT NULL ORDER BY debut DESC LIMIT 1"
                                 ).fetchone()

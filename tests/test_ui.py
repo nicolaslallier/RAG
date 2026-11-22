@@ -105,6 +105,14 @@ def test_sources_affiche_les_comptes(client):
     assert "coffre-maison" in r.text and "obsidian" in r.text and ">6<" in r.text
 
 
+def test_sources_affiche_la_passe_en_cours(client, bd):
+    assert "Aucune passe en cours." in connecter(client, "pub").get("/ui/").text
+    bd.execute("INSERT INTO passes (genre, debut) VALUES ('demandee', '2026-11-22 10:15+00')")
+    bd.commit()
+    r = client.get("/ui/")
+    assert "Passe en cours : demandee, depuis le 2026-11-22" in r.text
+
+
 def test_sources_public_ne_voit_pas_prive(client, bd):
     bd.execute("UPDATE sources SET visibilite = 'prive'")
     bd.commit()

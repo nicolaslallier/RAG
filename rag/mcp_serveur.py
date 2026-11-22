@@ -74,7 +74,7 @@ def creer_mcp(moteur) -> FastMCP:
                           ensure_ascii=False, default=str)
 
     @mcp.tool(description="Liste les sources indexées (coffre, dépôts) avec leurs nombres de "
-                          "fichiers indexés et exclus.")
+                          "fichiers indexés et exclus, et la passe d'indexation en cours.")
     async def rag_sources(ctx: Context) -> str:
         return json.dumps(await appeler(moteur.sources, _niveaux(moteur, ctx)),
                           ensure_ascii=False, default=str)

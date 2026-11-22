@@ -73,9 +73,10 @@ dans un cookie `rag_session` (`HttpOnly`, `SameSite=Strict`, limité à `/ui`).
   `RAG_JETON_PRIVE` dans l'environnement, l'interface est en lecture seule.
 - Les écritures n'existent que sous `/ui/` : ni l'API par jeton `Bearer` ni le MCP ne peuvent
   exclure ou annuler.
-- Côté MCP (lecture seule, mêmes niveaux de visibilité que le jeton) : `rag_sources` liste les
-  sources et leur état, `rag_fichiers` liste les fichiers d'une source (indexés ou exclus, avec la
-  raison).
+- Côté MCP (lecture seule, mêmes niveaux de visibilité que le jeton) : `rag_sources` rend
+  `{"sources": [...], "en_cours": {"genre", "debut"} | null}` (les sources et leur état, et la
+  passe d'indexation en cours, comme l'écran Sources), `rag_fichiers` liste les fichiers d'une
+  source (indexés ou exclus, avec la raison).
 - Un motif d'exclusion suit `fnmatch` (le `*` traverse les `/`), 1 à 1000 caractères ; la raison est
   facultative (500 caractères au plus). Le contenu d'un fichier exclu n'est jamais lu ni affiché.
 

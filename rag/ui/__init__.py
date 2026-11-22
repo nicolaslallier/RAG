@@ -33,6 +33,7 @@ from rag.gestion import (
     exclure,
     exporter,
     importer,
+    passe_en_cours,
 )
 from rag.gestion import exclusions as lister_exclusions
 from rag.gestion import fichier as lire_fichier
@@ -129,8 +130,9 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
     def ecran_sources(request: Request, niveaux: Annotated[frozenset[str], Depends(session)]):
         with connexion(database_url) as conn:
             lignes = lister_sources(conn, niveaux=niveaux)
+            en_cours = passe_en_cours(conn)
         return page_ui(request, "sources.html", sources=lignes, ecrivain=peut_ecrire(niveaux),
-                    version=version_id())
+                       en_cours=en_cours, version=version_id())
 
     @routeur.get("/sources/{nom}", response_class=HTMLResponse)
     def ecran_fichiers(request: Request, nom: str,
