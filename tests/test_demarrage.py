@@ -15,7 +15,7 @@ from tests.conftest import URL
 
 J32, J32B, J32C = "a" * 32, "b" * 32, "c" * 32
 OK = {"database_url": URL, "litellm_url": "http://x", "litellm_cle": "k", "jeton": J32,
-          "jeton_reindexer": J32B, "s3_secret_key": "s", "github_jeton": "g"}
+          "jeton_reindexer": J32B, "s3_secret_key": "s", "s3_endpoint": "https://s3.x", "github_jeton": "g"}
 
 
 def reglages(**k):
@@ -118,3 +118,32 @@ def test_erreur_de_migration_non_masquee(url_vierge, monkeypatch):
     monkeypatch.setattr(rag.db, "_migrer", lambda c: c.execute("SELECT 1/0"))
     with connexion(url_vierge) as c, pytest.raises(psycopg.errors.DivisionByZero):
         migrer(c)
+
+
+def test_s3_en_clair_refuse(tmp_path):
+    d = yaml.safe_load(Path("config/rag.yaml").read_text())
+    d["sources"] = [{"nom": "x", "visibilite": "public-maison", "type": "obsidian",
+                     "emplacement": "s3"}]
+    f = tmp_path / "rag.yaml"
+    f.write_text(yaml.safe_dump(d))
+    with pytest.raises(ErreurConfig, match="RAG_S3_ENDPOINT"):
+        verifier_reglages(reglages(config=f, s3_endpoint="http://192.168.2.10:8333"), "travailleur")
+    verifier_reglages(reglages(config=f, s3_endpoint="https://s3.x"), "travailleur")
+
+
+def test_attendre_base_journalise_le_motif(capsys):
+    essais = iter([psycopg.OperationalError('password authentication failed for user "rag"\nx'),
+                   "conn"])
+
+    def ouvrir():
+        x = next(essais)
+        if isinstance(x, Exception):
+            raise x
+        return x
+    attendre_base(ouvrir, dormir=lambda s: None)
+    assert 'password authentication failed for user "rag"' in capsys.readouterr().err
+
+
+def test_pas_de_documentation_openapi(faux_modeles):
+    c = TestClient(create_app(reglages(), faux_modeles))
+    assert all(c.get(u).status_code == 404 for u in ("/docs", "/redoc", "/openapi.json"))

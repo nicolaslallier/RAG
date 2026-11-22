@@ -3,6 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Faire tourner le RAG maître sur le homelab : une image, une pile Portainer `rag` à deux services sur `infra-net`, déployée à chaque fusion sur `main` avec les secrets lus dans OpenBao.
+> Remplacé par le plan 4b, R-2 (`2026-11-22-rag-maitre-4b-colima.md`) : pile sur Colima, Postgres dédié, port `192.168.2.66:8000`, plus d'`infra-net`.
 
 **Architecture:** Même modèle que le Portail (dépôt AI) : la pile vit dans le dépôt de l'application (`deploy/portainer-stack.yml`), un workflow construit l'image vers GHCR, puis un runner auto-hébergé rend les secrets depuis OpenBao et appelle l'API de Portainer. Différence voulue : le dépôt RAG est **privé**, donc le fichier de pile est envoyé à Portainer comme texte (pas de clone Git par Portainer) et le paquet GHCR est tiré avec un registre configuré dans Portainer.
 
@@ -35,7 +36,7 @@ Valeurs en double à garder égales **(changé)** : `RAG_S3_SECRET_KEY` (`infra/
 
 ## Global Constraints
 
-- Le service n'est joignable que sur `infra-net` : aucun `ports:` dans la pile, aucun vhost NGINX.
+- ~~Le service n'est joignable que sur `infra-net` : aucun `ports:` dans la pile, aucun vhost NGINX.~~ Remplacé par le plan 4b, R-2 : un seul `ports:`, sur `rag`, lié à `192.168.2.66`.
 - Aucun secret dans le dépôt, dans une image, dans un argument de commande ni dans un journal. Les scripts ne lisent les secrets que par variable d'environnement ou fichier en mode 600.
 - Dépôt et paquet GHCR **privés** (le banc contient des questions tirées du coffre).
 - Aucun workflow avec `pull_request_target`, `issue_comment` ou `workflow_run` ; le label `rag` (runner auto-hébergé) n'est utilisé que par le job `deploy`, sur `main`, dans l'environnement `production`.
@@ -94,6 +95,8 @@ def test_un_401_ne_journalise_pas_le_jeton(client, caplog):
 ---
 
 ### Task 2: Fichier de pile Portainer
+
+> Remplacé par le plan 4b, R-2 (`2026-11-22-rag-maitre-4b-colima.md`) : pile sur Colima, Postgres dédié, port `192.168.2.66:8000`, plus d'`infra-net`.
 
 **Files:**
 - Create: `deploy/portainer-stack.yml`

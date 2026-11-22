@@ -140,7 +140,7 @@ Code : par symbole (fonction, classe, méthode), préfixé par « dépôt > chem
 - **Graphify** : extraction structurelle (AST, sans LLM) à chaque commit sur le code ; extraction sémantique (notes et liens doc → code) la nuit seulement, par un modèle local via LiteLLM. En v1, le graphe sert `chemin`, `expliquer` et les communautés ; l'expansion reste un interrupteur. Si graphify ne tourne pas proprement en conteneur sans Claude Code, on passe au plan B (tree-sitter + networkx), sans changer le schéma.
 - **Seuil de refus** : sur le score du reranker ; sans rerank, repli sur la similarité cosinus du meilleur passage, avec un seuil calibré séparément. Jamais sur le score RRF.
 - **Hôte** : ~~Windows, GTX 1650 (4 Go), 12 cœurs~~ VM Colima du Mac Studio, arm64, 8 cœurs, sans GPU (voir `docs/superpowers/plans/2026-11-22-rag-maitre-4b-colima.md`). Le reranker (568M) tourne dans le service, sur GPU s'il est libre, sinon CPU ; budget de latence cible : < 2 s pour lister et chercher, < 30 s pour répondre, avec streaming de la réponse.
-- **Appelants v1** : le banc, Nicolas (CLI/HTTP) et un serveur MCP pour Claude Code. Réseau `infra-net` seulement, jeton dans OpenBao ; « réindexer » demande un jeton distinct.
+- **Appelants v1** : le banc, Nicolas (CLI/HTTP) et un serveur MCP pour Claude Code. Réseau `infra-net` seulement, jeton dans OpenBao ; « réindexer » demande un jeton distinct. *(Réseau : remplacé par le plan 4b, R-2 — pile sur Colima, port `192.168.2.66:8000`, plus d'`infra-net`.)*
 - **Cibles v1** fixées après la première mesure de base : la v1 est finie quand le banc tourne, que les 3 questions de Nicolas passent, et que chaque levier a été mesuré au moins une fois contre la base.
 
 ## Ajouts demandés par les projets 2 et 3
