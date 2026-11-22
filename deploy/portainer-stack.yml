@@ -1,0 +1,46 @@
+# Pile Portainer « rag » : API et indexeur sur infra-net, aucun port publié.
+# Envoyée comme texte par scripts/portainer-stack.sh ; les ${…} viennent de OpenBao (scripts/vault-render-env.sh).
+x-rag: &rag
+  image: ghcr.io/nicolaslallier/rag:${IMAGE_TAG:?}
+  environment: &env
+    RAG_DATABASE_URL: postgresql://rag:${RAG_DB_PASSWORD:?}@postgres:5432/rag
+    RAG_LITELLM_URL: http://litellm:4000
+    RAG_LITELLM_CLE: ${RAG_LITELLM_CLE:?}
+    RAG_JETON: ${RAG_JETON:?}
+    RAG_JETON_PRIVE: ${RAG_JETON_PRIVE:-}
+    RAG_JETON_REINDEXER: ${RAG_JETON_REINDEXER:?}
+    RAG_GITHUB_JETON: ${RAG_GITHUB_JETON:?}
+    RAG_S3_ENDPOINT: http://s3:8333
+    RAG_S3_ACCESS_KEY: rag
+    RAG_S3_SECRET_KEY: ${RAG_S3_SECRET_KEY:?}
+    RAG_COFFRE_BUCKET: obsidian
+    RAG_COFFRE_PREFIXE: ${RAG_COFFRE_PREFIXE:-}
+    RAG_DONNEES_DIR: /donnees
+    RAG_CONFIG: /app/config/rag.yaml
+  volumes: [rag-donnees:/donnees]
+  networks: [infra-net]
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: [/tmp]
+  restart: unless-stopped
+
+services:
+  rag:
+    <<: *rag
+    mem_limit: 4g            # reranker (568M de paramètres) + torch CPU
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/sante', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s     # premier démarrage : téléchargement du reranker
+  rag-indexeur:
+    <<: *rag
+    command: ["sh", "-c", "rag migrer && exec rag travailleur"]
+    mem_limit: 2g
+
+networks:
+  infra-net: {external: true, name: infra-net}
+volumes:
+  rag-donnees:
