@@ -17,6 +17,16 @@ PUBLIC: frozenset[str] = frozenset({"public-maison"})
 TOUT: frozenset[str] = frozenset({"public-maison", "prive"})
 
 
+# Bornes des entrées, partagées par l'API HTTP et le serveur MCP.
+QUESTION_MAX = 2000
+NOM_MAX = 500
+LIMITE_MAX = 50
+
+
+class ErreurConfig(Exception):
+    pass
+
+
 class Reglages(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RAG_", env_file=".env", extra="ignore")
 
@@ -26,6 +36,7 @@ class Reglages(BaseSettings):
     litellm_ca: Path | None = None
     jeton: str = ""
     jeton_prive: str = ""
+    jeton_reindexer: str = ""
     github_jeton: str = ""
     graphify_commande: str = "graphify"   # en dev : spike/graphify/en-conteneur.sh (sans réseau)
     donnees_dir: Path = Path("donnees")
@@ -101,6 +112,7 @@ class RechercheConf(_Strict):
     instruction_requete: str
     rerank: RerankConf
     graphe: GrapheConf
+    bonus_source: Annotated[float, Field(ge=0)] = 0.0   # × (1 + bonus) si la question nomme la source
     poids_source: dict[Literal["obsidian", "code"], Annotated[float, Field(ge=0)]] = {}   # par type de source ; 1.0 absent
 
 

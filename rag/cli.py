@@ -12,10 +12,26 @@ from rag.graphe import maj_graphe
 from rag.indexeur import CoffrePartielError, indexer_source
 from rag.modeles import modeles_depuis
 from rag.recherche import Filtres, chercher
+from rag.rerank import reranker_depuis
 from rag.sources import ErreurSource, lecteur_pour
 
 
 def _indexer(conn, reglages, config, modeles, noms=None, complet=False, forcer=False) -> int:
+    from rag.travailleur import VERROU
+    if not conn.execute("SELECT pg_try_advisory_lock(%s) AS ok", (VERROU,)).fetchone()["ok"]:
+        conn.commit()
+        print("une passe d'indexation est en cours (travailleur) : réessayer plus tard",
+              file=sys.stderr)
+        return 3
+    try:
+        return _indexer_verrouille(conn, reglages, config, modeles, noms, complet, forcer)
+    finally:
+        conn.rollback()
+        conn.execute("SELECT pg_advisory_unlock(%s)", (VERROU,))
+        conn.commit()
+
+
+def _indexer_verrouille(conn, reglages, config, modeles, noms, complet, forcer) -> int:
     code = 0
     for src in config.sources:
         if noms and src.nom not in noms:
@@ -98,6 +114,51 @@ def _entretien_cli(conn, a, config) -> int:
     return 0
 
 
+def _afficher_liste(r: dict) -> None:
+    print(f"{r['mode']} : {r['total']} élément(s)")
+    for e in r["elements"]:
+        marque = "" if e["certitude"] == "tague" else "  (probable, non tagué)"
+        print(f"  - {e['titre']}{marque}\n      {e['lien']}"
+              + (f"\n      origine : {e['origine']}" if e["origine"] else ""))
+
+
+def _afficher_reponse(r) -> None:
+    print(r.texte + (f"\n(refus : {r.raison})" if r.refus else ""))
+    for s in r.sources:
+        if s["cite"] or r.refus:
+            print(f"  [{s['n']}] {s['titre']} — {s['lien']}"
+                  + (f" (origine : {s['origine']})" if s["origine"] else ""))
+
+
+def _question_cli(conn, a, config, modeles, reglages, v) -> int:
+    from rag.aiguillage import aiguiller
+    from rag.lister import lister, taxonomie
+    from rag.reponse import repondre
+    from rag.rerank import reranker_depuis
+    niveaux = TOUT if a.prive else PUBLIC
+    rr = reranker_depuis(config, reglages)
+    f = None
+    if a.type or a.tag or a.source:
+        f = Filtres(sources=a.source, tags=a.tag, type=a.type)
+    mode = a.cmd if a.cmd in ("lister", "repondre") else a.mode
+    debut = time.monotonic()
+    dec = aiguiller(a.question, taxonomie(conn, niveaux=niveaux), modeles,
+                    config.reponse.modele, mode, f)
+    filtres = ", ".join(f"{k}={x}" for k, x in asdict(dec.filtres).items() if x)
+    print(f"mode : {dec.mode} (par {dec.par}) ; filtres : {filtres or 'aucun'}")
+    if dec.bonus_sources:
+        print(f"bonus de source : {', '.join(dec.bonus_sources)}")
+    if dec.mode == "lister":
+        _afficher_liste(lister(conn, a.question, dec.filtres, config, modeles, v,
+                               niveaux=niveaux, reranker=rr))
+    else:
+        _afficher_reponse(repondre(conn, a.question, config, modeles, v, niveaux=niveaux,
+                                   filtres=dec.filtres, reranker=rr,
+                                   bonus_sources=dec.bonus_sources))
+    print(f"({time.monotonic() - debut:.1f} s)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="rag")
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -135,6 +196,16 @@ def main(argv: list[str] | None = None) -> int:
     pgs.add_argument("--source")
     pgs.add_argument("--max", type=int)
     sp.add_parser("servir")
+    sp.add_parser("travailleur")
+    for nom in ("question", "lister", "repondre"):
+        pq = sp.add_parser(nom)
+        pq.add_argument("question")
+        if nom == "question":
+            pq.add_argument("--mode", choices=["lister", "repondre"])
+        pq.add_argument("--type")
+        pq.add_argument("--tag", action="append")
+        pq.add_argument("--source", action="append")
+        pq.add_argument("--prive", action="store_true")
     ajouter_cli_banc(sp)
     a = p.parse_args(argv)
 
@@ -146,6 +217,13 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run(create_app(reglages), host="0.0.0.0", port=8000)
         return 0
     config = charger_config(reglages.config)
+    if a.cmd == "travailleur":
+        import logging
+
+        from rag.travailleur import boucle
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        boucle(reglages, config, modeles_depuis(reglages))
+        return 0
     with connexion(reglages.database_url) as conn:
         if a.cmd == "migrer":
             print("\n".join(migrer(conn)) or "rien à migrer")
@@ -182,11 +260,14 @@ def main(argv: list[str] | None = None) -> int:
         if v is None:
             print("aucun index pour cette config : lancer `rag indexer`", file=sys.stderr)
             return 1
+        if a.cmd in ("question", "lister", "repondre"):
+            return _question_cli(conn, a, config, modeles, reglages, v)
         f = Filtres(sources=a.source, dossier=a.dossier, tags=a.tag, type=a.type)
         for i, r in enumerate(chercher(conn, a.question, config.recherche, modeles, v,
                                        config.indexation.modele_embedding,
                                        niveaux=TOUT if a.prive else PUBLIC, filtres=f,
-                                       limite=a.limite), 1):
+                                       limite=a.limite,
+                                       reranker=reranker_depuis(config, reglages)), 1):
             print(f"{i:>2}  {r.score:.4f}  cos={r.cosinus:.3f}  {r.cle}  [{r.fil}]")
     return 0
 

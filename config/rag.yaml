@@ -72,15 +72,18 @@ recherche:
   flou: true
   seuil_flou: 0.4
   instruction_requete: "Given a web search query, retrieve relevant passages that answer the query"
+  # Rerank : à activer si la mesure sur le Mac Studio (plan 4, tâche 6) tient p95 ≤ 2 s ;
+  # seuil 0,2143 (reponse.seuil_refus_rerank). Sur le Mac : p95 2,8 s (docs/mesures-plan-3.md).
   rerank: {actif: false, modele: "BAAI/bge-reranker-v2-m3", candidats: 30, garder: 8}
+  bonus_source: 0.2   # source nommée en mode répondre ; 0,5 fait perdre 0,02 de MRR au banc
   poids_source: {obsidian: 1.0, code: 0.6}   # banc 2026-11-22 : voir docs/mesures-plan-2.md
   graphe: {expansion: false, depuis: 3, attenuation: 0.5, plafond: 5}
 reponse:
   modele: "gemma4:26b-a4b-it-qat"
   temperature: 0.1
   passages: 8
-  seuil_refus_rerank: null
-  seuil_refus_cosinus: null
+  seuil_refus_rerank: 0.2143    # banc 2026-11-22, F1 0,943 : docs/mesures-plan-3.md
+  seuil_refus_cosinus: 0.5723   # banc 2026-11-22, F1 0,867 : docs/mesures-plan-3.md
 banc:
   modele_juge: "qwen3.8:27b-mlx"
   modele_synthetique: "gemma4:26b-a4b-it-qat"
