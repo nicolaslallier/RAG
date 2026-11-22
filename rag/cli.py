@@ -233,7 +233,12 @@ def main(argv: list[str] | None = None) -> int:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
         boucle(reglages, config, modeles_depuis(reglages))
         return 0
-    with connexion(reglages.database_url) as conn:
+    if a.cmd == "migrer":  # au démarrage du conteneur : attendre Postgres plutôt que redémarrer
+        from rag.demarrage import attendre_base
+        ouvrir = attendre_base(lambda: connexion(reglages.database_url))
+    else:
+        ouvrir = connexion(reglages.database_url)
+    with ouvrir as conn:
         if a.cmd == "migrer":
             print("\n".join(migrer(conn)) or "rien à migrer")
             return 0

@@ -1,5 +1,6 @@
 """Connexion Postgres et migrations SQL numérotées."""
 
+import logging
 from pathlib import Path
 
 import psycopg
@@ -21,8 +22,14 @@ def migrer(conn: psycopg.Connection) -> list[str]:
     try:
         return _migrer(conn)
     finally:
-        conn.execute("SELECT pg_advisory_unlock(%s)", (VERROU_MIGRATION,))
-        conn.commit()
+        # Ne pas masquer l'erreur d'origine : la session qui meurt relâche le verrou de toute façon.
+        try:
+            conn.rollback()
+            conn.execute("SELECT pg_advisory_unlock(%s)", (VERROU_MIGRATION,))
+            conn.commit()
+        except Exception as e:  # noqa: BLE001
+            logging.getLogger(__name__).warning("verrou de migration non relâché : %s",
+                                                type(e).__name__)
 
 
 def _migrer(conn: psycopg.Connection) -> list[str]:

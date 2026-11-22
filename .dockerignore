@@ -5,4 +5,4 @@ banc
 tests
 docs
 spike
-.env*
+**/.env*

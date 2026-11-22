@@ -24,7 +24,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
-      - run: uv sync
+      - run: uv sync --locked
       - run: uv run ruff check .
       # ponytail: pas de `ruff format --check` : le dépôt n'est pas formaté par ruff (45 fichiers) ;
       # l'ajouter après un reformatage unique, une fois les plans en cours fusionnés.

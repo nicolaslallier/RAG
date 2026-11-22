@@ -30,6 +30,8 @@ jobs:
 
   image:
     needs: ci
+    # Rien n'est poussé sur GHCR depuis une autre branche (workflow_dispatch).
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read

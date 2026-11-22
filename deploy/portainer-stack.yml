@@ -19,6 +19,7 @@ x-rag: &rag
     RAG_CONFIG: /app/config/rag.yaml
   volumes: [rag-donnees:/donnees]
   networks: [infra-net]
+  user: "1000:1000"
   read_only: true
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]

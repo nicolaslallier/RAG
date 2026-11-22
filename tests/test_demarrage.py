@@ -94,3 +94,27 @@ def test_un_401_ne_journalise_pas_le_jeton(caplog, faux_modeles):
     r = c.post("/chercher", json={"question": "x"},
                headers={"Authorization": "Bearer secret-essai-123"})
     assert r.status_code == 401 and "secret-essai-123" not in caplog.text + r.text
+
+
+def test_migrer_attend_la_base(monkeypatch):
+    import rag.cli
+    import rag.demarrage
+    vraie, essais = rag.cli.connexion, []
+
+    def connexion(url):
+        essais.append(url)
+        if len(essais) == 1:
+            raise psycopg.OperationalError("injoignable")
+        return vraie(URL)
+    monkeypatch.setattr(rag.cli, "connexion", connexion)
+    monkeypatch.setattr(rag.demarrage.time, "sleep", lambda s: None)
+    monkeypatch.setenv("RAG_DATABASE_URL", URL)
+    monkeypatch.setenv("RAG_LITELLM_URL", "http://x")
+    assert rag.cli.main(["migrer"]) == 0 and len(essais) == 2
+
+
+def test_erreur_de_migration_non_masquee(url_vierge, monkeypatch):
+    import rag.db
+    monkeypatch.setattr(rag.db, "_migrer", lambda c: c.execute("SELECT 1/0"))
+    with connexion(url_vierge) as c, pytest.raises(psycopg.errors.DivisionByZero):
+        migrer(c)

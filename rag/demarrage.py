@@ -33,7 +33,7 @@ def verifier_reglages(r: Reglages, role: Literal["api", "travailleur"]) -> None:
             raise ErreurConfig("RAG_GITHUB_JETON vide alors qu'une source clone GitHub")
 
 
-def attendre_base(ouvrir, pause: float = 30, dormir=time.sleep):
+def attendre_base(ouvrir, pause: float = 30, dormir=None):
     """Réessaie `ouvrir()` jusqu'au succès, une ligne de journal par échec, sans sortir."""
     while True:
         try:
@@ -41,4 +41,4 @@ def attendre_base(ouvrir, pause: float = 30, dormir=time.sleep):
         except Exception as e:  # noqa: BLE001 - Postgres pas encore prêt, on réessaie
             print(f"base injoignable ({type(e).__name__}), nouvel essai dans {pause:.0f} s",
                   file=sys.stderr, flush=True)
-            dormir(pause)
+            (dormir or time.sleep)(pause)

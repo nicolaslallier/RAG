@@ -15,7 +15,7 @@ def test_aucun_port_publie_et_reseau_externe():
 
 def test_durcissement():
     for s in PILE["services"].values():
-        assert s["read_only"] is True and s["cap_drop"] == ["ALL"]
+        assert s["user"] == "1000:1000" and s["read_only"] is True and s["cap_drop"] == ["ALL"]
         assert "no-new-privileges:true" in s["security_opt"]
         assert s["mem_limit"] and s["restart"] == "unless-stopped"
 
