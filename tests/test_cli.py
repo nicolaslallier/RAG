@@ -14,7 +14,7 @@ def env_cli(bd, tmp_path, monkeypatch, faux_modeles):
         (coffre / chemin).parent.mkdir(parents=True, exist_ok=True)
         (coffre / chemin).write_text(texte)
     d = yaml.safe_load(Path("config/rag.yaml").read_text())
-    d["sources"] = [{"nom": "coffre-maison", "type": "obsidian", "emplacement": str(coffre)}]
+    d["sources"] = [{"nom": "coffre-maison", "type": "obsidian", "visibilite": "public-maison", "emplacement": str(coffre)}]
     f = tmp_path / "rag.yaml"
     f.write_text(yaml.safe_dump(d))
     monkeypatch.setenv("RAG_CONFIG", str(f))

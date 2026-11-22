@@ -1,5 +1,58 @@
 sources:
-  - {nom: coffre-maison, type: obsidian, emplacement: ~/Obsidian/Maison, exclure: [".obsidian/**", ".trash/**", "_versions/**"]}
+  - {nom: coffre-maison, type: obsidian, visibilite: public-maison, emplacement: ~/Obsidian/Maison, exclure: [".obsidian/**", ".trash/**", "_versions/**"]}
+  # Code : un clone par dépôt, origin/<branche> seulement (gh repo list nicolaslallier, 2026-11-21).
+  # Absents : obsidian-maison (le coffre est lu dans S3), policy (pas de main), AI_Backend et
+  # WWIII (vides, sans branche), ollama-metrics (fourche d'un projet tiers), mcp-fichiers (n'existe pas).
+  - {nom: AI,                             type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/AI.git"}
+  - {nom: Infra,                          type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Infra.git"}
+  - {nom: Jarvis,                         type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Jarvis.git"}
+  - {nom: EA,                             type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/EA.git"}
+  - {nom: DarkAngel,                      type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/DarkAngel.git"}
+  - {nom: Final,                          type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Final.git"}
+  - {nom: Glee,                           type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Glee.git"}
+  - {nom: Heaven,                         type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Heaven.git"}
+  - {nom: Midas,                          type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Midas.git"}
+  - {nom: Moria,                          type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Moria.git"}
+  - {nom: orchestre,                      type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/orchestre.git"}
+  - {nom: RAG,                            type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/RAG.git", exclure: ["banc/**"]}
+  - {nom: Heaven-backend,                 type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Heaven-backend.git"}
+  - {nom: Heaven-frontend,                type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Heaven-frontend.git"}
+  - {nom: DragonWarrior,                  type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/DragonWarrior.git"}
+  - {nom: Nurse,                          type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Nurse.git"}
+  - {nom: RPG,                            type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/RPG.git"}
+  - {nom: Thor,                           type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Thor.git"}
+  - {nom: Frey,                           type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Frey.git"}
+  - {nom: Odin,                           type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Odin.git"}
+  - {nom: Beacon,                         type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Beacon.git"}
+  - {nom: Beacon-Library,                 type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Beacon-Library.git"}
+  - {nom: infrastructure-Diagram,         type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/infrastructure-Diagram.git"}
+  - {nom: infrastructure-docs-viewer,     type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/infrastructure-docs-viewer.git"}
+  - {nom: infrastructure,                 type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/infrastructure.git"}
+  - {nom: infrastructure-docs-viewer-api, type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/infrastructure-docs-viewer-api.git"}
+  - {nom: AI_Front,                       type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/AI_Front.git"}
+  - {nom: AI2,                            type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/AI2.git"}
+  - {nom: AI_Middle,                      type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/AI_Middle.git"}
+  - {nom: AI_Infra,                       type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/AI_Infra.git"}
+  - {nom: Zeus,                           type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Zeus.git"}
+  - {nom: TDDRAGON,                       type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/TDDRAGON.git"}
+  - {nom: LOTR,                           type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/LOTR.git"}
+  - {nom: WWIII-APIC,                     type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/WWIII-APIC.git"}
+  - {nom: home-apic,                      type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/home-apic.git"}
+  - {nom: Home-PSBL,                      type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Home-PSBL.git"}
+  - {nom: Home-Web-Portal,                type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Home-Web-Portal.git"}
+  - {nom: mcppostgres,                    type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/mcppostgres.git"}
+  - {nom: PYSIAPIC,                       type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/PYSIAPIC.git"}
+  - {nom: Friday-APIC,                    type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Friday-APIC.git"}
+  - {nom: Friday-Utils,                   type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Friday-Utils.git"}
+  - {nom: Friday-WPUI,                    type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Friday-WPUI.git"}
+  - {nom: mcp-architecture,               type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/mcp-architecture.git"}
+  - {nom: WebMaison,                      type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/WebMaison.git"}
+  - {nom: mcp-fs-gateway,                 type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/mcp-fs-gateway.git"}
+  - {nom: opencode-global,                type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/opencode-global.git"}
+  - {nom: maison,                         type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/maison.git"}
+  - {nom: Dedupfs,                        type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Dedupfs.git", branche: master}
+  - {nom: MyTutorial,                     type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/MyTutorial.git", branche: master}
+  - {nom: Tutorial,                       type: code, visibilite: public-maison, emplacement: "https://github.com/nicolaslallier/Tutorial.git", branche: master}
 indexation:
   strategie: titres          # titres | recursif | parent_enfant
   cible_tokens: 400
@@ -20,6 +73,7 @@ recherche:
   seuil_flou: 0.4
   instruction_requete: "Given a web search query, retrieve relevant passages that answer the query"
   rerank: {actif: false, modele: "BAAI/bge-reranker-v2-m3", candidats: 30, garder: 8}
+  poids_source: {obsidian: 1.0, code: 0.6}   # banc 2026-11-22 : voir docs/mesures-plan-2.md
   graphe: {expansion: false, depuis: 3, attenuation: 0.5, plafond: 5}
 reponse:
   modele: "gemma4:26b-a4b-it-qat"

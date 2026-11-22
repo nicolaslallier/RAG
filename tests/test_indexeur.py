@@ -12,7 +12,7 @@ from rag.sources import Entree, LecteurDossier
 from tests.conftest import FauxModeles
 
 CONF = charger_config(Path("config/rag.yaml")).indexation
-SRC = SourceConf(nom="coffre-test", type="obsidian", emplacement="/tmp/x",
+SRC = SourceConf(visibilite="public-maison", nom="coffre-test", type="obsidian", emplacement="/tmp/x",
                  exclure=[".obsidian/**"])
 
 

@@ -42,3 +42,30 @@ def test_empreinte_suit_la_version_d_analyseur(monkeypatch):
     avant = empreinte_indexation(c)
     monkeypatch.setattr(rc, "VERSION_ANALYSEUR", rc.VERSION_ANALYSEUR + 1)
     assert empreinte_indexation(c) != avant
+
+
+def test_une_source_sans_visibilite_est_refusee(tmp_path):
+    import pytest
+    import yaml
+    from pydantic import ValidationError
+
+    d = yaml.safe_load(Path("config/rag.yaml").read_text())
+    del d["sources"][1]["visibilite"]
+    (tmp_path / "c.yaml").write_text(yaml.safe_dump(d))
+    with pytest.raises(ValidationError, match="visibilite"):
+        charger_config(tmp_path / "c.yaml")
+    assert all(s.visibilite == "public-maison" for s in charger_config(Path("config/rag.yaml")).sources)
+
+
+@pytest.mark.parametrize("nom", [".", "..", "a/b", "../x", ""])
+def test_nom_de_source_refuse(nom):
+    from rag.config import SourceConf
+    with pytest.raises(pydantic.ValidationError):
+        SourceConf(nom=nom, type="code", emplacement="x", visibilite="public-maison")
+    SourceConf(nom="mcp-fs.gateway_2", type="code", emplacement="x", visibilite="public-maison")
+
+
+def test_poids_source_negatif_refuse():
+    r = charger_config(Path("config/rag.yaml")).recherche
+    with pytest.raises(pydantic.ValidationError):
+        r.model_validate(r.model_dump() | {"poids_source": {"code": -0.1}})

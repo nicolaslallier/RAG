@@ -134,7 +134,7 @@ def _indexer(bd, tmp_path, faux_modeles, strategie="titres"):
         (coffre / chemin).write_text(texte)
     conf = charger_config(Path("config/rag.yaml")).indexation.model_copy(
         update={"strategie": strategie})
-    src = SourceConf(nom="coffre-maison", type="obsidian", emplacement=str(coffre))
+    src = SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian", emplacement=str(coffre))
     indexer_source(bd, src, LecteurDossier(coffre), conf, faux_modeles)
     return Index(version_courante(bd, conf), coffre)
 
@@ -147,3 +147,70 @@ def index(bd, tmp_path, faux_modeles):
 @pytest.fixture
 def index_pe(bd, tmp_path, faux_modeles):
     return _indexer(bd, tmp_path, faux_modeles, "parent_enfant")
+
+
+def git(depot, *args):
+    import subprocess
+
+    return subprocess.run(["git", "-C", str(depot), *args], check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
+def commit(depot, chemin, texte, message="maj"):
+    (depot / chemin).parent.mkdir(parents=True, exist_ok=True)
+    (depot / chemin).write_text(texte)
+    git(depot, "add", chemin)
+    git(depot, "commit", "-qm", message)
+
+
+@pytest.fixture
+def depot(tmp_path):
+    """Dépôt git local : main avec du code, un secret, un verrou, un binaire, un gros JSON."""
+    d = tmp_path / "depot"
+    d.mkdir()
+    git(d, "init", "-q", "-b", "main")
+    git(d, "config", "user.email", "t@t")
+    git(d, "config", "user.name", "t")
+    (d / "a.py").write_text("import os\n\ndef aide():\n    return 1\n\n\nclass Indexeur:\n"
+                            "    def lancer(self):\n        return aide()\n")
+    (d / ".env.example").write_text("CLE=xyz\n")
+    (d / "uv.lock").write_text("version = 1\n")
+    (d / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00binaire")
+    (d / "docs").mkdir()
+    (d / "docs/guide.md").write_text("# Guide\n\nComment déployer le service.\n")
+    (d / "gros.json").write_text('{"x": "' + "a" * 400_000 + '"}')
+    git(d, "add", "-A")
+    git(d, "commit", "-qm", "init")
+    return d
+
+
+@pytest.fixture
+def index_code(bd, depot, tmp_path, faux_modeles):
+    """Le dépôt de test indexé comme source de code « depot-test »."""
+    from pathlib import Path
+
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source
+    from rag.sources import LecteurGit
+
+    src = SourceConf(visibilite="public-maison", nom="depot-test", type="code", emplacement="x")
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    indexer_source(bd, src, lec, charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
+    return lec
+
+
+def indexer_coffre(bd, tmp_path, faux_modeles, notes: dict, nom="coffre-maison", forcer=False):
+    from pathlib import Path
+
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source
+    from rag.sources import LecteurDossier
+
+    coffre = tmp_path / nom
+    for chemin, texte in notes.items():
+        (coffre / chemin).parent.mkdir(parents=True, exist_ok=True)
+        (coffre / chemin).write_text(texte)
+    src = SourceConf(visibilite="public-maison", nom=nom, type="obsidian", emplacement="x")
+    indexer_source(bd, src, LecteurDossier(coffre),
+                   charger_config(Path("config/rag.yaml")).indexation, faux_modeles, forcer=forcer)
+    return coffre

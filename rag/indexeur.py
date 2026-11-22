@@ -8,8 +8,9 @@ from datetime import UTC, datetime, timedelta
 
 from rag.config import IndexationConf, SourceConf, empreinte_indexation
 from rag.decoupage import Morceau, decouper_note
+from rag.decoupage_code import decouper_code, langage
 from rag.exclusions import motif_exclusion
-from rag.notes import analyser_note
+from rag.notes import Note, analyser_note
 from rag.recherche import normaliser, vecteur_sql
 from rag.sources import nfc
 
@@ -40,8 +41,15 @@ def version_courante(conn, conf: IndexationConf) -> int:
     return v
 
 
-def _morceaux(chemin: str, contenu: bytes, conf: IndexationConf):
-    note = analyser_note(chemin, contenu.decode("utf-8", errors="replace"))
+def _morceaux(source: SourceConf, chemin: str, contenu: bytes, conf: IndexationConf):
+    texte = contenu.decode("utf-8", errors="replace")
+    if source.type == "code":
+        note = Note(chemin, [], [], langage(chemin), None, None, {}, texte, [])
+        if len(contenu) > conf.taille_max_octets:
+            return note, [Morceau(0, f"{source.nom} > {chemin}", texte[:2000])]  # gros fichier
+        fil = f"{source.nom} > {chemin}"
+        return note, decouper_code(source.nom, chemin, texte, conf) or [Morceau(0, fil, chemin)]
+    note = analyser_note(chemin, texte)
     if len(contenu) > conf.taille_max_octets:
         ms = [Morceau(0, note.titre, note.corps[:2000])]
     else:
@@ -111,8 +119,14 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         chemin = nfc(e.chemin)
         if source.type == "obsidian" and not chemin.endswith(".md"):
             continue  # pièces jointes, .gitignore, .DS_Store : hors coffre de notes
-        if motif_exclusion(chemin, b"", source.exclure) is None:
+        raison = motif_exclusion(chemin, b"", source.exclure)
+        if raison is None and e.taille > 10 * conf.taille_max_octets:
+            raison = "trop_gros"  # jamais lu : un blob géant ne passe pas en mémoire
+            log.warning("%s : %s exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
+        if raison is None:
             entrees[chemin] = e
+        elif raison != "config":
+            bilan.exclus += 1  # secret, verrou, généré : exclus sur le nom, jamais lus
     existants = {
         r["chemin"]: r for r in conn.execute(
             """SELECT d.id, d.chemin, d.signature, d.sha256,
@@ -167,7 +181,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 continue
             conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
                          (source_id, chemin))
-            note, ms = _morceaux(chemin, contenu, conf)
+            note, ms = _morceaux(source, chemin, contenu, conf)
             bilan.morceaux += _ecrire(conn, source_id, chemin, e, sha, note, ms, conf, v,
                                       modeles, ex)
             conn.commit()

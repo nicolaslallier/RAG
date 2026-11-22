@@ -3,10 +3,10 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Incrémenter à chaque changement de notes.py, decoupage.py ou exclusions.py : l'empreinte change,
@@ -26,6 +26,8 @@ class Reglages(BaseSettings):
     litellm_ca: Path | None = None
     jeton: str = ""
     jeton_prive: str = ""
+    github_jeton: str = ""
+    graphify_commande: str = "graphify"   # en dev : spike/graphify/en-conteneur.sh (sans réseau)
     donnees_dir: Path = Path("donnees")
     config: Path = Path("config/rag.yaml")
     s3_endpoint: str = "http://s3:8333"
@@ -40,13 +42,20 @@ class _Strict(BaseModel):
 
 
 class SourceConf(_Strict):
-    nom: str
+    nom: str = Field(pattern=r"^[\w.-]+$")   # sert de nom de dossier de clone
+
+    @field_validator("nom")
+    @classmethod
+    def _pas_de_point(cls, v: str) -> str:
+        if v in (".", ".."):
+            raise ValueError("nom de source refusé")
+        return v
     type: Literal["obsidian", "code"]
     emplacement: str
     branche: str = "main"
     exclure: list[str] = []
     repos_minutes: int = 0
-    visibilite: Literal["public-maison", "prive"] = "public-maison"
+    visibilite: Literal["public-maison", "prive"]
 
 
 class IndexationConf(_Strict):
@@ -92,6 +101,7 @@ class RechercheConf(_Strict):
     instruction_requete: str
     rerank: RerankConf
     graphe: GrapheConf
+    poids_source: dict[Literal["obsidian", "code"], Annotated[float, Field(ge=0)]] = {}   # par type de source ; 1.0 absent
 
 
 class ReponseConf(_Strict):

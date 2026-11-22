@@ -72,5 +72,5 @@ def test_prefixe_du_coffre_normalise(brut, attendu):
     from rag.config import Reglages, SourceConf
     from rag.sources import lecteur_pour
     r = Reglages(database_url="x", litellm_url="x", coffre_prefixe=brut)
-    src = SourceConf(nom="c", type="obsidian", emplacement="s3")
+    src = SourceConf(visibilite="public-maison", nom="c", type="obsidian", emplacement="s3")
     assert lecteur_pour(src, r).prefixe == attendu

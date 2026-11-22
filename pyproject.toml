@@ -10,6 +10,8 @@ dependencies = [
   "httpx",
   "pyyaml",
   "boto3",
+  "tree-sitter-language-pack>=1.25.2",
+  "graphifyy==0.9.114",
 ]
 
 [dependency-groups]

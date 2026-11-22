@@ -12,7 +12,7 @@ from tests.conftest import URL
 @pytest.fixture
 def cfg(tmp_path, index):
     d = yaml.safe_load(Path("config/rag.yaml").read_text())
-    d["sources"] = [{"nom": "coffre-maison", "type": "obsidian", "emplacement": str(index.coffre)}]
+    d["sources"] = [{"nom": "coffre-maison", "type": "obsidian", "visibilite": "public-maison", "emplacement": str(index.coffre)}]
     f = tmp_path / "rag.yaml"
     f.write_text(yaml.safe_dump(d))
     return f
@@ -88,3 +88,21 @@ def test_bearer_obligatoire(client):
     for h in ("pub", "Basic pub", "bearer pub"):
         assert client.post("/chercher", json={"question": "x"},
                            headers={"Authorization": h}).status_code == 401
+
+
+def test_api_chemin_expliquer_ne_rendent_jamais_500(client):
+    for corps in ({"de": "config", "vers": "A"}, {"de": "zzz", "vers": "A"}, {"de": "", "vers": ""}):
+        assert client.post("/chemin", json=corps, headers=auth).status_code in (200, 422)
+    r = client.post("/expliquer", json={"nom": "zzz"}, headers=auth)
+    assert r.status_code == 200 and r.json()["etat"] == "introuvable"
+    assert client.post("/chemin", json={"de": "a", "vers": "b"}).status_code == 401
+
+
+def test_api_entretien_bornes(client):
+    assert client.get("/doublons?seuil=0.1", headers=auth).status_code == 422
+    assert client.get("/doublons?limite=500", headers=auth).status_code == 422
+    assert client.get("/orphelines").status_code == 401
+    assert client.get("/doublons", headers=auth).status_code == 200
+    assert client.get("/orphelines", headers=auth).json()["orphelines"]
+    r = client.get("/liens-entrants?cle=coffre-maison:absente.md", headers=auth).json()
+    assert r["etat"] == "introuvable"
