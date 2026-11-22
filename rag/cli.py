@@ -220,7 +220,10 @@ def main(argv: list[str] | None = None) -> int:
         import uvicorn
 
         from rag.api import create_app
-        uvicorn.run(create_app(reglages), host="0.0.0.0", port=8000)
+        from rag.demarrage import verifier_reglages
+        verifier_reglages(reglages, "api")
+        uvicorn.run(create_app(reglages), host="0.0.0.0", port=8000,
+                    access_log=False, proxy_headers=False)
         return 0
     config = charger_config(reglages.config)
     if a.cmd == "travailleur":
