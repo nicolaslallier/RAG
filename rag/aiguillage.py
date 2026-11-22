@@ -10,7 +10,8 @@ from rag.recherche import Filtres, normaliser
 
 _REPONDRE = ["quel est", "quelle est", "comment", "pourquoi", "explique", "resume", "decris",
              "qu'est-ce que", "c'est quoi", "que sais-tu"]
-_LISTER = ["quels", "quelles", "liste", "lister", "enumere", "combien", "montre-moi tous",
+# « combien » retiré (banc 2026-11-22) : « combien coûte / de temps / de VM » attend un fait.
+_LISTER = ["quels", "quelles", "liste", "lister", "enumere", "montre-moi tous",
            "montre-moi toutes", "donne-moi la liste", "tous les", "toutes les"]
 _SOURCES_DITES = re.compile(r"\bavec (?:les|la|leurs) sources?\b")
 
@@ -26,7 +27,14 @@ class Decision:
     par: Literal["appelant", "regles", "modele", "defaut"] = "defaut"
 
 
+# Avant les règles « répondre » : « c'est quoi mes menus », « qu'est-ce que j'ai sur ma liste »,
+# et un « quels/quelles » en milieu de phrase (« J'ai quels agents… », « Dans quelles veilles… »).
+_LISTER_D_ABORD = re.compile(r"^(?:c'est quoi mes|qu'est-ce que j'ai)\b|.\b(?:quels|quelles)\b")
+
+
 def _mode_par_regles(q: str) -> str | None:
+    if _LISTER_D_ABORD.search(q):
+        return "lister"
     if _commence(q, _REPONDRE):
         return "repondre"
     if _commence(q, _LISTER) or "la liste de" in q:

@@ -2,7 +2,7 @@ import pytest
 
 from rag.aiguillage import aiguiller
 from rag.modeles import ErreurModele
-from rag.recherche import Filtres
+from rag.recherche import Filtres, normaliser
 
 TAXO = {"types": {"recette": 3, "projet": 14, "ressource": 24},
         "tags": {"poulet": 2, "souper": 4, "source": 1, "cuisine": 5},
@@ -88,3 +88,16 @@ def test_l_appelant_force():
 def test_questions_degenerees(q):
     d = aiguiller(q, TAXO, FauxGenerateur(['{"mode": "repondre"}']), "g")
     assert d.mode in ("lister", "repondre")
+
+
+@pytest.mark.parametrize("q,mode", [
+    ("C'est quoi mes menus de la semaine ?", "lister"),
+    ("Qu'est-ce que j'ai sur ma liste Costco ?", "lister"),
+    ("Dans quelles veilles on parle de Mistral ?", "lister"),
+    ("J'ai quels agents A2A derrière LiteLLM ?", "lister"),
+    ("Combien coûte ma facture d'Hydro-Québec ?", None),
+    ("C'est quoi Glee ?", "repondre"),
+])
+def test_regles_corrigees_au_banc(q, mode):
+    from rag.aiguillage import _mode_par_regles
+    assert _mode_par_regles(normaliser(q)) == mode
