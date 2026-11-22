@@ -51,6 +51,16 @@ def charger_jeu(chemin: Path) -> list[Cas]:
     return cas
 
 
+def taux_refus(lignes: list[dict], conf, rerank_actif: bool) -> dict:
+    from rag.refus import refuse_score
+    champ = "meilleur_rerank" if rerank_actif else "meilleur_cosinus"
+    seuil = conf.seuil_refus_rerank if rerank_actif else conf.seuil_refus_cosinus
+    sans = [refuse_score(c.get(champ), seuil) for c in lignes if c["nature"] == "sans_reponse"]
+    avec = [refuse_score(c.get(champ), seuil) for c in lignes if c["nature"] != "sans_reponse"]
+    return {"refus_justes": round(sum(sans) / len(sans), 4) if sans else 0.0,
+            "faux_refus": round(sum(avec) / len(avec), 4) if avec else 0.0}
+
+
 def _centile(xs: list[float], p: float) -> float:
     xs = sorted(xs)
     return xs[round(p * (len(xs) - 1))] if xs else 0.0
@@ -96,7 +106,7 @@ def executer(conn, cas: list[Cas], config: Config, modeles, version_id: int,
         "cas": lignes,
         "resume": _moyennes(avec) | {
             "latence_p50_ms": _centile(latences, 0.5), "latence_p95_ms": _centile(latences, 0.95),
-            "n": len(avec)},
+            "n": len(avec)} | taux_refus(lignes, config.reponse, config.recherche.rerank.actif),
         "par_nature": par_nature,
     }
 
@@ -118,6 +128,7 @@ def ajouter_cli_banc(sp) -> None:
     pb.add_argument("--etiquette", default="essai")
     pb.add_argument("--sans-indexer", action="store_true")
     pb.add_argument("--reference", action="store_true")
+    pb.add_argument("--calibrer", action="store_true")
 
 
 def commande_banc(a, conn, reglages, config: Config, modeles, indexer) -> int:
@@ -140,6 +151,10 @@ def commande_banc(a, conn, reglages, config: Config, modeles, indexer) -> int:
     ref = Path("banc/reference.json")
     if ref.exists():
         print("\n".join(comparer(rapport, json.loads(ref.read_text()))))
+    if a.calibrer:
+        from rag.refus import calibrer
+        champ = ("meilleur_rerank" if config.recherche.rerank.actif else "meilleur_cosinus")
+        print(f"seuil proposé ({champ}) : {json.dumps(calibrer(rapport, champ))}")
     if a.reference:
         shutil.copy(sortie, ref)
         print(f"référence posée : {ref}")

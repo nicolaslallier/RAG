@@ -79,8 +79,8 @@ reponse:
   modele: "gemma4:26b-a4b-it-qat"
   temperature: 0.1
   passages: 8
-  seuil_refus_rerank: null
-  seuil_refus_cosinus: null
+  seuil_refus_rerank: 0.2143    # banc 2026-11-22, F1 0,943 : docs/mesures-plan-3.md
+  seuil_refus_cosinus: 0.5723   # banc 2026-11-22, F1 0,867 : docs/mesures-plan-3.md
 banc:
   modele_juge: "qwen3.8:27b-mlx"
   modele_synthetique: "gemma4:26b-a4b-it-qat"
