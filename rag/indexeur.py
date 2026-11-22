@@ -169,7 +169,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             (source_id, chemin, e.signature, emp, raison))
     conn.commit()  # pas de verrou de ligne sur `exclus` pendant le travail lent qui suit
 
-    repos =timedelta(minutes=source.repos_minutes)
+    repos = timedelta(minutes=source.repos_minutes)
     exclus_en_passe = set()  # exclus à la main pendant la passe
 
     def exclu_en_passe(chemin, e, ex) -> bool:
