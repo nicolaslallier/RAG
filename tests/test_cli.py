@@ -66,3 +66,15 @@ def test_cli_exclusions_importer_malforme(env_cli, capsys, tmp_path):
     f.write_text("pas une liste\n")
     assert cli.main(["exclusions", "importer", str(f)]) == 1
     assert "invalide" in capsys.readouterr().err
+
+
+def test_cli_exclusions_importer_fichier_illisible(env_cli, capsys, tmp_path):
+    assert cli.main(["exclusions", "importer", str(tmp_path / "absent.yaml")]) == 1
+    err = capsys.readouterr().err
+    assert "illisible" in err and "Traceback" not in err
+    f = tmp_path / "latin1.yaml"
+    f.write_bytes(b"- {source: coffre-maison, motif: 'caf\xe9.md'}\n")
+    assert cli.main(["exclusions", "importer", str(f)]) == 1
+    assert "UTF-8" in capsys.readouterr().err
+    assert cli.main(["exclusions", "exporter"]) == 0
+    assert yaml.safe_load(capsys.readouterr().out) == []

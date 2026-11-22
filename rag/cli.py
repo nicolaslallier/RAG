@@ -166,7 +166,15 @@ def _exclusions_cli(conn, a) -> int:
         print(exporter(conn), end="")
         return 0
     try:
-        r = importer(conn, Path(a.fichier).read_text(encoding="utf-8"))
+        texte = Path(a.fichier).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        print("fichier illisible, rien d'importé : UTF-8 attendu", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"fichier illisible, rien d'importé : {e.strerror or e}", file=sys.stderr)
+        return 1
+    try:
+        r = importer(conn, texte)
     except MotifInvalide as e:
         print(f"fichier invalide, rien d'importé : {e}", file=sys.stderr)
         return 1
