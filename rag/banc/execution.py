@@ -139,6 +139,25 @@ def ajouter_cli_banc(sp) -> None:
     pb.add_argument("--sans-indexer", action="store_true")
     pb.add_argument("--reference", action="store_true")
     pb.add_argument("--calibrer", action="store_true")
+    pb.add_argument("--generation", action="store_true")
+    pb.add_argument("--echantillon", type=int, default=20)
+
+
+def _banc_generation(a, conn, config: Config, modeles, cas, reranker) -> int:
+    from rag.banc.juge import ecrire_relecture, executer_generation
+    rapport = executer_generation(conn, cas, config, modeles,
+                                  version_courante(conn, config.indexation), reranker)
+    rapport["etiquette"] = a.etiquette
+    dossier = Path("banc/resultats")
+    dossier.mkdir(parents=True, exist_ok=True)
+    base = dossier / f"{datetime.now():%Y%m%d-%H%M%S}-{a.etiquette}"
+    sortie = base.with_name(base.name + ".json")
+    sortie.write_text(json.dumps(rapport, ensure_ascii=False, indent=1))
+    relecture = ecrire_relecture(rapport, base.with_name(base.name + "-relecture.md"),
+                                 a.echantillon)
+    print(json.dumps(rapport["resume"], ensure_ascii=False))
+    print(f"rapport : {sortie}\nrelecture : {relecture}")
+    return 0
 
 
 def commande_banc(a, conn, reglages, config: Config, modeles, indexer) -> int:
@@ -151,6 +170,9 @@ def commande_banc(a, conn, reglages, config: Config, modeles, indexer) -> int:
     if not a.sans_indexer and (code := indexer(conn, reglages, config, modeles)):
         return code
     from rag.rerank import reranker_depuis
+    if a.generation:
+        return _banc_generation(a, conn, config, modeles, cas,
+                                reranker_depuis(config, reglages))
     rapport = executer(conn, cas, config, modeles, version_courante(conn, config.indexation),
                        a.etiquette, reranker_depuis(config, reglages))
     dossier = Path("banc/resultats")
