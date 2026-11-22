@@ -42,7 +42,8 @@ class FauxModeles:
         return self._vec(question)
 
     def generer(self, modele, messages, temperature, json_mode=False):
-        raise NotImplementedError
+        from rag.modeles import ErreurModele
+        raise ErreurModele("pas de génération dans les faux modèles")
 
 
 @pytest.fixture

@@ -85,3 +85,16 @@ def test_jeu_invalide(tmp_path):
     f.write_text("- {id: a, question: q, nature: factuel, attendus: [sans-deux-points]}\n")
     with pytest.raises(ValueError):
         charger_jeu(f)
+
+
+def test_exactitude_mode(bd, index, faux_modeles):
+    from rag.banc.execution import Cas, executer
+    from rag.config import charger_config
+    conf = charger_config(Path("config/rag.yaml"))
+    cas = [Cas(id="a", question="Quelles recettes ?", nature="lister", attendus=["x:y"],
+               mode_attendu="lister"),
+           Cas(id="b", question="Quelle est la recette ?", nature="factuel", attendus=["x:y"],
+               mode_attendu="lister"),
+           Cas(id="c", question="poulet", nature="factuel", attendus=["x:y"])]
+    r = executer(bd, cas, conf, faux_modeles, index.version)
+    assert r["resume"]["exactitude_mode"] == 0.5 and r["mal_aiguilles"] == ["b"]

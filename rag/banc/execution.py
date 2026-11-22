@@ -73,8 +73,13 @@ def _moyennes(lignes: list[dict]) -> dict:
 
 def executer(conn, cas: list[Cas], config: Config, modeles, version_id: int,
              etiquette: str = "", reranker=None) -> dict:
+    from rag.aiguillage import aiguiller
+    from rag.lister import taxonomie
+    taxo = taxonomie(conn, niveaux=PUBLIC)
     lignes = []
     for c in cas:
+        mode = (aiguiller(c.question, taxo, modeles, config.reponse.modele).mode
+                if c.mode_attendu else None)
         t0 = time.perf_counter()
         r = chercher(conn, c.question, config.recherche, modeles, version_id,
                      config.indexation.modele_embedding, niveaux=PUBLIC, limite=10, reranker=reranker)
@@ -83,6 +88,7 @@ def executer(conn, cas: list[Cas], config: Config, modeles, version_id: int,
         a = set(c.attendus)
         lignes.append({
             "id": c.id, "nature": c.nature, "obtenus": obtenus,
+            "mode": mode, "mode_attendu": c.mode_attendu,
             "rappel5": rappel(a, obtenus, 5), "rappel10": rappel(a, obtenus, 10),
             "mrr": mrr(a, obtenus), "ndcg10": ndcg(a, obtenus, 10),
             "latence_ms": round(latence, 1),
@@ -91,6 +97,8 @@ def executer(conn, cas: list[Cas], config: Config, modeles, version_id: int,
             "meilleur_rerank": max((x.rerank for x in r if x.rerank is not None), default=None),
         })
     avec = [x for x in lignes if x["nature"] != "sans_reponse"]
+    aiguilles = [x for x in lignes if x["mode_attendu"]]
+    mal = [x["id"] for x in aiguilles if x["mode"] != x["mode_attendu"]]
     latences = [x["latence_ms"] for x in lignes]
     par_nature = {}
     for n in sorted({x["nature"] for x in lignes}):
@@ -106,8 +114,10 @@ def executer(conn, cas: list[Cas], config: Config, modeles, version_id: int,
         "cas": lignes,
         "resume": _moyennes(avec) | {
             "latence_p50_ms": _centile(latences, 0.5), "latence_p95_ms": _centile(latences, 0.95),
-            "n": len(avec)} | taux_refus(lignes, config.reponse, config.recherche.rerank.actif),
+            "n": len(avec)} | taux_refus(lignes, config.reponse, config.recherche.rerank.actif) | (
+            {"exactitude_mode": round(1 - len(mal) / len(aiguilles), 4)} if aiguilles else {}),
         "par_nature": par_nature,
+        "mal_aiguilles": mal,
     }
 
 
@@ -148,6 +158,8 @@ def commande_banc(a, conn, reglages, config: Config, modeles, indexer) -> int:
     sortie = dossier / f"{datetime.now():%Y%m%d-%H%M%S}-{a.etiquette}.json"
     sortie.write_text(json.dumps(rapport, ensure_ascii=False, indent=1))
     print(json.dumps(rapport["resume"], ensure_ascii=False))
+    if rapport["mal_aiguilles"]:
+        print("mal aiguillés : " + ", ".join(rapport["mal_aiguilles"]))
     ref = Path("banc/reference.json")
     if ref.exists():
         print("\n".join(comparer(rapport, json.loads(ref.read_text()))))
