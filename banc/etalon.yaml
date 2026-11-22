@@ -436,7 +436,7 @@
   - AI:backend/portail/lanceur.py
   - AI:lanceur/src/main.rs
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Obligatoire (plan 2). Fichiers clés choisis d'après l'arbre du dépôt (Portail, lanceur Rust, ordonnanceur).
 - id: dashboards-grafana
   question: Quelles sont mes dashboards Grafana ?
@@ -462,7 +462,7 @@
   - coffre-maison:01 - Projets/Infra/Infra - Fusion dashboards Agents et LiteLLM.md
   - coffre-maison:01 - Projets/Infra/Infra - Métriques Windows dans Grafana.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: Obligatoire (plan 2). 12 JSON Infra + 4 JSON AI + notes du coffre.
 - id: litellm-config-et-notes
   question: Comment LiteLLM est configuré dans mon homelab ?
@@ -473,7 +473,7 @@
   - coffre-maison:01 - Projets/Infra/Infra - LiteLLM image unifiée.md
   - coffre-maison:01 - Projets/Infra/Infra - Montée LiteLLM 1.108 LTS.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: À cheval coffre + code.
 - id: pii-litellm
   question: Comment je filtre les données personnelles avant d'envoyer au cloud via LiteLLM ?
@@ -483,7 +483,7 @@
   - Infra:litellm/pii_policy.yaml
   - Infra:docs/superpowers/specs/2026-11-14-litellm-cloud-pii-design.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: À cheval spec + code ; vérifier s'il existe une note du coffre.
 - id: ordonnanceur-portail
   question: Comment fonctionne l'ordonnanceur du Portail avec la GitHub App ?
@@ -492,7 +492,7 @@
   - AI:backend/portail/ordonnanceur.py
   - coffre-maison:01 - Projets/AI/Ordonnanceur du Portail - GitHub App.md
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: À cheval coffre + code.
 - id: delais-llm-portail
   question: Où est réglé le délai des appels LLM dans le Portail ?
@@ -500,8 +500,9 @@
   attendus:
   - coffre-maison:01 - Projets/AI/Portail - timeouts LLM (délai configurable).md
   - coffre-maison:01 - Projets/AI/Délais LLM du Portail.md
+  - AI:backend/portail/config.py
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: À cheval ; ajouter le fichier de config du Portail qui porte le délai après lecture du dépôt.
 - id: symbole-indexer-source
   question: Que fait la fonction indexer_source ?
@@ -509,7 +510,7 @@
   attendus:
   - RAG:rag/indexeur.py
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Symbole précis (dépôt RAG).
 - id: symbole-lanceur-conteneurs
   question: Comment le lanceur Rust démarre les conteneurs d'agents ?
@@ -518,7 +519,7 @@
   - AI:lanceur/src/conteneurs.rs
   - AI:lanceur/src/api.rs
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Fichier précis (Rust).
 - id: fichier-alertes-portail
   question: Quelles alertes Grafana sont définies pour le Portail ?
@@ -526,7 +527,7 @@
   attendus:
   - AI:deploy/grafana/alertes-portail.yml
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Fichier précis.
 - id: nginx-portail
   question: Quelle est la config nginx du Portail ?
@@ -534,7 +535,7 @@
   attendus:
   - AI:deploy/nginx/portail.conf
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Fichier précis.
 - id: agents-du-portail
   question: Quels agents sont déclarés dans le Portail ?
@@ -543,26 +544,26 @@
   - AI:agents.yaml
   - AI:docs/agents-contrat-v1.md
   mode_attendu: lister
-  statut: propose
+  statut: valide
   note: Liste tirée d'un fichier.
 - id: sans-reponse-kubernetes-ai
   question: Quel chart Helm déploie le Portail sur Kubernetes ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Plausible, mais le Portail est déployé par Portainer, pas Kubernetes.
 - id: sans-reponse-terraform-infra
   question: Quel module Terraform crée les VM du homelab ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Plausible ; Infra est en Docker Compose, sans Terraform (à vérifier).
 - id: sans-reponse-graphql-jarvis
   question: Quel est le schéma GraphQL de l'API de Jarvis ?
   nature: sans_reponse
   attendus: []
   mode_attendu: repondre
-  statut: propose
+  statut: valide
   note: Plausible ; Jarvis expose du REST FastAPI (à vérifier).
