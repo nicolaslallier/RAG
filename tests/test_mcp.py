@@ -51,9 +51,10 @@ def outil(client, nom, args, entetes=auth):
     return json.loads(res["content"][0]["text"])
 
 
-def test_les_cinq_outils_du_contrat(client):
+def test_les_sept_outils_du_contrat(client):
     assert sorted(t["name"] for t in rpc(client, "tools/list")["tools"]) == [
-        "rag_chemin", "rag_chercher", "rag_expliquer", "rag_lister", "rag_repondre"]
+        "rag_chemin", "rag_chercher", "rag_expliquer", "rag_fichiers", "rag_lister",
+        "rag_repondre", "rag_sources"]
 
 
 def test_rag_chercher_rend_des_sources(client):
@@ -115,3 +116,24 @@ def test_rag_repondre_applique_le_bonus_de_source(client, monkeypatch):
                         or vrai(*a, **k))
     outil(client, "rag_repondre", {"question": "poulet au cidre dans coffre-maison"})
     assert vu == [["coffre-maison"]]
+
+
+def test_rag_sources_liste_les_sources(client):
+    d = outil(client, "rag_sources", {})
+    assert [x["nom"] for x in d] == ["coffre-maison"]
+
+
+def test_rag_fichiers_indexes(client):
+    d = outil(client, "rag_fichiers", {"source": "coffre-maison", "etat": "indexe"})
+    assert d["source"] == "coffre-maison" and len(d["fichiers"]) == 6
+
+
+def test_rag_sources_et_fichiers_respectent_les_niveaux(client, bd):
+    bd.execute("UPDATE sources SET visibilite = 'prive'")
+    bd.commit()
+    assert outil(client, "rag_sources", {}) == []
+    res = rpc(client, "tools/call", {"name": "rag_fichiers",
+                                     "arguments": {"source": "coffre-maison"}})
+    assert res["isError"] is True and "source inconnue" in res["content"][0]["text"]
+    priv = {"Authorization": "Bearer priv"}
+    assert outil(client, "rag_fichiers", {"source": "coffre-maison"}, priv)["total"] > 0

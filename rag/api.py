@@ -28,7 +28,7 @@ from rag.config import (
 )
 from rag.db import connexion
 from rag.entretien import doublons, liens_entrants, orphelines
-from rag.gestion import demander_reindexation
+from rag.gestion import demander_reindexation, fichiers, sources
 from rag.graphe import chemin, expliquer
 from rag.lister import lister, taxonomie
 from rag.mcp_serveur import creer_mcp
@@ -116,7 +116,10 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
         lister=lambda q, f, n: _question_lister(q, f, n),
         repondre=lambda q, n: _repondre_simple(q, n),
         chemin=lambda de, vers, n: _avec_conn(chemin, de, vers, niveaux=n),
-        expliquer=lambda nom, n: _avec_conn(expliquer, nom, niveaux=n)))
+        expliquer=lambda nom, n: _avec_conn(expliquer, nom, niveaux=n),
+        sources=lambda n: _avec_conn(sources, niveaux=n),
+        fichiers=lambda source, e, contient, page, n: _avec_conn(
+            fichiers, source, niveaux=n, etat=e, contient=contient, page=page)))
     mcp_asgi = mcp.streamable_http_app().routes[0].endpoint
 
     @asynccontextmanager
