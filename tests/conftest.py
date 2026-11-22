@@ -214,3 +214,57 @@ def indexer_coffre(bd, tmp_path, faux_modeles, notes: dict, nom="coffre-maison",
     indexer_source(bd, src, LecteurDossier(coffre),
                    charger_config(Path("config/rag.yaml")).indexation, faux_modeles, forcer=forcer)
     return coffre
+
+
+RECETTES = {
+    "Recettes/Poulet cidre et Boursin.md":
+        "---\ntype: recette\ntags: [recette, poulet]\nsource: claude\ndate: 2026-11-08\n---\n"
+        "# Poulet cidre et Boursin\n\nPoitrines de poulet, cidre et Boursin au four.\n",
+    "Recettes/Poulet au beurre.md":
+        "---\ntype: recette\ntags: [poulet, indien]\nsource: https://ex.com/pab\n---\n"
+        "# Poulet au beurre\n\nPoulet, beurre, tomates, garam masala.\n",
+    "Recettes/Pâté chinois.md":
+        "---\ntype: recette\ntags: [boeuf]\n---\n# Pâté chinois\n\nBoeuf haché, maïs, patates.\n",
+    "Idées de soupers.md":
+        "# Idées de soupers\n\nUn poulet rôti le dimanche, des recettes de poulet faciles.\n",
+}
+
+
+def indexer_depot(bd, tmp_path, faux_modeles, nom: str, fichiers: dict, visibilite="public-maison"):
+    from pathlib import Path
+
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source
+    from rag.sources import LecteurGit
+
+    d = tmp_path / f"depot-{nom}"
+    d.mkdir()
+    git(d, "init", "-q", "-b", "main")
+    git(d, "config", "user.email", "t@t")
+    git(d, "config", "user.name", "t")
+    for chemin, texte in fichiers.items():
+        commit(d, chemin, texte)
+    src = SourceConf(visibilite=visibilite, nom=nom, type="code", emplacement="x")
+    indexer_source(bd, src, LecteurGit(str(d), tmp_path / "clones" / nom),
+                   charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
+
+
+@pytest.fixture
+def index_recettes(bd, tmp_path, faux_modeles):
+    from pathlib import Path
+
+    from rag.config import charger_config
+    from rag.indexeur import version_courante
+    indexer_coffre(bd, tmp_path, faux_modeles, RECETTES)
+    return version_courante(bd, charger_config(Path("config/rag.yaml")).indexation)
+
+
+GRAFANA = {f"monitoring/grafana/dashboards/{n}.json":
+           f'{{"title": "Grafana dashboard {n}", "panels": [{{"title": "grafana {n}"}}]}}\n'
+           for n in ("noeuds", "postgres", "litellm")}
+
+
+@pytest.fixture
+def index_mixte(bd, tmp_path, faux_modeles, index_recettes):
+    indexer_depot(bd, tmp_path, faux_modeles, "Infra", GRAFANA)
+    return index_recettes
