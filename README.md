@@ -52,12 +52,32 @@ Règle : un paramètre à la fois, comparé à la référence ; consigner le ré
 | LiteLLM **(changé)** | **`https://litellm.infra.famillelallier.net`**, vérifié par la CA de l'Infra (`RAG_LITELLM_CA`) ; clé d'alias `rag`, équipe `agents` (modèles locaux seulement) ; modèles utilisés : `qwen3-embedding:0.6b`, `gemma4:26b-a4b-it-qat`, `qwen3.8:27b-mlx` (juge) | Infra |
 | S3 (coffre) **(changé)** | **`https://s3.infra.famillelallier.net`**, vérifié par la CA de l'Infra (`AWS_CA_BUNDLE`) ; bucket `obsidian`, identité `rag` en **`Read,List`**, secret `RAG_S3_SECRET_KEY` ; préfixe du coffre `RAG_COFFRE_PREFIXE` = valeur de `ORGANIZER_VAULT_PREFIX` de l'Infra | Infra |
 | GitHub (code) | `RAG_GITHUB_JETON` : jeton à portée fine, `Contents: Read` sur les dépôts `nicolaslallier/*` | Nicolas |
-| MCP **(changé)** | LiteLLM `mcp_servers.rag` → **`http://192.168.2.40:8000/mcp`**, `Authorization: Bearer` = `RAG_MCP_TOKEN` (même valeur que `RAG_JETON`, niveau `public-maison`) ; outils `rag_chercher`, `rag_lister`, `rag_repondre`, `rag_chemin`, `rag_expliquer` ; équipes `[admin]` | Infra (config), RAG (serveur) |
+| MCP **(changé)** | LiteLLM `mcp_servers.rag` → **`http://192.168.2.40:8000/mcp`**, `Authorization: Bearer` = `RAG_MCP_TOKEN` (même valeur que `RAG_JETON`, niveau `public-maison`) ; **sept** outils : `rag_chercher`, `rag_lister`, `rag_repondre`, `rag_chemin`, `rag_expliquer`, **`rag_sources`** et **`rag_fichiers`** (ces deux derniers en lecture seule) ; équipes `[admin]` | Infra (config), RAG (serveur) |
 | Runner **(précisé)** | `runner-rag`, label `rag`, dépôt `nicolaslallier/RAG`, `GH_RUNNER_TOKEN_RAG`, sans socket Docker ; **reste sur `192.168.2.10`** : il n'appelle que Portainer et OpenBao, par URL ; variable `PORTAINER_ENDPOINT_ID` = `6` | Infra |
 | Env. des conteneurs **(changé)** | `RAG_DATABASE_URL`, `RAG_LITELLM_URL`, **`RAG_LITELLM_CA`**, `RAG_LITELLM_CLE`, `RAG_JETON`, `RAG_JETON_PRIVE`, `RAG_JETON_REINDEXER`, `RAG_GITHUB_JETON`, `RAG_S3_ENDPOINT`, `RAG_S3_ACCESS_KEY`, `RAG_S3_SECRET_KEY`, **`AWS_CA_BUNDLE`**, `RAG_COFFRE_BUCKET`, `RAG_COFFRE_PREFIXE`, `RAG_DONNEES_DIR`, `RAG_CONFIG` ; pour `rag-postgres` : `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PASSWORD` (= `RAG_DB_PASSWORD`) | RAG |
-| Niveaux de visibilité **(précisé)** | `RAG_JETON` → `public-maison` ; `RAG_JETON_PRIVE` → `public-maison` + `prive`, **à n'utiliser que depuis le MacBook lui-même** (le port 8000 est en HTTP) ; `RAG_JETON_REINDEXER` → réindexation seulement, aucune lecture | RAG |
+| Niveaux de visibilité **(changé)** | `RAG_JETON` → `public-maison` ; `RAG_JETON_PRIVE` → `public-maison` + `prive` **et gestion de l'index par l'interface `/ui/`**, **à n'utiliser que depuis le MacBook lui-même** (le port 8000 est en HTTP) ; `RAG_JETON_REINDEXER` → réindexation seulement, aucune lecture | RAG |
 
 Valeurs en double à garder égales **(changé)** : `RAG_S3_SECRET_KEY` (`infra/env` et `infra/rag`) ; `RAG_MCP_TOKEN` (`infra/env`) = `RAG_JETON` (`infra/rag`). **`RAG_DB_PASSWORD` n'est plus un double** : seule la copie d'`infra/rag` compte ; celle d'`infra/env` ne sert plus qu'à la base inutilisée de l'Infra.
+
+## Gestion de l'index
+
+Interface web servie par l'API elle-même (même processus, même port, aucun service ajouté) :
+`http://192.168.2.40:8000/ui/`, depuis le MacBook. On s'y connecte en collant un jeton ; il reste
+dans un cookie `rag_session` (`HttpOnly`, `SameSite=Strict`, limité à `/ui`).
+
+- `RAG_JETON` : lecture seule. Voit les sources `public-maison`, leurs fichiers (indexés ou exclus,
+  avec la raison), le détail des morceaux d'un fichier et la liste des exclusions.
+- `RAG_JETON_PRIVE` : voit aussi les sources `prive` et **peut écrire** : exclure un fichier ou un
+  motif (aperçu puis confirmation, seconde confirmation au-delà de 100 documents), annuler une
+  exclusion, importer et exporter les exclusions, demander une réindexation. Sans
+  `RAG_JETON_PRIVE` dans l'environnement, l'interface est en lecture seule.
+- Les écritures n'existent que sous `/ui/` : ni l'API par jeton `Bearer` ni le MCP ne peuvent
+  exclure ou annuler.
+- Côté MCP (lecture seule, mêmes niveaux de visibilité que le jeton) : `rag_sources` liste les
+  sources et leur état, `rag_fichiers` liste les fichiers d'une source (indexés ou exclus, avec la
+  raison).
+- Un motif d'exclusion suit `fnmatch` (le `*` traverse les `/`), 1 à 1000 caractères ; la raison est
+  facultative (500 caractères au plus). Le contenu d'un fichier exclu n'est jamais lu ni affiché.
 
 ## Étapes manuelles avant le premier déploiement
 
@@ -97,7 +117,14 @@ Aucune n'est faite par un agent.
 
 ## Sauvegarde
 
-Aucune, et c'est voulu : `rag-pgdata` ne contient rien d'irremplaçable, la base se reconstruit par
-`rag indexer --complet` depuis le coffre (S3) et GitHub. Seuls `banc/` et `config/` (dans git) sont
-irremplaçables. Le volume vit dans la VM : `colima delete` l'efface (comme `rag-donnees`), une
-réindexation complète est alors à prévoir.
+`rag-pgdata` ne contient qu'**une seule** donnée irremplaçable : les **exclusions manuelles** (posées
+par l'interface `/ui/`). Tout le reste se reconstruit par `rag indexer --complet` depuis le coffre
+(S3) et GitHub. **Exporter après chaque changement d'exclusion** : bouton « Exporter (YAML) » de
+l'écran Exclusions, ou
+
+    docker --context colima exec rag-rag-1 rag exclusions exporter > exclusions-rag.yaml
+
+et garder ce fichier hors de la VM. Après un `colima delete` : relancer la pile, réimporter
+(bouton « Importer » de l'écran Exclusions) puis réindexer. Seuls `banc/` et `config/` (dans git) et
+ces exclusions sont irremplaçables. Le volume vit dans la VM : `colima delete` l'efface (comme
+`rag-donnees`), une réindexation complète est alors à prévoir.
