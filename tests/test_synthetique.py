@@ -33,7 +33,7 @@ def long_index(bd, index, faux_modeles):
     for i in range(4):
         (index.coffre / f"Long{i}.md").write_text(
             f"# Long {i}\n\n" + " ".join(f"mot{i}x{j}" for j in range(120)) + "\n")
-    indexer_source(bd, SourceConf(nom="coffre-maison", type="obsidian", emplacement="x"),
+    indexer_source(bd, SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian", emplacement="x"),
                    LecteurDossier(index.coffre), CONFIG.indexation, faux_modeles)
     return version_courante(bd, CONFIG.indexation)
 
@@ -47,10 +47,9 @@ def test_filtre_et_forme(bd, long_index):
 
 
 def test_rejette_la_recopie(bd, long_index):
-    texte = bd.execute("SELECT texte FROM morceaux WHERE version_id=%s AND texte LIKE '%%mot0x%%'",
-                       (long_index,)).fetchone()["texte"]
-    m = FauxGenerateur(['{"question": "Que veut dire mot0x1 mot0x2 mot0x3 mot0x4 ici ?"}'])
-    assert "mot0x1 mot0x2 mot0x3 mot0x4" in texte
+    texte = next(tirer(bd, long_index, 1))[1]
+    quatre = " ".join(texte.split()[-4:])
+    m = FauxGenerateur([f'{{"question": "Que veut dire {quatre} ici ?"}}'])
     assert generer_jeu(bd, m, long_index, CONFIG.banc, n=1) == []
 
 
@@ -77,7 +76,7 @@ def test_graine_reproductible(bd, long_index):
 def test_au_plus_deux_par_document(bd, index, faux_modeles):
     (index.coffre / "Gros.md").write_text(
         "\n\n".join(f"# S{i}\n\n" + " ".join(f"g{i}m{j}" for j in range(400)) for i in range(4)))
-    indexer_source(bd, SourceConf(nom="coffre-maison", type="obsidian", emplacement="x"),
+    indexer_source(bd, SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian", emplacement="x"),
                    LecteurDossier(index.coffre), CONFIG.indexation, faux_modeles)
     cles = [x[2] for x in tirer(bd, version_courante(bd, CONFIG.indexation), 1)]
     assert cles.count("coffre-maison:Gros.md") == 2
