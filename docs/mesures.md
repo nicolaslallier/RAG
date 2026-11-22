@@ -37,8 +37,9 @@ rerank, plan 2/3).
 
 ## Jeu synthétique
 
-`banc/synthetique.jsonl` : génération suspendue à 27 cas (borne : 2 morceaux par note, 182 au plus sur
-le coffre). Premier lancement : 130 essais, 103 rejets dont 98 « JSON » qui étaient en bonne partie des
-délais dépassés (gemma partagé) ; ces pannes sont maintenant comptées à part. Reprendre par
-`rag banc-synthetique --n 250 --reprendre --source coffre-maison`, puis
-`rag banc --jeu banc/synthetique.jsonl --etiquette base-synthetique --sans-indexer`.
+Pas encore produit. Une première génération (27 cas) a été retirée à la relecture : environ la
+moitié des questions n'étaient pas compréhensibles seules (« dans ces notes », « cette stack »,
+questions de journal sans date). Consignes du générateur et du juge resserrées, filtre « vague »
+ajouté. À produire par `rag banc-synthetique --n 250` (coffre seul par défaut, au plus 182 cas :
+2 morceaux par note), puis `rag banc --jeu banc/synthetique.jsonl --etiquette base-synthetique
+--sans-indexer`.

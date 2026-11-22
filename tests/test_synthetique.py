@@ -102,3 +102,48 @@ def test_reprise_garde_les_cas_et_saute_leurs_morceaux(bd, long_index):
     m = FauxGenerateur(['{"question": "Quelle est la couleur du ciel le soir ?"}'])
     cas = generer_jeu(bd, m, long_index, CONFIG.banc, n=2, deja=premier)
     assert cas[0] == premier[0] and len(cas) == 2 and cas[1].id != cas[0].id
+
+
+def test_rejette_les_questions_vagues(bd, long_index):
+    m = FauxGenerateur(['{"question": "Quels outils sont décrits dans cette stack ?"}',
+                        '{"question": "Que contient ces notes au sujet du souper ?"}'])
+    rejets = __import__("collections").Counter()
+    assert generer_jeu(bd, m, long_index, CONFIG.banc, n=1, rejets=rejets) == []
+    assert rejets["vague"] == 2
+
+
+def test_juge_demande_une_seule_note():
+    from rag.banc.synthetique import CONSIGNE, CONSIGNE_JUGE
+    assert "une seule note" in CONSIGNE_JUGE and "date" in CONSIGNE
+
+
+def test_source_privee_exclue_du_tirage(bd, long_index):
+    bd.execute("UPDATE sources SET visibilite = 'prive'")
+    assert list(tirer(bd, long_index, 1)) == []
+
+
+def test_plafond_compte_les_cas_deja_presents(bd, long_index):
+    from rag.banc.execution import Cas
+    cle = next(tirer(bd, long_index, 1))[2]
+    deja = [Cas(id=f"syn-x{i}", question=f"q{i} ?", nature="factuel", attendus=[cle]) for i in (1, 2)]
+    assert cle not in [x[2] for x in tirer(bd, long_index, 1, deja=deja)]
+
+
+def test_commande_ecrit_au_fil_de_l_eau_et_reprend(bd, long_index, tmp_path, monkeypatch):
+    from argparse import Namespace
+
+    from rag.banc import synthetique as s
+    sortie = tmp_path / "sous" / "synthetique.jsonl"
+    monkeypatch.setattr(s, "SORTIE", sortie)
+    monkeypatch.setattr(s, "version_courante", lambda conn, conf: long_index)
+    a = Namespace(n=1, graine=1, source=["coffre-maison"], reprendre=False, ecraser=False)
+    assert s.commande_synthetique(a, bd, CONFIG, FauxGenerateur([BON])) == 0
+    assert len(sortie.read_text().splitlines()) == 1
+    assert s.commande_synthetique(a, bd, CONFIG, FauxGenerateur([BON])) == 2  # pas d'écrasement
+    a.reprendre, a.n = True, 2
+    q2 = '{"question": "Quelle est la couleur du ciel le soir à Québec ?"}'
+    assert s.commande_synthetique(a, bd, CONFIG, FauxGenerateur([q2])) == 0
+    assert len(sortie.read_text().splitlines()) == 2
+    a.reprendre, a.ecraser, a.n = False, True, 1
+    assert s.commande_synthetique(a, bd, CONFIG, FauxGenerateur([q2])) == 0
+    assert len(sortie.read_text().splitlines()) == 1

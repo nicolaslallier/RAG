@@ -2,25 +2,37 @@
 
 import json
 import re
+import sys
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import asdict
+from pathlib import Path
 
-from rag.banc.execution import Cas
+from rag.banc.execution import Cas, charger_jeu
 from rag.config import PUBLIC, BancConf
 from rag.decoupage import compter_tokens
+from rag.indexeur import version_courante
 from rag.modeles import ErreurModele
 from rag.recherche import normaliser
 
 MIN_TOKENS = 80
 PAR_DOCUMENT = 2
 
+SORTIE = Path(__file__).resolve().parents[2] / "banc" / "synthetique.jsonl"
+
 CONSIGNE = (
     "Voici un passage d'une note personnelle. Écris UNE question en français à laquelle ce "
-    "passage répond. La question doit être compréhensible sans voir le passage (nomme le sujet), "
-    "ne pas reprendre plus de 3 mots consécutifs du passage, et finir par « ? ». "
-    'Réponds uniquement en JSON : {"question": "…"}')
+    "passage répond, et que l'on comprend sans avoir le passage sous les yeux : nomme "
+    "explicitement le sujet (le nom du projet, de l'outil, de la recette, de la personne) ou la "
+    "date pour une note de journal. N'écris jamais « ce/cette/ces » suivi de projet, note, "
+    "coffre, stack ou veille. Ne reprends pas plus de 3 mots consécutifs du passage. "
+    'Finis par « ? ». Réponds uniquement en JSON : {"question": "…"}')
 CONSIGNE_JUGE = (
-    "Cette question est-elle claire seule, et ce passage y répond-il ? "
+    "La question est-elle claire seule, sans voir le passage ? Désigne-t-elle une seule note "
+    "précise (sujet nommé ou date), et non une question générique qui irait à beaucoup de "
+    "notes ? Ce passage y répond-il ? Si une seule réponse est non, ok vaut false. "
     'Réponds uniquement en JSON : {"ok": true} ou {"ok": false}')
+VAGUE = re.compile(r"\b(ce|cet|cette|ces)\s+(projets?|notes?|coffres?|stacks?|veilles?)\b")
 
 
 def _mots(texte: str) -> list[str]:
@@ -42,7 +54,8 @@ def _json(texte: str) -> dict | None:
     return d if isinstance(d, dict) else None
 
 
-def tirer(conn, version_id: int, graine: int, sources: list[str] | None = None):
+def tirer(conn, version_id: int, graine: int, sources: list[str] | None = None,
+          deja: list[Cas] | None = None):
     """Morceaux cherchables publics dans un ordre pseudo-aléatoire fixé par la graine,
     au plus PAR_DOCUMENT par document, d'au moins MIN_TOKENS tokens."""
     rows = conn.execute(
@@ -53,7 +66,7 @@ def tirer(conn, version_id: int, graine: int, sources: list[str] | None = None):
              AND s.visibilite = ANY(%s) AND (%s::text[] IS NULL OR s.nom = ANY(%s))
            ORDER BY md5(m.id::text || %s)""",
         (version_id, sorted(PUBLIC), sources, sources, str(graine))).fetchall()
-    par_doc = Counter()
+    par_doc = Counter(c.attendus[0] for c in deja or [] if c.attendus)
     for r in rows:
         mid, texte, cle = r["id"], r["texte"], r["cle"]
         if compter_tokens(texte) < MIN_TOKENS or par_doc[cle] >= PAR_DOCUMENT:
@@ -77,15 +90,17 @@ def _appel(modeles, modele, consigne, contenu, temperature) -> dict | None | typ
 
 def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, graine: int = 1,
                 sources: list[str] | None = None, rejets: Counter | None = None,
-                deja: list[Cas] | None = None) -> list[Cas]:
+                deja: list[Cas] | None = None,
+                sur_cas: Callable[[Cas], None] | None = None) -> list[Cas]:
     """`deja` : cas d'une génération interrompue, gardés tels quels ; leurs morceaux ne sont
-    pas redemandés."""
+    pas redemandés et comptent dans le plafond par note. `sur_cas` reçoit chaque nouveau cas
+    gardé, dès qu'il l'est."""
     rejets = rejets if rejets is not None else Counter()
     gardes: list[Cas] = list(deja or [])
     vues = {normaliser(c.question) for c in gardes}
     faits = {c.id for c in gardes}
     essais = 0
-    for mid, texte, cle in tirer(conn, version_id, graine, sources):
+    for mid, texte, cle in tirer(conn, version_id, graine, sources, gardes):
         if len(gardes) >= n or essais >= 3 * n:
             break
         if f"syn-{mid}" in faits:
@@ -103,6 +118,9 @@ def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, gr
         if len(q) < 20 or not q.endswith("?"):
             rejets["forme"] += 1
             continue
+        if VAGUE.search(normaliser(q)):
+            rejets["vague"] += 1
+            continue
         if _recopie(q, texte):
             rejets["recopie"] += 1
             continue
@@ -118,23 +136,35 @@ def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, gr
             rejets["juge"] += 1
             continue
         vues.add(normaliser(q))
-        gardes.append(Cas(id=f"syn-{mid}", question=q, nature="factuel", attendus=[cle],
-                          statut="valide", note=f"morceau {mid}"))
+        cas = Cas(id=f"syn-{mid}", question=q, nature="factuel", attendus=[cle],
+                  statut="valide", note=f"morceau {mid}")
+        gardes.append(cas)
+        if sur_cas:
+            sur_cas(cas)
     return gardes
 
 
-def commande_synthetique(a, conn, config, modeles) -> int:
-    from dataclasses import asdict
-    from pathlib import Path
+def _ligne(c: Cas) -> str:
+    return json.dumps(asdict(c), ensure_ascii=False) + "\n"
 
-    from rag.banc.execution import charger_jeu
-    from rag.indexeur import version_courante
-    rejets = Counter()
-    sortie = Path("banc/synthetique.jsonl")
+
+def commande_synthetique(a, conn, config, modeles) -> int:
+    sortie = SORTIE
+    if sortie.exists() and not (a.reprendre or a.ecraser):
+        print(f"refus : {sortie} existe ; --reprendre ou --ecraser", file=sys.stderr)
+        return 2
+    sortie.parent.mkdir(parents=True, exist_ok=True)
     deja = charger_jeu(sortie) if a.reprendre and sortie.exists() else []
-    cas = generer_jeu(conn, modeles, version_courante(conn, config.indexation), config.banc,
-                      a.n, a.graine, a.source, rejets, deja)
-    sortie.write_text("".join(json.dumps(asdict(c), ensure_ascii=False) + "\n" for c in cas))
+    rejets = Counter()
+    with sortie.open("w", encoding="utf-8") as f:
+        f.writelines(_ligne(c) for c in deja)
+        f.flush()
+
+        def ecrire(c: Cas) -> None:
+            f.write(_ligne(c))
+            f.flush()
+        cas = generer_jeu(conn, modeles, version_courante(conn, config.indexation),
+                          config.banc, a.n, a.graine, a.source, rejets, deja, ecrire)
     print(f"gardés : {len(cas)} ; rejetés : {sum(rejets.values())} "
           f"({', '.join(f'{k} {v}' for k, v in rejets.most_common()) or 'aucun'})")
     print(f"jeu : {sortie}")
