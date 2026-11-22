@@ -13,6 +13,7 @@ from pathlib import Path
 import psycopg
 
 from rag.exclusions import motif_exclusion
+from rag.gestion import motifs_manuels
 from rag.recherche import lien_source, normaliser
 
 log = logging.getLogger(__name__)
@@ -200,6 +201,7 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
             return f"graphe : {n} nœuds, {l} liens, {non} cibles non résolues"
         r = conn.execute("SELECT revision, graphe_revision FROM sources WHERE nom = %s",
                          (source.nom,)).fetchone()
+        motifs = motifs_manuels(conn, source.nom)
         conn.commit()
         if r is None or not r["revision"]:
             return "graphe : source pas encore indexée"
@@ -207,7 +209,7 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
             return "graphe : à jour"
         travail = Path(reglages.donnees_dir) / "graphe" / source.nom
         g = extraire_structure(lecteur.dest, travail, commande=reglages.graphify_commande,
-                               exclure=source.exclure)
+                               exclure=[*source.exclure, *motifs])
         n, l = charger_graphe(conn, source.nom, g)
         conn.execute("UPDATE sources SET graphe_revision = revision WHERE nom = %s",
                      (source.nom,))
