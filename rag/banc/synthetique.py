@@ -62,13 +62,17 @@ def tirer(conn, version_id: int, graine: int, sources: list[str] | None = None):
         yield mid, texte, cle
 
 
-def _appel(modeles, modele, consigne, contenu, temperature) -> dict | None:
+class _Panne:
+    """Le modèle n'a pas répondu (délai, HTTP 5xx) : compté à part des JSON invalides."""
+
+
+def _appel(modeles, modele, consigne, contenu, temperature) -> dict | None | type[_Panne]:
     try:
         return _json(modeles.generer(modele, [{"role": "system", "content": consigne},
                                               {"role": "user", "content": contenu}],
                                      temperature=temperature, json_mode=True))
-    except ErreurModele:  # délai dépassé, HTTP 5xx : on rejette le cas sans perdre le lot
-        return None
+    except ErreurModele:  # on rejette le cas sans perdre le lot
+        return _Panne
 
 
 def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, graine: int = 1,
@@ -82,6 +86,9 @@ def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, gr
             break
         essais += 1
         d = _appel(modeles, conf.modele_synthetique, CONSIGNE, texte, 0.7)
+        if d is _Panne:
+            rejets["modele"] += 1
+            continue
         q = d.get("question") if d else None
         if not isinstance(q, str):
             rejets["json"] += 1
@@ -98,6 +105,9 @@ def generer_jeu(conn, modeles, version_id: int, conf: BancConf, n: int = 250, gr
             continue
         verdict = _appel(modeles, conf.modele_juge, CONSIGNE_JUGE,
                          f"Question : {q}\n\nPassage :\n{texte}", 0.0)
+        if verdict is _Panne:
+            rejets["modele"] += 1
+            continue
         if not verdict or verdict.get("ok") is not True:
             rejets["juge"] += 1
             continue
