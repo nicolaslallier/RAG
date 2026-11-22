@@ -82,3 +82,42 @@ banc »). Fichier de relecture (20 cas) : `banc/resultats/20261122-065343-genera
 | sans instruction Qwen3 | 0,728 | 0,753 (−0,04) | 0,856 | 0,745 | 520 ms | 56 % / 6,5 % | nuit |
 
 Non mesuré : `reponse.passages: 5` (banc de génération, ~1 h par passage avec gemma partagé).
+
+## Calibrage du juge (relecture de Nicolas, 2026-11-22)
+
+Nicolas a relu les 20 cas de `generation-base-relecture.md` : « les 20 question générer sont
+bonne ». Sur ces 20 cas, 11 réponses non refusées ont été notées par le juge, toutes avec une
+fidélité ≥ 4 et une pertinence ≥ 4 (9 à 5/5, une à 5/4, une à 4/4) : **accord de 11 sur 11**
+(aucune bonne réponse sous-notée). Les 9 autres cas n'ont pas de note du juge (4 listes, 5 refus).
+Nicolas les juge bons aussi, y compris le refus de `vue-infra`, que le banc compte pourtant
+comme un faux refus.
+
+## Tâche 10 : config v1 et cibles (décision de Nicolas, 2026-11-22)
+
+Config retenue (`config/rag.yaml`, `config/dev.yaml`) : vecteur + texte + flou, instruction
+Qwen3, top 40, 8 passages, refus au cosinus 0,5723, rerank désactivé par défaut (à activer si
+la mesure sur le Mac Studio, plan 4 tâche 6, tient p95 ≤ 2 s ; seuil 0,2143).
+
+**Source nommée en mode répondre** : elle donne un bonus de score (`recherche.bonus_source`,
+score × 1,2) et ne filtre plus. Réglage au banc : 0,2 → banc identique à la config sans bonus ;
+0,5 → MRR −0,02 ; 1,0 → rappel@10 −0,03 et faux refus 10,9 %. Valeur retenue : **0,2**.
+`architecture-ai` cite maintenant des notes du coffre (« AI - Documentation ») mais aucun
+fichier du dépôt AI (47 s) : le critère « une note et un fichier » n'est toujours pas atteint ;
+le poids du code (0,6) écarte les fichiers du dépôt.
+
+`dashboards-grafana` : le critère du banc accepte maintenant `metadonnees` + « probable ».
+
+| cible v1 | seuil | mesure (`v1-recherche` / `generation-base`) | état |
+|---|---|---|---|
+| rappel@10 | ≥ 0,78 | 0,788 | tenue |
+| MRR | ≥ 0,85 | 0,874 | tenue |
+| refus justes | ≥ 0,85 | 0,833 au banc de recherche (seuil seul) ; 1,00 au banc de génération | tenue en génération, juste sous le seuil sur le seuil seul |
+| faux refus | ≤ 0,08 | 0,087 (recherche) ; 0,065 (génération) | tenue en génération, juste au-dessus en recherche |
+| fidélité | ≥ 4,5 | 4,87 | tenue |
+| exactitude du mode | ≥ 0,9 | 0,9375 | tenue |
+| répondre p95 | ≤ 30 s, sans autre charge sur gemma | 66 s (gemma partagé) | **non vérifiée** |
+
+Le banc de génération final (`v1-generation`, avec le bonus de source) n'a pas pu tourner :
+Postgres s'est arrêté pendant la mesure (`AdminShutdown`), puis Docker était indisponible.
+Les chiffres de génération ci-dessus viennent de `generation-base` (même config, sans le
+bonus). Mesure du p95 sans charge à refaire.

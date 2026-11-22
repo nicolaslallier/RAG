@@ -472,8 +472,9 @@ Pas de code. Un paramètre à la fois, toujours contre `banc/reference.json` (`b
 - [ ] **Step 3: Les trois questions de Nicolas**, par `rag question`, avec la config retenue. Critères :
   - `recettes-poulet` : aiguillée `lister`, mode `metadonnees`, toutes les notes attendues présentes en `tague`, chacune avec lien et origine ;
   - `architecture-ai` : aiguillée `repondre`, pas de refus, citations valides, au moins une note du coffre et un fichier du dépôt `AI` cités, fidélité du juge ≥ 4 ;
-  - `dashboards-grafana` : aiguillée `lister`, mode `regroupement`, au moins 80 % des documents attendus dans la liste.
+  - `dashboards-grafana` : aiguillée `lister`, mode `regroupement` **ou `metadonnees`** (« grafana » est un tag du coffre : notes taguées puis fichiers en « probable », accepté par Nicolas le 2026-11-22), au moins 80 % des documents attendus dans la liste.
 - [ ] **Step 4: Proposer la config finale et les cibles v1 à Nicolas** : chaque levier qui « aide » sans casser un budget de latence, les cibles chiffrées tirées des mesures (rappel@10, MRR, refus justes, faux refus, fidélité), les leviers écartés et pourquoi. **ARRÊT** jusqu'à son accord.
+  **Décision de Nicolas (2026-11-22) :** config = vecteur + texte + flou, instruction Qwen3, top 40, 8 passages, refus au cosinus 0,5723, rerank désactivé par défaut (à activer si la mesure sur le Mac Studio tient p95 ≤ 2 s ; seuil 0,2143), source nommée en mode répondre = bonus de score (`bonus_source`), plus un filtre. **Cibles v1 :** rappel@10 ≥ 0,78 ; MRR ≥ 0,85 ; refus justes ≥ 0,85 ; faux refus ≤ 0,08 ; fidélité ≥ 4,5 ; exactitude du mode ≥ 0,9 ; répondre p95 ≤ 30 s, mesuré sans autre charge sur gemma.
 - [ ] **Step 5: Appliquer**, reposer la référence (`uv run rag banc --etiquette v1 --reference`), écrire dans `docs/mesures.md` la section « v1 terminée » : le banc tourne, les 3 questions passent, chaque levier mesuré une fois.
 - [ ] **Step 6: Commit** `git add -A && git commit -m "banc: chaque levier mesuré, config v1 et référence finale"`
 

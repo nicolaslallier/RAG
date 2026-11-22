@@ -146,6 +146,8 @@ def _question_cli(conn, a, config, modeles, reglages, v) -> int:
                     config.reponse.modele, mode, f)
     filtres = ", ".join(f"{k}={x}" for k, x in asdict(dec.filtres).items() if x)
     print(f"mode : {dec.mode} (par {dec.par}) ; filtres : {filtres or 'aucun'}")
+    if dec.bonus_sources:
+        print(f"bonus de source : {', '.join(dec.bonus_sources)}")
     if dec.mode == "lister":
         _afficher_liste(lister(conn, a.question, dec.filtres, config, modeles, v,
                                niveaux=niveaux, reranker=rr))
