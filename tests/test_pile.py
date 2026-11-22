@@ -12,7 +12,7 @@ APPLI = ("rag", "rag-indexeur")
 
 def test_un_seul_port_lie_au_lan():
     services = PILE["services"]
-    assert services["rag"]["ports"] == ["192.168.2.40:8000:8000"]
+    assert services["rag"]["ports"] == ["8000:8000"]
     assert "ports" not in services["rag-indexeur"] and "ports" not in services["rag-postgres"]
     assert "infra-net" not in BRUT and "networks" not in PILE
     assert "0.0.0.0" not in BRUT

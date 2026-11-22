@@ -2,6 +2,8 @@
 
 > **Amendé le 2026-11-22 (soir) — décision de Nicolas :** « le rag doit rouler sur l'environnement portainer de Mac-book ». La pile passe de l'environnement 6 (VM Colima du Mac Studio, `192.168.2.66`) à l'environnement **Mac-book** (VM Colima du MacBook avec sa propre IP, agent `192.168.2.40:9001`). Partout ci-dessous, lire `192.168.2.40` pour `192.168.2.66`, et l'identifiant de l'environnement Mac-book pour `6`. Le registre `ghcr` doit être autorisé sur ce nouvel environnement ; l'URL MCP de I-2 devient `http://192.168.2.40:8000/mcp`. L'ancienne pile du Mac Studio et ses volumes restent en place jusqu'à ce que Nicolas les retire.
 
+> **Second amendement (même soir) :** la VM Colima du MacBook n'a pas d'IP propre (Colima relaie les ports par le Mac ; `192.168.2.40:8000` ne peut pas être lié dans la VM : « cannot assign requested address »). **Décision de Nicolas : `ports: ["8000:8000"]`**, en sachant que le port s'ouvre sur toutes les interfaces du MacBook (y compris hors du réseau de la maison) et que `RAG_JETON` y circule en HTTP ; le pare-feu macOS peut restreindre l'accès.
+
 > Amende `2026-11-21-rag-maitre-4-deploiement.md` (PR #5, branche `claude/rag-plan-4`) et le bloc « Contrat entre les dépôts RAG et Infra » recopié dans `…-0-index.md`, `…-4-deploiement.md` et `…-infra.md`. Rien d'autre du plan 4 ne change : là où ce document se tait, le plan 4 reste la référence.
 
 **Décision de Nicolas (2026-11-22) :** la pile `rag` tourne « Sur Colima du Mac » : le Mac Studio, `192.168.2.35`. Le plan 4 la mettait sur l'hôte `192.168.2.10` (Windows/WSL), sur `infra-net`, sans port publié.
