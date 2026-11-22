@@ -38,3 +38,12 @@ def test_cli_coffre_partiel_sort_en_2(env_cli, capsys):
         f.unlink()
     assert cli.main(["indexer"]) == 2
     assert cli.main(["indexer", "--forcer"]) == 0
+
+
+def test_cli_question_liste(env_cli, capsys):
+    assert cli.main(["indexer"]) == 0
+    capsys.readouterr()
+    assert cli.main(["question", "Quelles recettes j'ai pour le poulet, avec les sources ?"]) == 0
+    out = capsys.readouterr().out
+    assert "mode : lister (par regles)" in out and "type=recette" in out
+    assert "Poulet cidre et Boursin" in out and "obsidian://" in out and "origine : claude" in out

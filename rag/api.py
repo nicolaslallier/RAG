@@ -1,18 +1,25 @@
 """API HTTP : /sante (sans jeton) et /chercher (jeton → niveaux de visibilité)."""
 
 import hmac
+import json
+from dataclasses import asdict
 from datetime import date
+from typing import Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from rag.aiguillage import aiguiller
 from rag.config import PUBLIC, TOUT, Reglages, charger_config, empreinte_indexation
 from rag.db import connexion
 from rag.entretien import doublons, liens_entrants, orphelines
 from rag.graphe import chemin, expliquer
-from rag.modeles import modeles_depuis
+from rag.lister import lister, taxonomie
+from rag.modeles import ErreurModele, modeles_depuis
 from rag.recherche import Filtres, chercher
+from rag.reponse import repondre, repondre_flux
+from rag.rerank import reranker_depuis
 
 
 class FiltresEntree(BaseModel):
@@ -44,19 +51,47 @@ class Demande(BaseModel):
     limite: int = Field(10, ge=1, le=50)
 
 
+class DemandeQuestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(max_length=2000)
+    mode: Literal["lister", "repondre"] | None = None
+    filtres: FiltresEntree | None = None
+    flux: bool = False
+
+
+class DemandeLister(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(max_length=2000)
+    filtres: FiltresEntree = FiltresEntree()
+
+
+class DemandeRepondre(DemandeLister):
+    flux: bool = False
+
+
+def _sse(evenements):
+    for e in evenements:
+        yield f"data: {json.dumps(e, ensure_ascii=False, default=str)}\n\n"
+
+
 def version_id(conn, empreinte: str) -> int | None:
     r = conn.execute("SELECT id FROM index_versions WHERE empreinte = %s", (empreinte,)).fetchone()
     return r["id"] if r else None
 
 
-def create_app(reglages: Reglages | None = None, modeles=None) -> FastAPI:
+def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) -> FastAPI:
     reglages = reglages or Reglages()
     if not reglages.jeton:
         raise RuntimeError("RAG_JETON est vide : l'API refuse de démarrer sans jeton")
     config = charger_config(reglages.config)
     empreinte = empreinte_indexation(config.indexation)
     modeles = modeles or modeles_depuis(reglages)
+    reranker = reranker or reranker_depuis(config, reglages)  # chargé au 1er appel, dans un fil
     app = FastAPI(title="RAG maître")
+
+    @app.exception_handler(ErreurModele)
+    def _modele_indisponible(request: Request, e: ErreurModele):
+        return JSONResponse({"detail": "modèle indisponible"}, status_code=503)
 
     def niveaux_du_jeton(authorization: str = Header(default="")) -> frozenset[str]:
         if not authorization.startswith("Bearer "):
@@ -86,8 +121,57 @@ def create_app(reglages: Reglages | None = None, modeles=None) -> FastAPI:
                 return {"resultats": []}
             r = chercher(conn, d.question, config.recherche, modeles, v,
                          config.indexation.modele_embedding, niveaux=niveaux,
-                         filtres=Filtres(**d.filtres.model_dump()), limite=d.limite)
+                         filtres=Filtres(**d.filtres.model_dump()), limite=d.limite,
+                         reranker=reranker)
         return {"resultats": r}
+
+    def _lister(conn, question: str, f: Filtres, niveaux) -> dict:
+        v = version_id(conn, empreinte)
+        if v is None:
+            return {"mode": "regroupement", "filtres": asdict(f), "elements": [], "total": 0}
+        return lister(conn, question, f, config, modeles, v, niveaux=niveaux, reranker=reranker)
+
+    def _repondre(question: str, f: Filtres, niveaux, flux: bool, avant=()):
+        if flux:
+            def evenements():
+                yield from avant
+                with connexion(reglages.database_url) as conn:
+                    v = version_id(conn, empreinte) or 0
+                    try:
+                        yield from repondre_flux(conn, question, config, modeles, v,
+                                                 niveaux=niveaux, filtres=f, reranker=reranker)
+                    except ErreurModele:  # en plein flux : plus de code HTTP possible
+                        yield {"type": "erreur", "detail": "modèle indisponible"}
+            return StreamingResponse(_sse(evenements()), media_type="text/event-stream")
+        with connexion(reglages.database_url) as conn:
+            v = version_id(conn, empreinte) or 0
+            return asdict(repondre(conn, question, config, modeles, v, niveaux=niveaux,
+                                   filtres=f, reranker=reranker))
+
+    @app.post("/lister")
+    def route_lister(d: DemandeLister, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
+        with connexion(reglages.database_url) as conn:
+            return _lister(conn, d.question, Filtres(**d.filtres.model_dump()), niveaux)
+
+    @app.post("/repondre")
+    def route_repondre(d: DemandeRepondre, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
+        return _repondre(d.question, Filtres(**d.filtres.model_dump()), niveaux, d.flux)
+
+    @app.post("/question")
+    def route_question(d: DemandeQuestion, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
+        with connexion(reglages.database_url) as conn:
+            dec = aiguiller(d.question, taxonomie(conn, niveaux=niveaux), modeles,
+                            config.reponse.modele, d.mode,
+                            Filtres(**d.filtres.model_dump()) if d.filtres else None)
+            tete = {"mode": dec.mode, "aiguillage": {"par": dec.par,
+                                                     "filtres": asdict(dec.filtres)}}
+            if dec.mode == "lister":  # le « mode » de lister (metadonnees…) devient mode_liste
+                corps = _lister(conn, d.question, dec.filtres, niveaux)
+                return tete | {"mode_liste": corps.pop("mode")} | corps
+        if d.flux:
+            return _repondre(d.question, dec.filtres, niveaux, True,
+                             [{"type": "aiguillage"} | tete])
+        return tete | _repondre(d.question, dec.filtres, niveaux, False)
 
     @app.post("/chemin")
     def route_chemin(d: DemandeChemin, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
