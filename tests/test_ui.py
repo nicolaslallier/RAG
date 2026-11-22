@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 from urllib.parse import quote
@@ -238,9 +239,8 @@ def test_detail_par_le_lien_de_la_liste(client, index):
 
 
 def test_detail_affiche_le_frontmatter_echappe(client, index, bd):
-    bd.execute("""UPDATE documents SET frontmatter = %s WHERE chemin = %s""",
-               ('{"type": "recette", "tags": ["recette", "boeuf"], "note": "<b>gras</b>", '
-                '"portions": 4}', PATE))
+    fm = {"type": "recette", "tags": ["recette", "boeuf"], "note": "<b>gras</b>", "portions": 4}
+    bd.execute("UPDATE documents SET frontmatter = %s WHERE chemin = %s", (json.dumps(fm), PATE))
     bd.commit()
     connecter(client, "pub")
     r = client.get(lien("coffre-maison", PATE))
