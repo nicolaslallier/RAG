@@ -5,7 +5,9 @@ FROM ghcr.io/astral-sh/uv:0.9.8@sha256:08f409e1d53e77dfb5b65c788491f8ca70fe1d2d4
 FROM python:3.13-slim@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90
 RUN apt-get update && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends git ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ # pip n'est pas utilisé (uv installe tout) ; ses dépendances embarquées (msgpack, urllib3, setuptools) ont des CVE.
+ && python -m pip uninstall -y pip
 COPY --from=uv /uv /usr/local/bin/uv
 
 # Le reranker (torch CPU) est dans l'image ; `--build-arg GROUPES=` construit sans, pour un essai rapide.
