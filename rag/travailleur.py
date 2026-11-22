@@ -57,9 +57,10 @@ def passe(conn, genre: str, config, reglages, modeles, sources: list[str] | None
         if genre == "nocturne":
             try:
                 bilan["semantique"] = passe_semantique(conn, config, modeles)
-            except Exception as e:  # noqa: BLE001
+            except Exception:
                 conn.rollback()
-                bilan["semantique"] = {"erreur": f"{type(e).__name__}: {e}"[:500]}
+                log.exception("passe sémantique en échec")
+                bilan["semantique"] = {"erreur": "echec"}
         conn.execute("ANALYZE morceaux, documents, noeuds, liens")
         conn.commit()
         return bilan
