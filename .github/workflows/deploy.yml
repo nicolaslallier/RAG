@@ -74,6 +74,9 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: 1
+        env:
+          # L'index ne contient que linux/arm64 ; Trivy cherche sinon linux/amd64.
+          TRIVY_PLATFORM: linux/arm64
 
   deploy:
     needs: image
