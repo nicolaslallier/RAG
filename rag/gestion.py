@@ -316,8 +316,12 @@ def importer(conn, texte: str) -> dict:
     lignes = _lignes_import(texte)
     ajoutees = retires = 0
     try:
-        for source in sorted({source for source, _, _ in lignes}):  # même ordre : pas d'interblocage
-            verrouiller_source(conn, source)
+        # sources connues seulement (une inconnue n'est indexée par personne, et des milliers de
+        # verrous rempliraient la table partagée), dans le même ordre : pas d'interblocage
+        connues = conn.execute("SELECT nom FROM sources WHERE nom = ANY(%s) ORDER BY nom",
+                               (sorted({source for source, _, _ in lignes}),)).fetchall()
+        for r in connues:
+            verrouiller_source(conn, r["nom"])
         for source, motif, raison in lignes:
             ajoutees += _inserer(conn, source, motif, raison)
             if s := _source(conn, source):

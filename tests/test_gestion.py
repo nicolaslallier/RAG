@@ -536,3 +536,16 @@ def test_charger_graphe_ignore_les_fichiers_exclus_entre_temps(bd, index_code):
          "liens": [{"de": "g", "vers": "a", "type": "cite", "confiance": "EXTRAIT"}]}
     assert bloque_par_le_verrou("depot-test", charger_graphe, "depot-test", g)
     assert {r["cle"] for r in bd.execute("SELECT cle FROM noeuds")} == {"g"}
+
+
+def test_import_de_milliers_de_sources_inconnues_sans_verrou(bd, index, monkeypatch):
+    # une source inconnue n'est indexée par personne : pas de verrou (la table des verrous
+    # partagée de Postgres est bornée par max_locks_per_transaction)
+    import rag.gestion
+    verrous, verrouiller = [], rag.gestion.verrouiller_source
+    monkeypatch.setattr(rag.gestion, "verrouiller_source",
+                        lambda conn, s: verrous.append(s) or verrouiller(conn, s))
+    t = "".join(f"- {{source: inconnue-{i}, motif: x}}\n" for i in range(2000))
+    t += "- {source: coffre-maison, motif: Accueil.md}\n"
+    assert importer(bd, t) == {"ajoutees": 2001, "ignorees": 0, "retires": 1}
+    assert verrous == ["coffre-maison"]
