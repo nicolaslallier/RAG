@@ -2,9 +2,11 @@ import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 
-from rag.config import SourceConf, charger_config
+import pytest
+
+from rag.config import PUBLIC, TOUT, SourceConf, charger_config
 from rag.db import connexion
-from rag.gestion import correspond
+from rag.gestion import SourceInconnue, correspond, fichier, fichiers, sources
 from rag.graphe import _copier_sans_exclus, maj_graphe
 from rag.indexeur import indexer_source
 from rag.sources import LecteurDossier, nfc
@@ -205,3 +207,92 @@ def test_graphify_ne_voit_pas_les_fichiers_exclus(bd, index_code, monkeypatch, t
     reglages = SimpleNamespace(donnees_dir=tmp_path, graphify_commande="graphify")
     maj_graphe(bd, src, index_code, reglages, forcer=True)
     assert len(vus) == 1 and set(vus[0]) == {"docs/**", "a.py"}
+
+
+def test_sources_compte_indexes_et_exclus(bd, index):
+    (s,) = sources(bd, niveaux=PUBLIC)
+    assert s["nom"] == "coffre-maison" and s["documents"] == 6
+    assert s["exclus_auto"] == 0 and s["exclus_manuels"] == 0
+    assert s["demande_en_attente"] is False and s["visibilite"] == "public-maison"
+
+
+def test_sources_distingue_exclus_auto_et_manuels(bd, index):
+    sid = bd.execute("SELECT id FROM sources").fetchone()["id"]
+    for chemin, raison in (("a.bin", "binaire"), ("b.key", "secret"), ("c.md", "manuelle")):
+        bd.execute("INSERT INTO exclus VALUES (%s, %s, 's', 'e', %s)", (sid, chemin, raison))
+    bd.commit()
+    (s,) = sources(bd, niveaux=PUBLIC)
+    assert (s["exclus_auto"], s["exclus_manuels"]) == (2, 1)
+
+
+def test_sources_cache_une_source_privee_au_jeton_public(bd, index):
+    bd.execute("UPDATE sources SET visibilite='prive'")
+    bd.commit()
+    assert sources(bd, niveaux=PUBLIC) == [] and len(sources(bd, niveaux=TOUT)) == 1
+
+
+def test_fichiers_union_indexes_et_exclus_pagine(bd, index_code):
+    r = fichiers(bd, "depot-test", niveaux=PUBLIC, par_page=2)
+    total = bd.execute("SELECT (SELECT count(*) FROM documents) + (SELECT count(*) FROM exclus)"
+                       " AS n").fetchone()["n"]
+    assert r["total"] == total == 6 and r["pages"] == 3
+    assert [f["chemin"] for f in r["fichiers"]] == [".env.example", "a.py"]
+    exclus = fichiers(bd, "depot-test", niveaux=PUBLIC, etat="exclu_auto")["fichiers"]
+    assert exclus and {f["etat"] for f in exclus} == {"exclu_auto"}
+    assert all(f["raison"] and f["titre"] is None and f["morceaux"] == 0 for f in exclus)
+    dernier = fichiers(bd, "depot-test", niveaux=PUBLIC, par_page=2, page=3)
+    assert len(dernier["fichiers"]) == 2
+    assert fichiers(bd, "depot-test", niveaux=PUBLIC, par_page=2, page=9)["fichiers"] == []
+
+
+def test_fichiers_filtre_etat_indexe_et_manuel(bd, index):
+    sid = bd.execute("SELECT id FROM sources").fetchone()["id"]
+    bd.execute("INSERT INTO exclus VALUES (%s, 'm.md', 's', 'e', 'manuelle')", (sid,))
+    bd.commit()
+    r = fichiers(bd, "coffre-maison", niveaux=PUBLIC, etat="exclu_manuel")
+    assert [(f["chemin"], f["raison"]) for f in r["fichiers"]] == [("m.md", "manuelle")]
+    idx = fichiers(bd, "coffre-maison", niveaux=PUBLIC, etat="indexe")
+    assert idx["total"] == 6 and all(f["morceaux"] > 0 and f["titre"] for f in idx["fichiers"])
+
+
+def test_fichiers_fichier_present_des_deux_cotes_compte_une_fois(bd, index):
+    sid = bd.execute("SELECT id FROM sources").fetchone()["id"]
+    bd.execute("INSERT INTO exclus VALUES (%s, 'Accueil.md', 's', 'e', 'manuelle')", (sid,))
+    bd.commit()
+    r = fichiers(bd, "coffre-maison", niveaux=PUBLIC)
+    assert r["total"] == 6 and {f["etat"] for f in r["fichiers"]} == {"indexe"}
+
+
+def test_fichiers_filtre_contient(bd, index):
+    r = fichiers(bd, "coffre-maison", niveaux=PUBLIC, contient="POULET")
+    assert r["total"] == 1 and "poulet" in r["fichiers"][0]["chemin"].lower()
+    assert fichiers(bd, "coffre-maison", niveaux=PUBLIC, contient="%")["total"] == 0
+
+
+def test_fichiers_source_privee_ou_inconnue(bd, index):
+    bd.execute("UPDATE sources SET visibilite='prive'")
+    bd.commit()
+    for nom in ("coffre-maison", "nexiste-pas"):
+        with pytest.raises(SourceInconnue):
+            fichiers(bd, nom, niveaux=PUBLIC)
+    assert fichiers(bd, "coffre-maison", niveaux=TOUT)["total"] == 6
+
+
+def test_fichier_detail_avec_morceaux(bd, index):
+    v = bd.execute("SELECT max(version_id) AS v FROM morceaux").fetchone()["v"]
+    f = fichier(bd, "coffre-maison", "Accueil.md", niveaux=PUBLIC, version_id=v)
+    assert f["morceaux"] and f["morceaux"][0]["fil"].startswith("Accueil")
+    assert [m["ordre"] for m in f["morceaux"]] == sorted(m["ordre"] for m in f["morceaux"])
+    assert {"titre", "type", "tags", "alias", "origine", "frontmatter", "liens_sortants",
+            "modifie_le"} <= f.keys()
+    assert fichier(bd, "coffre-maison", "Accueil.md", niveaux=PUBLIC,
+                   version_id=None)["morceaux"] == []
+
+
+def test_fichier_absent_ou_invisible(bd, index):
+    with pytest.raises(SourceInconnue):
+        fichier(bd, "coffre-maison", "nexiste.md", niveaux=PUBLIC, version_id=None)
+    bd.execute("UPDATE sources SET visibilite='prive'")
+    bd.commit()
+    with pytest.raises(SourceInconnue):
+        fichier(bd, "coffre-maison", "Accueil.md", niveaux=PUBLIC, version_id=None)
