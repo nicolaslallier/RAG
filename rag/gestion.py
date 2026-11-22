@@ -288,16 +288,17 @@ def importer(conn, texte: str) -> dict:
     """Importe un export YAML ; tout est validé avant d'écrire, en une transaction.
 
     Source connue : appliquée comme `exclure` ; source inconnue : gardée pour plus tard.
+    Retourne les motifs ajoutés, ceux déjà présents et le nombre de documents retirés.
     """
     lignes = _lignes_import(texte)
-    ajoutees = 0
+    ajoutees = retires = 0
     try:
         for source, motif, raison in lignes:
             ajoutees += _inserer(conn, source, motif, raison)
             if s := _source(conn, source):
-                _retirer_documents(conn, s["id"], motif)
+                retires += _retirer_documents(conn, s["id"], motif)
         conn.commit()
     except BaseException:
         conn.rollback()
         raise
-    return {"ajoutees": ajoutees, "ignorees": len(lignes) - ajoutees}
+    return {"ajoutees": ajoutees, "ignorees": len(lignes) - ajoutees, "retires": retires}

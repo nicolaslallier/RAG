@@ -403,15 +403,15 @@ def test_export_import_aller_retour(bd, index):
                                   "raison": "bruit"}]
     bd.execute("DELETE FROM exclusions_manuelles")
     bd.commit()
-    assert importer(bd, t) == {"ajoutees": 1, "ignorees": 0}
-    assert importer(bd, t) == {"ajoutees": 0, "ignorees": 1}
+    assert importer(bd, t) == {"ajoutees": 1, "ignorees": 0, "retires": 0}
+    assert importer(bd, t) == {"ajoutees": 0, "ignorees": 1, "retires": 0}
     assert [(e["source"], e["motif"], e["raison"]) for e in exclusions(bd)] == [
         ("coffre-maison", "Accueil.md", "bruit")]
 
 
 def test_import_applique_l_exclusion_et_garde_une_source_inconnue(bd, index):
     t = "- {source: coffre-maison, motif: Accueil.md}\n- {source: future, motif: '*.csv'}\n"
-    assert importer(bd, t) == {"ajoutees": 2, "ignorees": 0}
+    assert importer(bd, t) == {"ajoutees": 2, "ignorees": 0, "retires": 1}
     assert "Accueil.md" not in chemins(bd)
     assert {e["source"] for e in exclusions(bd)} == {"coffre-maison", "future"}
 

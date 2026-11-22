@@ -474,7 +474,7 @@ def test_export_import_par_l_interface(client_priv, bd):
                                        "raison": "bruit"}]
     r = client_priv.post("/ui/exclusions/import", headers=HX,
                          files={"fichier": ("exclusions-rag.yaml", r.content, "text/yaml")})
-    assert r.status_code == 200 and "0 ajoutées, 1 déjà présentes." in r.text
+    assert r.status_code == 200 and "0 ajoutées, 1 déjà présentes, 0 document retiré." in r.text
     assert 'id="liste-exclusions"' in r.text
 
 
@@ -482,7 +482,7 @@ def test_import_applique_et_liste(client_priv, bd):
     texte = "- {source: coffre-maison, motif: Accueil.md}\n- {source: future, motif: '*.csv'}\n"
     r = client_priv.post("/ui/exclusions/import", headers=HX,
                          files={"fichier": ("e.yaml", texte.encode(), "text/yaml")})
-    assert r.status_code == 200 and "2 ajoutées, 0 déjà présentes." in r.text
+    assert r.status_code == 200 and "2 ajoutées, 0 déjà présentes, 1 document retiré." in r.text
     assert "Accueil.md" not in chemins_indexes(bd)
     assert "future" in client_priv.get("/ui/exclusions").text  # source inconnue : écrivain
 
@@ -505,7 +505,7 @@ def test_import_trop_gros(client_priv, bd):
     assert len(juste) == mo
     r = client_priv.post("/ui/exclusions/import", headers=HX,
                          files={"fichier": ("e.yaml", juste, "text/yaml")})
-    assert r.status_code == 200 and "0 ajoutées, 0 déjà présentes." in r.text
+    assert r.status_code == 200 and "0 ajoutées, 0 déjà présentes, 0 document retiré." in r.text
     r = client_priv.post("/ui/exclusions/import", headers=HX,
                          files={"fichier": ("e.yaml", juste + b"#", "text/yaml")})
     assert r.status_code == 413 and r.headers["cache-control"] == "no-store"

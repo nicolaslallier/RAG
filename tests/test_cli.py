@@ -55,7 +55,7 @@ def test_cli_exclusions_exporter_puis_importer(env_cli, capsys, tmp_path):
     f = tmp_path / "exclusions.yaml"
     f.write_text("- {source: coffre-maison, motif: '*.md', raison: tout}\n")
     assert cli.main(["exclusions", "importer", str(f)]) == 0
-    assert "1 ajoutée(s), 0 ignorée(s)" in capsys.readouterr().out
+    assert "1 ajoutée(s), 0 ignorée(s), 4 document(s) retiré(s)" in capsys.readouterr().err
     assert cli.main(["exclusions", "exporter"]) == 0
     assert yaml.safe_load(capsys.readouterr().out) == [
         {"source": "coffre-maison", "motif": "*.md", "raison": "tout"}]

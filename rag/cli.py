@@ -170,7 +170,8 @@ def _exclusions_cli(conn, a) -> int:
     except MotifInvalide as e:
         print(f"fichier invalide, rien d'importé : {e}", file=sys.stderr)
         return 1
-    print(f"{r['ajoutees']} ajoutée(s), {r['ignorees']} ignorée(s)")
+    print(f"{r['ajoutees']} ajoutée(s), {r['ignorees']} ignorée(s), "
+          f"{r['retires']} document(s) retiré(s)", file=sys.stderr)
     return 0
 
 

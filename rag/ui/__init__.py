@@ -297,10 +297,11 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
             bilan = await run_in_threadpool(importer_en_base)
         except MotifInvalide as e:
             return message(request, f"Import refusé : {e}.", 400, erreur=True)
-        log.info("import d'exclusions : %d ajoutées, %d déjà présentes",
-                 bilan["ajoutees"], bilan["ignorees"])
-        return await run_in_threadpool(
-            message, request, f"{bilan['ajoutees']} ajoutées, {bilan['ignorees']} déjà présentes.",
-            niveaux=niveaux)
+        log.info("import d'exclusions : %d ajoutées, %d déjà présentes, %d documents retirés",
+                 bilan["ajoutees"], bilan["ignorees"], bilan["retires"])
+        n = bilan["retires"]
+        texte = (f"{bilan['ajoutees']} ajoutées, {bilan['ignorees']} déjà présentes, "
+                 f"{pluriel(n, 'document')} retiré{'s' if n > 1 else ''}.")
+        return await run_in_threadpool(message, request, texte, niveaux=niveaux)
 
     return routeur
