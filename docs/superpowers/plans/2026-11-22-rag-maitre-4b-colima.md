@@ -2,25 +2,13 @@
 
 > Amende `2026-11-21-rag-maitre-4-deploiement.md` (PR #5, branche `claude/rag-plan-4`) et le bloc « Contrat entre les dépôts RAG et Infra » recopié dans `…-0-index.md`, `…-4-deploiement.md` et `…-infra.md`. Rien d'autre du plan 4 ne change : là où ce document se tait, le plan 4 reste la référence.
 
-**Décision de Nicolas (2026-11-22) :** la pile `rag` tourne « Sur Colima du Mac », puis « il va rouler sur mon mac-studio 192.168.2.40 ». Le plan 4 la mettait sur l'hôte `192.168.2.10` (Windows/WSL), sur `infra-net`, sans port publié.
+**Décision de Nicolas (2026-11-22) :** la pile `rag` tourne « Sur Colima du Mac » : le Mac Studio, `192.168.2.35`. Le plan 4 la mettait sur l'hôte `192.168.2.10` (Windows/WSL), sur `infra-net`, sans port publié.
 
 **Ce document :** les faits constatés (lecture seule), les options comparées, une recommandation, le contrat amendé, les tâches à modifier dans la PR #5, les tâches Infra et les étapes manuelles. Aucun code n'est changé ici.
 
-## 0. À trancher d'abord : quelle machine ?
+## 0. La cible
 
-Les deux phrases de Nicolas ne désignent pas la même machine, d'après ce qui se mesure sur le LAN :
-
-| | `192.168.2.35` (+ VM `192.168.2.66`) | `192.168.2.40` |
-|---|---|---|
-| Ce que c'est | **Mac Studio** : `hostname` = `Nicolass-Mac-Studio`, `hw.model` = `Mac16,9`, M4 Max, 14 cœurs, 36 Go, aucune batterie | **MacBook** : `node_uname_info{nodename="MB-F7YPRX673F"}`, M4 Max, 14 cœurs, 36 Go, `node_power_supply_info{power_supply="InternalBattery-0"}` |
-| Nom dans l'Infra | `mac-infra` (`monitoring/prometheus/targets/macos.yml`), « Mac Studio » partout dans `CLAUDE.md` ; `mac-studio.famillelallier.net` → `192.168.2.35` | `mac-02` ; `litellm/config.yaml` : « the MacBook's Ollama first (192.168.2.40, often asleep or away) » |
-| Colima | VM `default` aarch64, 8 CPU, 8 Gio, 100 Gio, pontée, adresse `192.168.2.66` | rien de visible du LAN |
-| Portainer | agent `portainer/agent:2.45.0` en marche depuis le 2026-11-08 (`restart: always`), port 9001 ouvert ; c'est l'**environnement 6** (`stacks.conf` : `dev … 6`, `colima-studio … 6`) | port 9001 fermé : aucun agent |
-| Ports ouverts vus d'ici | VM : 9001, 9100, 2222 ; 8000 libre | 22, 5000, 9100, 11434 seulement |
-| Ollama | `qwen3.8:27b-mlx`, `gemma4:26b-a4b-it-qat`, `llama3.2:1b` | `qwen3.8:27b-mlx` seul (chargé, 21 Go) |
-| Réseau | filaire, ping < 1 ms | ping 177 à 295 ms au moment de l'essai (Wi-Fi) |
-
-**Ce plan vise le Mac Studio réel : Colima à `192.168.2.66`, environnement Portainer 6.** C'est la seule cible qui existe déjà (VM pontée, agent, environnement, précédents `dev` et `colima-studio`). Si Nicolas veut vraiment `192.168.2.40`, voir l'annexe A : c'est un portable qui dort, et il faut y installer Colima ponté, un agent Portainer et un nouvel environnement avant tout le reste.
+Le **Mac Studio** (`192.168.2.35`, `hostname` = `Nicolass-Mac-Studio`, `hw.model` = `Mac16,9`, M4 Max, 14 cœurs, 36 Go ; `mac-infra` dans `monitoring/prometheus/targets/macos.yml`, `mac-studio.famillelallier.net` → `192.168.2.35`). Sa VM Colima (`default`, aarch64, 8 CPU, 8 Gio, 100 Gio) est **pontée et porte sa propre adresse LAN, `192.168.2.66`** : c'est sur cette adresse que Docker publie les ports (précédent : `dev-gateway` sur `192.168.2.66:2222`), pas sur `192.168.2.35`. Un port publié sans adresse (`0.0.0.0`) est aussi relayé sur `192.168.2.35` (9001 y répond) ; un port lié à `192.168.2.66` ne l'est pas (2222 y est fermé). Vu du LAN : `192.168.2.35` ouvre 22, 5000, 9001, 9100 et 11434 (Ollama : `qwen3.8:27b-mlx`, `gemma4:26b-a4b-it-qat`, `llama3.2:1b`) ; `192.168.2.66` ouvre 9001 (agent Portainer `portainer/agent:2.45.0`, en marche depuis le 2026-11-08, `restart: always`), 9100 et 2222 ; le port 8000 y est libre. Cette VM est l'**environnement Portainer 6** (`stacks.conf` : `dev … 6`, `colima-studio … 6`).
 
 ## 1. Faits constatés (2026-11-22, lecture seule)
 
@@ -84,7 +72,7 @@ La résolution des noms `*.infra.famillelallier.net` marche dans les conteneurs 
 | Exploitation | pgAdmin, sauvegarde nocturne, exporter : déjà là | ni pgAdmin ni sauvegarde ; sans gravité, la base se reconstruit par `rag indexer --complet` | comme A |
 | Ce qui devient inutile | rien | la base `rag` de l'Infra, `RAG_DB_PASSWORD` dans `infra/env`, `rag` dans `APP_DATABASES` | rien |
 
-**Recommandation : A.** Rien à construire, la base est déjà provisionnée, et c'est le chemin que l'Infra documente pour une application sur cette VM. Le seul défaut est le clair sur le LAN ; s'il gêne Nicolas pour les notes `prive`, prendre B (une demi-journée, décrit en annexe B), pas C.
+**Recommandation : A.** Rien à construire, la base est déjà provisionnée, et c'est le chemin que l'Infra documente pour une application sur cette VM. Le seul défaut est le clair sur le LAN ; s'il gêne Nicolas pour les notes `prive`, prendre B (une demi-journée, décrit en annexe), pas C.
 
 ### 2.2 S3 (coffre)
 
@@ -195,7 +183,7 @@ Même discipline que le plan 4 : test qui échoue, code, test vert, commit.
 
 ## 6. Étapes manuelles pour Nicolas
 
-1. **Trancher la machine** (section 0) et l'option de base (2.1).
+1. **Trancher l'option de base** (2.1).
 2. Portainer → Environments : confirmer que l'environnement de `192.168.2.66` porte l'identifiant `6`.
 3. Portainer → Registries : `ghcr.io` avec un jeton `read:packages`, **autorisé sur l'environnement 6** (plan 4, étape manuelle 4, autre environnement).
 4. GitHub → `nicolaslallier/RAG` → Settings → Environments → `production` : variable `PORTAINER_ENDPOINT_ID` = `6` ; secrets `PORTAINER_API_KEY` et `BAO_TOKEN` comme prévu.
@@ -205,7 +193,7 @@ Même discipline que le plan 4 : test qui échoue, code, test vert, commit.
 
 ## 7. Risques ouverts
 
-1. **Machine visée** : tant que la section 0 n'est pas tranchée, l'adresse `192.168.2.66` de la pile et de LiteLLM est une hypothèse.
+1. **Identifiant de l'environnement** : `6` vient de la doc de l'Infra, pas de l'API de Portainer ; à confirmer (étape manuelle 2).
 2. **Postgres en clair sur le LAN** (option A) : accepté ou non par Nicolas pour les notes `prive`.
 3. **boto3 et la CA maison** sous Python 3.13 : R-3 le prouve ou le corrige.
 4. **Mémoire de l'hôte** : 0,25 Go libres sur 36 avec les modèles chargés. Le RAG avec rerank actif ajoute jusqu'à 3 Gio réellement utilisés dans la VM.
@@ -213,10 +201,6 @@ Même discipline que le plan 4 : test qui échoue, code, test vert, commit.
 6. **Disponibilité** : le RAG dépend maintenant de deux machines (Mac Studio pour le service, portable pour Postgres, LiteLLM, S3, Portainer).
 7. **Adresse en dur** (`192.168.2.66`) à deux endroits (pile RAG, `litellm/config.yaml`) : un changement de bail DHCP casse le MCP sans bruit. Réservation DHCP obligatoire.
 
-## Annexe A — si la cible est vraiment `192.168.2.40`
-
-À faire avant tout, par Nicolas, sur cette machine : installer Colima en mode ponté (adresse LAN propre à la VM, réservation DHCP), y lancer `portainer/agent:2.45.0` sur 9001, créer l'environnement dans Portainer (nouvel identifiant), y autoriser le registre `ghcr.io`, empêcher la mise en veille. Puis remplacer `192.168.2.66` par l'adresse de cette VM et `6` par le nouvel identifiant dans les sections 3 à 6. Objections : c'est un portable (batterie, Wi-Fi, « often asleep or away » selon `litellm/config.yaml`), LiteLLM y envoie déjà `qwen3.8:27b-mlx` en premier (21 Go chargés sur 36), et un service qui indexe toutes les 5 minutes et la nuit à 03 h 00 n'y sera pas fiable.
-
-## Annexe B — option B, Postgres dédié (si le clair sur le LAN est refusé)
+## Annexe — option B, Postgres dédié (si le clair sur le LAN est refusé)
 
 Ajouter à la pile un service `rag-postgres` (`pgvector/pgvector:0.8.6-pg18-bookworm` épinglé par digest, `POSTGRES_USER=rag`, `POSTGRES_DB=rag`, `POSTGRES_PASSWORD=${RAG_DB_PASSWORD:?}`, volume `rag-pgdata:/var/lib/postgresql`, `mem_limit: 1g`, contrôle de santé `pg_isready`, aucun port) ; `RAG_DATABASE_URL` vise `rag-postgres:5432` ; `depends_on` avec `condition: service_healthy` sur les deux services. `rag` est alors superutilisateur de sa base : la migration crée `vector` elle-même, comme en dev. Contrat : ligne « Base » → « fournie par RAG » ; la base `rag` de l'Infra, `rag` dans `APP_DATABASES` et la copie de `RAG_DB_PASSWORD` dans `infra/env` deviennent inutiles. Pas de sauvegarde : la base se reconstruit par `rag indexer --complet`.
