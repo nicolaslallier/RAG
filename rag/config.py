@@ -17,6 +17,10 @@ PUBLIC: frozenset[str] = frozenset({"public-maison"})
 TOUT: frozenset[str] = frozenset({"public-maison", "prive"})
 
 
+class ErreurConfig(Exception):
+    pass
+
+
 class Reglages(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RAG_", env_file=".env", extra="ignore")
 

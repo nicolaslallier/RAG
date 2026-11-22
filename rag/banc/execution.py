@@ -62,12 +62,12 @@ def _moyennes(lignes: list[dict]) -> dict:
 
 
 def executer(conn, cas: list[Cas], config: Config, modeles, version_id: int,
-             etiquette: str = "") -> dict:
+             etiquette: str = "", reranker=None) -> dict:
     lignes = []
     for c in cas:
         t0 = time.perf_counter()
         r = chercher(conn, c.question, config.recherche, modeles, version_id,
-                     config.indexation.modele_embedding, niveaux=PUBLIC, limite=10)
+                     config.indexation.modele_embedding, niveaux=PUBLIC, limite=10, reranker=reranker)
         latence = (time.perf_counter() - t0) * 1000
         obtenus = list(dict.fromkeys(x.cle for x in r))
         a = set(c.attendus)
@@ -129,8 +129,9 @@ def commande_banc(a, conn, reglages, config: Config, modeles, indexer) -> int:
         return 2
     if not a.sans_indexer and (code := indexer(conn, reglages, config, modeles)):
         return code
+    from rag.rerank import reranker_depuis
     rapport = executer(conn, cas, config, modeles, version_courante(conn, config.indexation),
-                       a.etiquette)
+                       a.etiquette, reranker_depuis(config, reglages))
     dossier = Path("banc/resultats")
     dossier.mkdir(parents=True, exist_ok=True)
     sortie = dossier / f"{datetime.now():%Y%m%d-%H%M%S}-{a.etiquette}.json"

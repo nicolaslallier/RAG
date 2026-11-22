@@ -16,6 +16,7 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest", "ruff"]
+rerank = ["sentence-transformers", "torch"]
 
 [project.scripts]
 rag = "rag.cli:main"
@@ -25,8 +26,19 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
-markers = ["vivant: appelle le vrai LiteLLM"]
+markers = [
+  "vivant: appelle le vrai LiteLLM",
+  "lent: télécharge un modèle (hors CI)",
+]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

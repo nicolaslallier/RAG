@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from urllib.parse import quote
 
-from rag.config import RechercheConf
+from rag.config import ErreurConfig, RechercheConf
 
 
 def normaliser(texte: str) -> str:
@@ -106,9 +106,12 @@ SELECT m.id AS morceau_id, d.id AS document_id, s.nom AS source, s.type AS type_
 
 def chercher(conn, question: str, conf: RechercheConf, modeles, version_id: int,
              modele_embedding: str, *, niveaux: frozenset[str], filtres: Filtres | None = None,
-             limite: int = 10) -> list[Resultat]:
+             limite: int = 10, reranker=None) -> list[Resultat]:
+    if conf.rerank.actif and reranker is None:
+        raise ErreurConfig("rerank actif sans reranker")
     if not niveaux or not question.strip():
         return []
+    n_fusion = conf.rerank.candidats if conf.rerank.actif else limite
     filtres = filtres or Filtres()
     vec = modeles.embed_requete(question, modele_embedding, conf.instruction_requete)
     params = {
@@ -116,7 +119,7 @@ def chercher(conn, question: str, conf: RechercheConf, modeles, version_id: int,
         "qnorm": normaliser(question), "version": version_id, "niveaux": sorted(niveaux),
         "top_vecteur": conf.top_vecteur, "top_texte": conf.top_texte,
         "seuil_flou": conf.seuil_flou, "rrf_k": conf.rrf_k, "p_vecteur": conf.poids.vecteur,
-        "p_texte": conf.poids.texte, "p_flou": conf.poids.flou, "lim_sql": limite * 4,
+        "p_texte": conf.poids.texte, "p_flou": conf.poids.flou, "lim_sql": n_fusion * 4,
         "ps_code": conf.poids_source.get("code", 1.0),
         "ps_obsidian": conf.poids_source.get("obsidian", 1.0),
     }
@@ -134,8 +137,13 @@ def chercher(conn, question: str, conf: RechercheConf, modeles, version_id: int,
                 continue
             parents_vus.add(r["parent_id"])
         out.append(_resultat(r))
-        if len(out) == limite:
+        if len(out) == n_fusion:
             break
+    if conf.rerank.actif and out:
+        notes = reranker.noter(question, [r.fil + "\n\n" + r.texte for r in out])
+        for r, n in zip(out, notes, strict=True):
+            r.rerank = float(n)
+        out = sorted(out, key=lambda r: -r.rerank)[:min(limite, conf.rerank.garder)]
     if conf.graphe.expansion:
         out = etendre_par_graphe(conn, out, vec, conf, version_id, niveaux=niveaux,
                                  filtres=filtres)[:limite]
