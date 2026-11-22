@@ -78,6 +78,9 @@ _TOUS = """WITH tous AS (
 """
 
 
+PAGE_MAX = 1_000_000  # garde-fou avant la requête (OFFSET), pour l'interface et le MCP
+
+
 def fichiers(conn, source: str, *, niveaux: frozenset[str],
              etat: Literal["indexe", "exclu_auto", "exclu_manuel"] | None = None,
              contient: str | None = None, page: int = 1, par_page: int = 50) -> dict:

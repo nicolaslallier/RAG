@@ -9,7 +9,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
 
 from rag.config import LIMITE_MAX, NOM_MAX, QUESTION_MAX
-from rag.gestion import SourceInconnue
+from rag.gestion import PAGE_MAX, SourceInconnue
 from rag.recherche import Filtres
 
 Question = Annotated[str, Field(max_length=QUESTION_MAX)]
@@ -84,7 +84,7 @@ def creer_mcp(moteur) -> FastMCP:
     async def rag_fichiers(source: Nom, ctx: Context,
                            etat: Literal["indexe", "exclu_auto", "exclu_manuel"] | None = None,
                            contient: Nom | None = None,
-                           page: Annotated[int, Field(ge=1)] = 1) -> str:
+                           page: Annotated[int, Field(ge=1, le=PAGE_MAX)] = 1) -> str:
         try:
             r = await appeler(moteur.fichiers, source, etat, contient, page,
                               _niveaux(moteur, ctx))

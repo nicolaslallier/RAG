@@ -23,6 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from rag.config import TOUT
 from rag.db import connexion
 from rag.gestion import (
+    PAGE_MAX,
     RAISON_MAX,
     MotifInvalide,
     SourceInconnue,
@@ -46,7 +47,6 @@ COOKIE = "rag_session"
 _COOKIE_ATTRS = {"path": "/ui", "httponly": True, "samesite": "strict", "secure": False}
 SANS_CACHE = {"Cache-Control": "no-store"}
 PAR_PAGE = 50
-PAGE_MAX = 1_000_000  # garde-fou avant la requête (OFFSET) ; la page est ramenée à la dernière
 ETATS = ("indexe", "exclu_auto", "exclu_manuel")
 INTROUVABLE = "Source ou fichier introuvable."
 GROS_APERCU = 100  # au-delà, seconde confirmation (case à cocher)
@@ -142,6 +142,7 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
                    "par_page": PAR_PAGE}
         try:
             with connexion(database_url) as conn:
+                # page bornée avant la requête, puis ramenée à la dernière
                 liste = lister_fichiers(conn, nom, page=min(page, PAGE_MAX), **filtres)
                 if 1 <= liste["pages"] < liste["page"]:  # au-delà de la dernière : la dernière
                     liste = lister_fichiers(conn, nom, page=liste["pages"], **filtres)

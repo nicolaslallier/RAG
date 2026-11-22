@@ -128,6 +128,17 @@ def test_rag_fichiers_indexes(client):
     assert d["source"] == "coffre-maison" and len(d["fichiers"]) == 6
 
 
+def test_rag_fichiers_borne_la_page(client):
+    from rag.gestion import PAGE_MAX
+
+    d = outil(client, "rag_fichiers", {"source": "coffre-maison", "page": PAGE_MAX})
+    assert d["fichiers"] == []
+    res = rpc(client, "tools/call", {"name": "rag_fichiers",
+                                     "arguments": {"source": "coffre-maison",
+                                                   "page": PAGE_MAX + 1}})
+    assert res["isError"] is True
+
+
 def test_rag_sources_et_fichiers_respectent_les_niveaux(client, bd):
     bd.execute("UPDATE sources SET visibilite = 'prive'")
     bd.commit()
