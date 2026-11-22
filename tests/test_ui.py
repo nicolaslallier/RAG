@@ -273,3 +273,234 @@ def test_bouton_exclure_seulement_pour_l_ecrivain(client, index):
     priv = connecter(client, "priv").get("/ui/sources/coffre-maison").text
     assert 'hx-post="/ui/exclusions/apercu"' in priv and "Exclure" in priv
     assert """hx-vals='{"motif": "Accueil.md", "source": "coffre-maison"}'""" in priv
+
+
+def test_bouton_exclure_absent_des_lignes_deja_exclues(client, index_code):
+    r = connecter(client, "priv").get("/ui/sources/depot-test")
+    assert '"motif": "a.py"' in r.text
+    assert '"motif": "uv.lock"' not in r.text and '"motif": "logo.png"' not in r.text
+
+
+def test_page_au_dela_de_la_derniere_ramenee_a_la_derniere(client, index, monkeypatch):
+    monkeypatch.setattr("rag.ui.PAR_PAGE", 4)
+    connecter(client, "pub")
+    for page in (2, 9, 10**30):
+        r = client.get(f"/ui/sources/coffre-maison?page={page}")
+        assert r.status_code == 200 and "Accueil.md" in r.text and "page 2 sur 2" in r.text
+
+
+def test_erreur_de_validation_sous_ui_sans_cache(client):
+    connecter(client, "pub")
+    r = client.get("/ui/sources/coffre-maison?page=abc")
+    assert r.status_code == 422 and r.headers["cache-control"] == "no-store"
+
+
+# --- Exclusions ------------------------------------------------------------------------------
+
+@pytest.fixture
+def client_priv(cfg, faux_modeles):
+    return connecter(faire(cfg, faux_modeles, jeton_prive="priv"), "priv")
+
+
+@pytest.fixture
+def client_pub(cfg, faux_modeles):
+    return connecter(faire(cfg, faux_modeles, jeton_prive="priv"), "pub")
+
+
+DOMAINES = "02 - Domaines/**"
+
+
+def chemins_indexes(bd):
+    r = [d["chemin"] for d in bd.execute("SELECT chemin FROM documents ORDER BY chemin")]
+    bd.rollback()
+    return r
+
+
+def exclusions_en_base(bd):
+    r = [(e["source"], e["motif"], e["raison"]) for e in bd.execute(
+        "SELECT source, motif, raison FROM exclusions_manuelles ORDER BY source, motif")]
+    bd.rollback()
+    return r
+
+
+def test_ecran_exclusions_et_menu(client_priv):
+    r = client_priv.get("/ui/exclusions")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert "Aucune exclusion" in r.text
+    assert '<option value="coffre-maison">' in r.text
+    assert 'hx-post="/ui/exclusions/apercu"' in r.text
+    assert 'href="/ui/exclusions/export"' in r.text and 'hx-post="/ui/exclusions/import"' in r.text
+    assert 'hx-encoding="multipart/form-data"' in r.text
+    for page in (r.text, client_priv.get("/ui/").text):
+        assert 'href="/ui/"' in page and 'href="/ui/exclusions"' in page
+        assert "Déconnexion" in page
+
+
+def test_ecran_exclusions_en_lecture_pour_le_jeton_public(client_pub):
+    r = client_pub.get("/ui/exclusions")
+    assert r.status_code == 200
+    assert "/ui/exclusions/apercu" not in r.text and "/ui/exclusions/import" not in r.text
+    assert "/ui/exclusions/export" not in r.text and "Annuler" not in r.text
+
+
+def test_apercu_puis_exclusion(client_priv, bd):
+    r = client_priv.post("/ui/exclusions/apercu", headers=HX,
+                         data={"source": "coffre-maison", "motif": DOMAINES, "raison": "cuisine"})
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert "<html" not in r.text
+    assert "2 documents seront retirés de l'index" in r.text
+    assert "Pâté chinois.md" in r.text and "Confirmer" in r.text
+    assert 'name="confirme_gros"' not in r.text
+    assert len(chemins_indexes(bd)) == 6  # l'aperçu n'écrit rien
+    r = client_priv.post("/ui/exclusions", headers=HX,
+                         data={"source": "coffre-maison", "motif": DOMAINES, "raison": "cuisine"})
+    assert r.status_code == 200 and "2 documents retirés." in r.text
+    assert 'id="liste-exclusions"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert DOMAINES in r.text and "cuisine" in r.text
+    assert not [c for c in chemins_indexes(bd) if c.startswith("02 - Domaines/")]
+    assert exclusions_en_base(bd) == [("coffre-maison", DOMAINES, "cuisine")]
+    liste = client_priv.get("/ui/exclusions").text
+    assert DOMAINES in liste and "cuisine" in liste and "Annuler" in liste
+
+
+def test_apercu_depuis_le_bouton_de_la_liste_des_fichiers(client_priv):
+    r = client_priv.post("/ui/exclusions/apercu", headers=HX,
+                         data={"source": "coffre-maison", "motif": "Accueil.md"})
+    assert r.status_code == 200 and "1 document sera retiré de l'index" in r.text
+    assert 'name="raison"' in r.text and 'value="Accueil.md"' in r.text
+
+
+def test_gros_motif_exige_la_seconde_confirmation(client_priv, bd):
+    sid = bd.execute("SELECT id FROM sources WHERE nom = 'coffre-maison'").fetchone()["id"]
+    for i in range(101):
+        bd.execute("INSERT INTO documents (source_id, chemin, titre, titre_norm, signature, sha256)"
+                   " VALUES (%s, %s, 'x', 'x', 's', 'h')", (sid, f"factices/{i:03}.md"))
+    bd.commit()
+    form = {"source": "coffre-maison", "motif": "*"}
+    r = client_priv.post("/ui/exclusions/apercu", headers=HX, data=form)
+    assert r.status_code == 200 and "107 documents seront retirés de l'index" in r.text
+    assert 'name="confirme_gros"' in r.text and "Je confirme retirer 107 documents" in r.text
+    assert r.text.count("<li>") == 50
+    r = client_priv.post("/ui/exclusions", headers=HX, data=form)
+    assert r.status_code == 400 and r.headers["cache-control"] == "no-store"
+    assert len(chemins_indexes(bd)) == 107 and exclusions_en_base(bd) == []
+    r = client_priv.post("/ui/exclusions", headers=HX, data=form | {"confirme_gros": "1"})
+    assert r.status_code == 200 and "107 documents retirés." in r.text
+    assert chemins_indexes(bd) == []
+
+
+def test_exclusion_motif_invalide_et_source_inconnue(client_priv, bd):
+    r = client_priv.post("/ui/exclusions/apercu", headers=HX,
+                         data={"source": "coffre-maison", "motif": "x" * 1001})
+    assert r.status_code == 400 and "1000 caractères" in r.text
+    r = client_priv.post("/ui/exclusions", headers=HX,
+                         data={"source": "coffre-maison", "motif": "a", "raison": "r" * 501})
+    assert r.status_code == 400 and "500 caractères" in r.text
+    for url in ("/ui/exclusions/apercu", "/ui/exclusions"):
+        r = client_priv.post(url, headers=HX, data={"source": "absente", "motif": "*"})
+        assert r.status_code == 404
+    assert exclusions_en_base(bd) == []
+
+
+def test_annuler(client_priv, bd):
+    client_priv.post("/ui/exclusions", headers=HX,
+                     data={"source": "coffre-maison", "motif": "Accueil.md"})
+    assert bd.execute("SELECT demande_le FROM sources").fetchone()["demande_le"] is None
+    bd.rollback()
+    r = client_priv.post("/ui/exclusions/annuler", headers=HX,
+                         data={"source": "coffre-maison", "motif": "Accueil.md"})
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert "Exclusion annulée : le fichier reviendra à la prochaine passe." in r.text
+    assert 'id="liste-exclusions"' in r.text and "Accueil.md" not in r.text
+    assert exclusions_en_base(bd) == []
+    assert bd.execute("SELECT demande_le FROM sources").fetchone()["demande_le"] is not None
+    bd.rollback()
+    assert "Accueil.md" not in client_priv.get("/ui/exclusions").text
+
+
+def test_ecritures_refusees_au_jeton_public(client_pub, bd):
+    form = {"source": "coffre-maison", "motif": "Accueil.md"}
+    for url in ("/ui/exclusions/apercu", "/ui/exclusions", "/ui/exclusions/annuler"):
+        assert client_pub.post(url, headers=HX, data=form).status_code == 403
+    r = client_pub.post("/ui/exclusions/import", headers=HX,
+                        files={"fichier": ("e.yaml", b"- {source: a, motif: b}\n", "text/yaml")})
+    assert r.status_code == 403
+    assert client_pub.get("/ui/exclusions/export").status_code == 403
+    assert exclusions_en_base(bd) == [] and len(chemins_indexes(bd)) == 6
+
+
+def test_ecritures_exigent_htmx_et_la_meme_origine(client_priv, bd):
+    form = {"source": "coffre-maison", "motif": "Accueil.md"}
+    assert client_priv.post("/ui/exclusions", data=form).status_code == 403
+    assert client_priv.post("/ui/exclusions", data=form,
+                            headers=HX | {"Origin": "http://ailleurs.exemple"}).status_code == 403
+    r = client_priv.post("/ui/exclusions/import",
+                         files={"fichier": ("e.yaml", b"- {source: a, motif: b}\n", "text/yaml")})
+    assert r.status_code == 403
+    assert exclusions_en_base(bd) == []
+
+
+def test_export_import_par_l_interface(client_priv, bd):
+    client_priv.post("/ui/exclusions", headers=HX,
+                     data={"source": "coffre-maison", "motif": "Accueil.md", "raison": "bruit"})
+    r = client_priv.get("/ui/exclusions/export")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/yaml")
+    assert r.headers["content-disposition"] == 'attachment; filename="exclusions-rag.yaml"'
+    assert r.headers["cache-control"] == "no-store"
+    assert yaml.safe_load(r.text) == [{"source": "coffre-maison", "motif": "Accueil.md",
+                                       "raison": "bruit"}]
+    r = client_priv.post("/ui/exclusions/import", headers=HX,
+                         files={"fichier": ("exclusions-rag.yaml", r.content, "text/yaml")})
+    assert r.status_code == 200 and "0 ajoutées, 1 déjà présentes." in r.text
+    assert 'id="liste-exclusions"' in r.text
+
+
+def test_import_applique_et_liste(client_priv, bd):
+    texte = "- {source: coffre-maison, motif: Accueil.md}\n- {source: future, motif: '*.csv'}\n"
+    r = client_priv.post("/ui/exclusions/import", headers=HX,
+                         files={"fichier": ("e.yaml", texte.encode(), "text/yaml")})
+    assert r.status_code == 200 and "2 ajoutées, 0 déjà présentes." in r.text
+    assert "Accueil.md" not in chemins_indexes(bd)
+    assert "future" in client_priv.get("/ui/exclusions").text  # source inconnue : écrivain
+
+
+def test_import_malforme(client_priv, bd):
+    for contenu in (b"pas une liste", b"\xff\xfe pas de l'UTF-8"):
+        r = client_priv.post("/ui/exclusions/import", headers=HX,
+                             files={"fichier": ("e.yaml", contenu, "text/yaml")})
+        assert r.status_code == 400 and r.headers["cache-control"] == "no-store"
+    assert "une liste d&#39;exclusions est attendue" in client_priv.post(
+        "/ui/exclusions/import", headers=HX,
+        files={"fichier": ("e.yaml", b"pas une liste", "text/yaml")}).text
+    assert client_priv.post("/ui/exclusions/import", headers=HX, data={}).status_code == 400
+    assert exclusions_en_base(bd) == []
+
+
+def test_import_trop_gros(client_priv, bd):
+    mo = 1024 * 1024
+    juste = b"[]\n" + b"#" * (mo - 4) + b"\n"
+    assert len(juste) == mo
+    r = client_priv.post("/ui/exclusions/import", headers=HX,
+                         files={"fichier": ("e.yaml", juste, "text/yaml")})
+    assert r.status_code == 200 and "0 ajoutées, 0 déjà présentes." in r.text
+    r = client_priv.post("/ui/exclusions/import", headers=HX,
+                         files={"fichier": ("e.yaml", juste + b"#", "text/yaml")})
+    assert r.status_code == 413 and r.headers["cache-control"] == "no-store"
+    r = client_priv.post("/ui/exclusions/import", headers=HX,
+                         files={"fichier": ("e.yaml", b"#" * (2 * mo), "text/yaml")})
+    assert r.status_code == 413
+    assert exclusions_en_base(bd) == []
+
+
+def test_exclusions_visibles_selon_le_jeton(client_priv, client_pub, bd):
+    bd.execute("INSERT INTO exclusions_manuelles (source, motif) VALUES "
+               "('coffre-maison', 'Accueil.md'), ('future', 'plus-tard.md')")
+    bd.commit()
+    pub = client_pub.get("/ui/exclusions").text
+    assert "Accueil.md" in pub and "plus-tard.md" not in pub and "future" not in pub
+    priv = client_priv.get("/ui/exclusions").text
+    assert "Accueil.md" in priv and "plus-tard.md" in priv
+    bd.execute("UPDATE sources SET visibilite = 'prive'")
+    bd.commit()
+    pub = client_pub.get("/ui/exclusions").text
+    assert "Accueil.md" not in pub and "coffre-maison" not in pub

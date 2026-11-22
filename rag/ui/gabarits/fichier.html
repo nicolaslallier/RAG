@@ -1,11 +1,6 @@
 {% extends "base.html" %}
 {% block titre %}{{ doc.chemin }}{% endblock %}
-{% block navigation %}
-<nav>
-  <a href="/ui/sources/{{ doc.source | urlencode }}">Fichiers de {{ doc.source }}</a>
-  <form method="post" action="/ui/deconnexion"><button type="submit" class="lien">Se déconnecter</button></form>
-</nav>
-{% endblock %}
+{% block navigation_plus %}<a href="/ui/sources/{{ doc.source | urlencode }}">Fichiers de {{ doc.source }}</a>{% endblock %}
 {% block contenu %}
 <h1>{{ doc.titre or doc.chemin }}</h1>
 <dl class="meta">

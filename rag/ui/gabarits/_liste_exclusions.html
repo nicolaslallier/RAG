@@ -1,0 +1,30 @@
+{# Liste des exclusions manuelles ; hors bande (oob) après une écriture. #}
+<div id="liste-exclusions"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if exclusions %}
+<div class="defilement">
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Source</th><th scope="col">Motif</th><th scope="col">Raison</th>
+      <th scope="col">Créée le</th>{% if ecrivain %}<th scope="col">Action</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in exclusions %}
+    <tr>
+      <th scope="row">{{ e.source }}</th>
+      <td><code>{{ e.motif }}</code></td>
+      <td>{{ e.raison or "—" }}</td>
+      <td>{{ e.cree_le.strftime("%Y-%m-%d %H:%M") }}</td>
+      {% if ecrivain %}<td><button type="button" class="secondaire"
+          hx-post="/ui/exclusions/annuler" hx-vals='{{ {"source": e.source, "motif": e.motif} | tojson }}'
+          hx-target="#apercu" hx-swap="innerHTML">Annuler</button></td>{% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p>Aucune exclusion manuelle.</p>
+{% endif %}
+</div>

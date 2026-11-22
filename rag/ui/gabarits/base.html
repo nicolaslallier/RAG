@@ -6,6 +6,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="same-origin">
+  {# htmx affiche aussi les 400 et 413 : nos routes y répondent par un fragment de message #}
+  <meta name="htmx-config" content='{"responseHandling": [{"code": "204", "swap": false}, {"code": "[23]..", "swap": true}, {"code": "400|413", "swap": true, "error": true}, {"code": "[45]..", "swap": false, "error": true}]}'>
   <title>{% block titre %}RAG{% endblock %} · gestion de l'index</title>
   <link rel="stylesheet" href="/ui/statique/rag.css">
   <script src="/ui/statique/htmx.min.js" defer></script>
@@ -13,7 +15,14 @@
 <body>
   <header class="entete">
     <a class="marque" href="/ui/">RAG · gestion de l'index</a>
-    {% block navigation %}{% endblock %}
+    {% block navigation %}
+    <nav>
+      <a href="/ui/">Sources</a>
+      <a href="/ui/exclusions">Exclusions</a>
+      {% block navigation_plus %}{% endblock %}
+      <form method="post" action="/ui/deconnexion"><button type="submit" class="lien">Déconnexion</button></form>
+    </nav>
+    {% endblock %}
   </header>
   <main>
     {% block contenu %}{% endblock %}

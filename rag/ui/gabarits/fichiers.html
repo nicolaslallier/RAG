@@ -1,11 +1,5 @@
 {% extends "base.html" %}
 {% block titre %}Fichiers de {{ liste.source }}{% endblock %}
-{% block navigation %}
-<nav>
-  <a href="/ui/">Sources</a>
-  <form method="post" action="/ui/deconnexion"><button type="submit" class="lien">Se déconnecter</button></form>
-</nav>
-{% endblock %}
 {% block contenu %}
 <h1>Fichiers de {{ liste.source }}</h1>
 <form class="filtres" method="get" action="/ui/sources/{{ liste.source | urlencode }}"

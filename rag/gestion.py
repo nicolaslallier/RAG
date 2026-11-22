@@ -9,6 +9,7 @@ from typing import Literal
 
 import yaml
 
+from rag.config import NOM_MAX
 from rag.sources import nfc
 
 
@@ -273,8 +274,8 @@ def _lignes_import(texte: str) -> list[tuple[str, str, str | None]]:
         if not isinstance(d, dict) or not {"source", "motif"} <= d.keys() <= {
                 "source", "motif", "raison"}:
             raise MotifInvalide(f"entrée {i} : clés source, motif et raison (facultative)")
-        if not isinstance(d["source"], str) or not d["source"].strip():
-            raise MotifInvalide(f"entrée {i} : source invalide")
+        if not isinstance(d["source"], str) or not 1 <= len(d["source"].strip()) <= NOM_MAX:
+            raise MotifInvalide(f"entrée {i} : source de 1 à {NOM_MAX} caractères attendue")
         try:
             lignes.append((d["source"].strip(), valider_motif(d["motif"]),
                            _valider_raison(d.get("raison"))))

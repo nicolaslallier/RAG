@@ -419,7 +419,8 @@ def test_import_applique_l_exclusion_et_garde_une_source_inconnue(bd, index):
     "pas une liste", "- {source: a}", "- {source: a, motif: '', raison: x}",
     "- {source: a, motif: b, autre: 1}", "- {source: a, motif: b}\n- 3",
     "- {source: a, motif: b, raison: 3}", "- {source: 1, motif: b}", ": [",
-    "- {source: a, motif: b, raison: " + "r" * 501 + "}"])
+    "- {source: a, motif: b, raison: " + "r" * 501 + "}",
+    "- {source: " + "s" * 501 + ", motif: b}"])
 def test_import_malforme_n_ecrit_rien(bd, index, texte):
     with pytest.raises(MotifInvalide):
         importer(bd, texte)

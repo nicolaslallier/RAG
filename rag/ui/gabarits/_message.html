@@ -1,0 +1,3 @@
+{# Résultat d'une action : message, puis la liste des exclusions à jour (hors bande) s'il y a lieu. #}
+<p class="{{ 'erreur' if erreur else 'succes' }}" role="{{ 'alert' if erreur else 'status' }}">{{ message }}</p>
+{% if exclusions is defined %}{% include "_liste_exclusions.html" %}{% endif %}

@@ -1,11 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import ligne_source %}
 {% block titre %}Sources{% endblock %}
-{% block navigation %}
-<nav>
-  <form method="post" action="/ui/deconnexion"><button type="submit" class="lien">Se déconnecter</button></form>
-</nav>
-{% endblock %}
 {% block contenu %}
 <h1>Sources</h1>
 {% if not ecrivain %}<p class="aide">Lecture seule : la gestion de l'index demande le jeton privé.</p>{% endif %}

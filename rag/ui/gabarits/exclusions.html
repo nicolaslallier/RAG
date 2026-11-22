@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titre %}Exclusions{% endblock %}
+{% block contenu %}
+<h1>Exclusions</h1>
+{% if ecrivain %}
+<section class="carte bloc">
+  <h2>Exclure des fichiers</h2>
+  <form class="formulaire" hx-post="/ui/exclusions/apercu" hx-target="#apercu" hx-swap="innerHTML">
+    <label for="source">Source</label>
+    <select id="source" name="source" required>
+      {% for nom in sources %}<option value="{{ nom }}">{{ nom }}</option>{% endfor %}
+    </select>
+    <label for="motif">Motif</label>
+    <input id="motif" name="motif" required maxlength="1000" autocomplete="off"
+           placeholder="02 - Domaines/Cuisine/**">
+    <label for="raison">Raison (facultative)</label>
+    <input id="raison" name="raison" maxlength="{{ raison_max }}" autocomplete="off">
+    <p class="aide">Motif à la manière de <code>exclure:</code> : <code>*</code> traverse les <code>/</code>.
+      Un aperçu montre les documents touchés avant de confirmer.</p>
+    <div><button type="submit">Aperçu</button></div>
+  </form>
+</section>
+{% else %}
+<p class="aide">Lecture seule : la gestion de l'index demande le jeton privé.</p>
+{% endif %}
+<div id="apercu" aria-live="polite"></div>
+{% set oob = false %}
+{% include "_liste_exclusions.html" %}
+{% if ecrivain %}
+<section class="carte bloc">
+  <h2>Sauvegarde</h2>
+  <p><a href="/ui/exclusions/export" download>Exporter (YAML)</a></p>
+  <form class="filtres" hx-post="/ui/exclusions/import" hx-encoding="multipart/form-data"
+        hx-target="#apercu" hx-swap="innerHTML">
+    <label for="fichier">Importer un export</label>
+    <input id="fichier" type="file" name="fichier" accept=".yaml,.yml,text/yaml" required>
+    <button type="submit" class="secondaire">Importer</button>
+  </form>
+  <p class="aide">Fusion : les motifs déjà présents sont ignorés ; 1 Mo au plus.</p>
+</section>
+{% endif %}
+{% endblock %}
