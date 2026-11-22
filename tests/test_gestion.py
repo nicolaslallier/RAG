@@ -2,6 +2,7 @@ import unicodedata
 from pathlib import Path
 from types import SimpleNamespace
 
+import psycopg
 import pytest
 import yaml
 
@@ -425,3 +426,26 @@ def test_import_malforme_n_ecrit_rien(bd, index, texte):
     with pytest.raises(MotifInvalide):
         importer(bd, texte)
     assert exclusions(bd) == []
+
+
+def test_lignes_exclus_du_listage_non_verrouillees_pendant_la_lecture(bd, index, faux_modeles):
+    # les exclus décidés au listage sont validés avant le travail lent (lecture, embeddings)
+    exclure_a_la_main(bd, "coffre-maison", "03 - Ressources/**")
+    reindexer_coffre(bd, index, faux_modeles)  # lignes exclus déjà là : la passe les met à jour
+    (index.coffre / "Accueil.md").write_text("# Accueil\n\nModifiée.\n")
+    lec = LecteurDossier(index.coffre)
+    lire, lus, bloques = lec.lire, [], []
+
+    def lire_et_verrouiller(c):
+        lus.append(c)
+        with connexion(URL) as autre:
+            try:
+                autre.execute("SELECT 1 FROM exclus WHERE raison = 'manuelle' FOR UPDATE NOWAIT")
+            except psycopg.errors.LockNotAvailable:
+                bloques.append(c)
+        return lire(c)
+
+    lec.lire = lire_et_verrouiller
+    reindexer_coffre(bd, index, faux_modeles, lec)
+    assert lus == ["Accueil.md"] and bloques == []
+    assert raisons(bd)["03 - Ressources/Grafana.md"] == ("manuelle", False)
