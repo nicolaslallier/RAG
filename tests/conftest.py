@@ -194,7 +194,7 @@ def index_code(bd, depot, tmp_path, faux_modeles):
     from rag.sources import LecteurGit
 
     src = SourceConf(visibilite="public-maison", nom="depot-test", type="code", emplacement="x")
-    lec = LecteurGit(str(depot), tmp_path / "c")
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
     indexer_source(bd, src, lec, charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
     return lec
 

@@ -126,6 +126,8 @@ class LecteurGit:
         return r.stdout.decode(errors="replace")
 
     def _cloner(self) -> None:
+        if self.dest.parent.name != "clones":  # jamais de rmtree hors du dossier des clones
+            raise ErreurSource(f"destination refusée : {self.dest}")
         shutil.rmtree(self.dest, ignore_errors=True)
         self.dest.parent.mkdir(parents=True, exist_ok=True)
         self._git("clone", "--single-branch", "--branch", self.branche, self.url,

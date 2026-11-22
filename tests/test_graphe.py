@@ -137,7 +137,7 @@ def test_rag_indexer_continue_apres_un_echec_de_graphe(bd, depot, tmp_path, monk
     config = charger_config(Path("config/rag.yaml")).model_copy(update={"sources": [
         SRC_CODE, SRC_CODE.model_copy(update={"nom": "depot-2"})]})
     monkeypatch.setattr(cli, "lecteur_pour", lambda s, r: LecteurGit(str(depot),
-                                                                      tmp_path / s.nom))
+                                                                      tmp_path / "clones" / s.nom))
     vus = []
 
     def extr(clone, *a, **k):

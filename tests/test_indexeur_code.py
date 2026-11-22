@@ -17,7 +17,7 @@ def chemins(bd):
 
 
 def test_indexe_le_code_par_symbole(bd, depot, tmp_path, faux_modeles):
-    b = indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "c"), CONF, faux_modeles)
+    b = indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF, faux_modeles)
     assert b.exclus == 3  # .env.example, uv.lock, logo.png
     assert chemins(bd) == {"a.py", "docs/guide.md", "gros.json"}
     r = bd.execute("SELECT m.symbole, m.ligne, m.fil, d.type FROM morceaux m JOIN documents d "
@@ -33,14 +33,14 @@ def test_un_secret_dans_le_contenu_n_entre_jamais(bd, depot, tmp_path, faux_mode
     commit(depot, "deploy/seal.key", "abc")
     commit(depot, "conf.yaml", "cle: sk-proj-" + "A" * 30 + "\n")
     commit(depot, "k.py", "K = '''-----BEGIN RSA PRIVATE KEY-----\nxx'''\n")
-    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "c"), CONF, faux_modeles)
+    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF, faux_modeles)
     assert not chemins(bd) & {"deploy/seal.key", "conf.yaml", "k.py"}
     assert bd.execute("SELECT count(*) n FROM morceaux WHERE texte ~ 'sk-proj-|PRIVATE KEY'"
                       ).fetchone()["n"] == 0
 
 
 def test_gros_fichier_un_seul_morceau(bd, depot, tmp_path, faux_modeles):
-    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "c"), CONF, faux_modeles)
+    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF, faux_modeles)
     ms = bd.execute("SELECT m.texte FROM morceaux m JOIN documents d ON d.id=m.document_id "
                     "WHERE d.chemin='gros.json'").fetchall()
     assert len(ms) == 1 and len(ms[0]["texte"]) == 2000
@@ -50,8 +50,8 @@ def test_gros_fichier_un_seul_morceau(bd, depot, tmp_path, faux_modeles):
 
 
 def test_fichier_inchange_jamais_relu(bd, depot, tmp_path, faux_modeles):
-    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "c"), CONF, faux_modeles)
-    lec = LecteurGit(str(depot), tmp_path / "c")
+    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF, faux_modeles)
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
     lus = []
     lire = lec.lire
     lec.lire = lambda c: lus.append(c) or lire(c)
@@ -60,7 +60,7 @@ def test_fichier_inchange_jamais_relu(bd, depot, tmp_path, faux_modeles):
 
 
 def test_recherche_filtre_par_depot(bd, depot, tmp_path, faux_modeles, index):
-    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "c"), CONF, faux_modeles)
+    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF, faux_modeles)
     v = version_courante(bd, CONF)
     r = chercher(bd, "aide lancer indexeur", CONFIG.recherche, faux_modeles, v, "m",
                  niveaux=PUBLIC, filtres=Filtres(sources=["depot-test"]))
@@ -90,7 +90,7 @@ def test_le_coffre_git_n_est_pas_une_source():
 
 def test_blob_geant_exclu_sans_lecture(bd, depot, tmp_path, faux_modeles):
     commit(depot, "enorme.txt", "a" * (10 * CONF.taille_max_octets + 1))
-    lec = LecteurGit(str(depot), tmp_path / "c")
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
     lus = []
     lire = lec.lire
     lec.lire = lambda c: lus.append(c) or lire(c)
