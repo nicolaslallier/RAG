@@ -30,7 +30,7 @@
 ## Review Focus
 
 1. **L'appelant ou le modèle glisse des lignes de journal dans `pourquoi`** (`"x\n### n° 99 — …"`, ou une ligne `- données : {...}`) : le texte est aplati sur une ligne et ne peut ni créer une entrée ni fausser « annule ». → test tâche 3.
-2. **Le RAG est injoignable** : aucune note n'est créée en mode libre (l'anti-doublon ne peut pas être vérifié) ; le mode déterministe écrit quand même et rend `"reindexation": "echec"`. → tests tâches 5 et 6.
+2. **Le RAG est injoignable** (décision de Nicolas : jamais de création « non vérifiée » ; d'autant plus probable que le RAG tournera sur le Mac) : aucune note n'est créée en mode libre (l'anti-doublon ne peut pas être vérifié) ; le mode déterministe écrit quand même et rend `"reindexation": "echec"`. → tests tâches 5 et 6.
 3. **Chemin piégé** (`../x.md`, `/abs.md`, `a\\b.md`, `_versions/x.md`, `.obsidian/app.json`, `x.txt`, le journal lui-même, forme NFD d'un nom accentué) : refus `chemin`, ou chemin ramené en NFC ; rien n'est écrit hors du préfixe du coffre. → test tâche 2.
 4. **Le texte reçu commence par `{` sans être une demande** (une question qui cite du JSON, un JSON sans `action`) : il part en mode libre, il n'est pas refusé. → test tâche 5.
 5. **Deux écritures en même temps** (deux appels A2A, ou plus tard la passe de nuit) : les numéros de journal ne se répètent pas et aucune entrée ne se perd. → test tâche 3.
@@ -44,7 +44,7 @@
 - Test: `scripts/test_litellm_provision.py`, `scripts/test_litellm_routes.py` (le test de docs qui cherche `users: []`)
 
 **Interfaces:**
-- Produces: clés `agent-doc` (équipe `agents`, `user: null`) et `nicolas-doc` (équipe `agents`, `user: nicolas-doc@agents.invalid`) ; utilisateur `{email: nicolas-doc@agents.invalid, team: agents}` dans `users:`. LiteLLM transmet le `user_id` de la clé appelante dans `X-LiteLLM-User-Id` : c'est l'identité de l'appelant (tâche 8).
+- Produces: clés `agent-doc` (équipe `agents`, `user: null`), `nicolas-doc` (équipe `agents`, `user: nicolas-doc@agents.invalid`) et `portail-agents` (équipe `agents`, `user: portail@agents.invalid` — décision de Nicolas : le Portail appelle les agents avec une clé locale) ; utilisateurs `{email: nicolas-doc@agents.invalid, team: agents}` et `{email: portail@agents.invalid, team: agents}` dans `users:`. LiteLLM transmet le `user_id` de la clé appelante dans `X-LiteLLM-User-Id` : c'est l'identité de l'appelant (tâche 8).
 
 - [ ] **Step 1: Écrire le test qui échoue**
 
@@ -55,13 +55,15 @@ def test_agent_doc_keys_are_local_only_and_callers_carry_a_service_user():
     assert not [m for m in spec["teams"]["agents"]["models"] if m.startswith("cloud-")]
     assert keys["agent-doc"]["team"] == "agents" and keys["agent-doc"]["user"] is None
     assert keys["nicolas-doc"] == {"alias": "nicolas-doc", "team": "agents", "user": "nicolas-doc@agents.invalid"}
-    assert {"email": "nicolas-doc@agents.invalid", "team": "agents"} in spec["users"]
+    assert keys["portail-agents"] == {"alias": "portail-agents", "team": "agents", "user": "portail@agents.invalid"}
+    for u in ("nicolas-doc", "portail"):
+        assert {"email": u + "@agents.invalid", "team": "agents"} in spec["users"]
 ```
 
 - [ ] **Step 2: Lancer** `make test` — attendu : ÉCHEC (`KeyError: 'agent-doc'`).
 - [ ] **Step 3: Modifier** `litellm/teams.yaml` (commentaire : « service users: the part before @ is the caller name agent-doc records ») ; adapter le README et le test de docs qui supposent `users: []`.
 - [ ] **Step 4: Relancer** `make test` — attendu : SUCCÈS.
-- [ ] **Step 5: Commit** `git commit -am "litellm: keys agent-doc and nicolas-doc (team agents), service user for the caller identity"`
+- [ ] **Step 5: Commit** `git commit -am "litellm: keys agent-doc, nicolas-doc and portail-agents (team agents), service users for the caller identity"`
 
 ---
 
@@ -80,8 +82,8 @@ journal: "Journal du documentaliste.md"
 dossiers: ["00 - Inbox", "01 - Projets", "02 - Domaines", "03 - Ressources", "04 - Archives", "05 - Journal", "06 - Modèles"]
 inbox: "00 - Inbox"
 modeles: "06 - Modèles"
-proteges_prefixes: ["06 - Modèles/", "05 - Journal/", "_Claude/"]   # never moved, merged or archived
-proteges_noms: ["_CLAUDE.md", "index.md", "log.md"]                  # any folder
+proteges_prefixes: ["06 - Modèles/", "05 - Journal/", "04 - Archives/", "_Claude/"]   # never moved, merged or archived
+proteges_noms: ["_CLAUDE.md", "index.md", "log.md", "Accueil.md", "À propos de moi.md"]   # any folder
 generes: ["02 - Domaines/Loisirs/Musique/Discographie.md"]           # no version, no journal, no quiet rule
 anti_doublon: {cosinus: 0.85, limite: 5}
 nuit: {seuil_doublon: 0.92, max_examens: 30}
@@ -124,6 +126,7 @@ def test_lire_et_lister():
 def test_protege():
     c = coffre()
     for p in ("06 - Modèles/Modèle - Projet.md", "05 - Journal/2026-11-22.md", "_Claude/x.md", "01 - Projets/index.md",
+              "04 - Archives/Vieux projet.md", "Accueil.md", "À propos de moi.md",
               "02 - Domaines/Loisirs/Musique/Discographie.md"):
         assert c.protege(p), p
     assert not c.protege("01 - Projets/Chalet.md")
@@ -485,15 +488,15 @@ def test_litellm_transmet_l_identite_de_l_appelant():      # garde-fou de monté
 **Interfaces:**
 - Produces (valeurs du contrat) :
   - `litellm/config.yaml`, sous `agents:` — entrée `agent-doc`, copie de celle d'agent-musique : `static_headers: {X-Agent-Token: os.environ/AGENT_DOC_TOKEN}`, `url: http://agent-doc:8000`.
-  - `litellm/mcp_policy.yaml` : `agent-doc: {teams: [agents]}` avec le commentaire « local-only teams: the vault content it returns must never reach a cloud model ».
+  - `litellm/mcp_policy.yaml` : `agent-musique: {teams: [admin, apps, agents]}` (`agents` ajoutée pour la clé `portail-agents` ; `apps` sera retirée au plan 5, une fois le Portail déployé avec sa clé locale) ; `agent-doc: {teams: [agents]}` avec le commentaire « local-only teams: the vault content it returns must never reach a cloud model ».
   - `nginx/conf.d/litellm.conf` : bloc `location = /v1/a2a/agent-doc/message/send`, copie de celui d'agent-musique.
   - `nginx/conf.d/portail.conf` : `location ^~ /service { return 404; }` à côté de `location ^~ /interne`.
-  - `docker-compose.mcp.yml` : service `agent-doc`, copie d'`agent-musique` (image `infra-agent-doc:1`, `pull_policy: never`, même contrôle de santé), variables du tableau « Secrets et variables » ; secrets en `${VAR:?…}` sauf `AGENT_DOC_PORTAIL_JETON: ${AGENT_DOC_PORTAIL_JETON:-}` ; `AGENT_DOC_NUIT: "off"`.
+  - `docker-compose.mcp.yml` : service `agent-doc`, copie d'`agent-musique` (image `infra-agent-doc:1`, `pull_policy: never`, même contrôle de santé), variables du tableau « Secrets et variables » — `AGENT_DOC_RAG_URL: ${AGENT_DOC_RAG_URL:?…}` tant que sa valeur n'est pas fixée par l'amendement « Colima » du plan 4 du projet 1 (pas de valeur inventée dans le fichier) ; secrets en `${VAR:?…}` sauf `AGENT_DOC_PORTAIL_JETON: ${AGENT_DOC_PORTAIL_JETON:-}` ; `AGENT_DOC_NUIT: "off"`.
   - `docker-compose.platform.yml` : `AGENT_DOC_TOKEN` dans l'environnement de `litellm`, à côté d'`AGENT_MUSIQUE_TOKEN`.
   - `.env.example`, `check-env.sh`, `ci-fake-env.sh` : `AGENT_DOC_LITELLM_KEY`, `AGENT_DOC_TOKEN`, `AGENT_DOC_S3_SECRET_KEY`, `AGENT_DOC_RAG_JETON`, `AGENT_DOC_RAG_JETON_REINDEXER` (obligatoires), `AGENT_DOC_PORTAIL_JETON` (facultative, absente de `check-env`), avec en commentaire l'égalité à garder avec `infra/rag` et `infra/portail`.
 
 - [ ] **Step 1: Adapter les tests pour qu'ils échouent**
-  - `test_mcp_policy.py`, `test_policy_agents_are_registered_built_and_keyed` : la politique attendue devient `{"agent-test": {"teams": ["admin"]}, "agent-musique": {"teams": ["admin", "apps"]}, "agent-doc": {"teams": ["agents"]}}` ; ajouter :
+  - `test_mcp_policy.py`, `test_policy_agents_are_registered_built_and_keyed` : la politique attendue devient `{"agent-test": {"teams": ["admin"]}, "agent-musique": {"teams": ["admin", "apps", "agents"]}, "agent-doc": {"teams": ["agents"]}}` ; ajouter :
 
 ```python
 def test_agent_doc_is_open_to_local_only_teams():
@@ -525,10 +528,10 @@ def test_agent_doc_is_open_to_local_only_teams():
 
 - [ ] **Step 1: Écrire** dans `CLAUDE.md` une entrée `agent-doc` sur le modèle de celle d'agent-musique (ce qu'il fait, ses clés, ses règles tenues par le code, « team `agents` only »), et dans le README (« LiteLLM: memory, skills, agents ») sa description, le tableau du mode déterministe, et la section « Setup of `agent-doc` » ci-dessous. Mettre à jour les tests de docs (`test_docs_say_…`) pour qu'ils cherchent `/v1/a2a/agent-doc/message/send` et les noms des secrets.
 - [ ] **Step 2: Écrire la section « Setup of `agent-doc` »** — étapes **faites par Nicolas**, sur l'hôte, avant la fusion, dans cet ordre :
-  1. Prérequis : le RAG maître répond (`docker exec rag-rag-1 … /sante`), avec le plan 1 du projet 2 déployé.
+  1. Prérequis : le RAG maître est déployé (dans Colima sur le Mac, amendement du plan 4 du projet 1) avec le plan 1 du projet 2, et `GET <AGENT_DOC_RAG_URL>/sante` répond **depuis un conteneur d'`infra-net`** ; `AGENT_DOC_RAG_URL` est renseignée dans `docker-compose.mcp.yml` avec la valeur fixée par cet amendement (ne pas fusionner tant qu'elle ne l'est pas).
   2. Secrets : `make vault-cli args="kv patch -mount=infra env AGENT_DOC_TOKEN=$(openssl rand -hex 32) AGENT_DOC_S3_SECRET_KEY=$(openssl rand -hex 24) AGENT_DOC_RAG_JETON=<RAG_JETON d'infra/rag> AGENT_DOC_RAG_JETON_REINDEXER=<RAG_JETON_REINDEXER d'infra/rag>"` (et `AGENT_DOC_PORTAIL_JETON=<PORTAIL_JETON_SERVICE>` si le plan 2 est déployé) ; `make vault-env`.
   3. `./scripts/provision-s3.sh agent-doc obsidian 0 Read,Write,List`.
-  4. `make litellm-provision` : il imprime une fois les clés `agent-doc` et `nicolas-doc` ; ranger la première dans `infra/env` (`AGENT_DOC_LITELLM_KEY`), garder la seconde pour les essais ; `make vault-env`.
+  4. `make litellm-provision` : il imprime une fois les clés `agent-doc`, `nicolas-doc` et `portail-agents` ; ranger la première dans `infra/env` (`AGENT_DOC_LITELLM_KEY`), garder la deuxième pour les essais, ranger la troisième dans `infra/portail` (`PORTAIL_LITELLM_CLE_AGENTS`, lue par le Portail une fois le plan 2 déployé) ; `make vault-env`.
   5. Fusionner. Le déploiement construit `infra-agent-doc:1` et redéploie `mcp`, `platform` et `infra`.
 - [ ] **Step 3: Écrire la vérification en service** (à la suite, dans le README), avec `KEY=<clé nicolas-doc>` et une note d'essai `00 - Inbox/Essai agent-doc.md` :
   1. `ecrire` en mode déterministe → `effet: creee`, `journal: 1` ; la note et `Journal du documentaliste.md` arrivent dans Obsidian sur le Mac à la synchro suivante ; l'entrée dit `appelant : nicolas-doc` (**c'est la preuve que `X-LiteLLM-User-Id` arrive**).

@@ -25,7 +25,7 @@
 - agent-musique reste borné à `02 - Domaines/Loisirs/Musique/` par `cle_ecriture()` **avant** tout appel à agent-doc ; le modèle ne choisit toujours pas le chemin (`nom_note`).
 - Ce que l'utilisateur voit ne change pas : mêmes messages (« note créée », « note existante mise à jour », « refusé : la note a été modifiée il y a moins de 10 minutes… »), même ligne `Sources :`, même index régénéré.
 - La mise à jour d'une note existante garde le reste de la note octet pour octet (`mise_a_jour`, inchangée).
-- La clé d'agent-musique reste dans l'équipe `agents` ; l'appel du Portail à agent-musique (clé `ai`, équipe `apps`) n'est pas touché.
+- La clé d'agent-musique reste dans l'équipe `agents`. Décision de Nicolas : le Portail appelle agent-musique avec sa clé locale `portail-agents` (plan 2, tâche 3) ; ce plan retire donc `apps` des équipes autorisées d'agent-musique — **seulement une fois le Portail déployé avec `PORTAIL_LITELLM_CLE_AGENTS`**, sinon la page Musique répond 403.
 - Conventions de l'Infra : commentaires en anglais, `make test` et `make check-env` verts à chaque commit, balise d'image changée au même commit dans `docker-compose.mcp.yml` et `scripts/portainer-images.sh`.
 
 ## Review Focus
@@ -33,6 +33,7 @@
 1. **agent-doc ne répond pas, ou répond autre chose que du JSON** : le disque n'est pas annoncé comme enregistré ; le modèle reçoit « refusé : … » et la réponse ne dit jamais « enregistré ». → tests tâches 1 et 2.
 2. **La note est écrite mais l'index échoue** (agent-doc tombe entre les deux appels) : le message dit « note créée ; index NON régénéré », la note figure dans `Sources :`. → test tâche 1.
 3. **Refus `calme`** : le message d'agent-doc est rendu tel quel, précédé de « refusé : », et l'index n'est pas régénéré. → test tâche 1.
+4 bis. **`apps` retirée d'agent-musique avant que le Portail ait sa clé locale** : la page Musique tombe en 403. L'ordre des étapes manuelles l'interdit. → tâche 4.
 4. **Identité S3 passée en lecture seule avant le déploiement de la nouvelle image** : l'ancienne image échouerait à chaque enregistrement. L'ordre des étapes manuelles l'interdit. → tâche 4.
 5. **`Discographie.md` écrite à la main** (pas le fichier généré) : toujours jamais écrasée — le contrôle du marqueur `type: index` / `source: claude` reste dans agent-musique, avant l'appel. → test existant `test_a_hand_written_discographie_is_never_overwritten`, à garder vert.
 
@@ -147,12 +148,13 @@ def test_ecrire_par_doc_never_raises():
 ### Task 3: Image `:4`, pile, identité de l'appelant
 
 **Files:**
-- Modify: `docker-compose.mcp.yml`, `scripts/portainer-images.sh`, `litellm/teams.yaml`, `.env.example` (commentaire de l'identité S3)
+- Modify: `docker-compose.mcp.yml`, `scripts/portainer-images.sh`, `litellm/teams.yaml`, `litellm/mcp_policy.yaml`, `nginx/conf.d/litellm.conf` (commentaires qui nomment les équipes), `.env.example` (commentaire de l'identité S3)
 - Test: `scripts/test_mcp_policy.py`, `scripts/test_litellm_provision.py`
 
 **Interfaces:**
 - Produces:
   - `docker-compose.mcp.yml`, service `agent-musique` : image `infra-agent-musique:4`, variable `AGENT_DOC_A2A_URL: http://litellm:4000/a2a/agent-doc/message/send`, commentaire mis à jour (« its S3 identity is Read,List; writes go through agent-doc »). `scripts/portainer-images.sh` : même balise.
+  - `litellm/mcp_policy.yaml` : `agent-musique: {teams: [admin, agents]}` — `apps` retirée (commentaire : « the Portail calls with its local key portail-agents »). Le test `test_policy_agents_are_registered_built_and_keyed` attend alors `{"agent-test": {"teams": ["admin"]}, "agent-musique": {"teams": ["admin", "agents"]}, "agent-doc": {"teams": ["agents"]}}` et `agent_refusal(full, "apps", <id d'agent-musique>)` n'est plus `None`.
   - `litellm/teams.yaml` : utilisateur `{email: agent-musique@agents.invalid, team: agents}` et `user: agent-musique@agents.invalid` sur la clé `agent-musique`. Une clé existante n'est pas modifiée par `make litellm-provision` : l'utilisateur ne prend effet qu'à la rotation de la clé (tâche 4).
 
 - [ ] **Step 1: Écrire les tests qui échouent**
@@ -180,11 +182,11 @@ def test_agent_musique_may_call_agent_doc_and_names_itself():
 
 - [ ] **Step 1: Mettre à jour** l'entrée `agent-musique` de `CLAUDE.md` et la section du README : il lit S3 directement et écrit par agent-doc ; identité S3 `Read,List` ; plus de `AGENT_MUSIQUE_QUIET_MINUTES` (la règle est `AGENT_DOC_QUIET_MINUTES`) ; les changements de notes de disques sont au journal du documentaliste et annulables ; `Discographie.md` reste régénérée, sans journal. Adapter les tests de docs qui cherchent `provision-s3.sh agent-musique obsidian 0 Read,Write,List`.
 - [ ] **Step 2: Écrire « Switching `agent-musique` to agent-doc »** dans le README — étapes **faites par Nicolas**, dans cet ordre (l'ordre évite toute fenêtre où agent-musique ne peut plus enregistrer) :
-  1. agent-doc est en service et vérifié (plan 3, tâche 10).
+  1. agent-doc est en service et vérifié (plan 3, tâche 10) ; **le Portail est déployé avec `PORTAIL_LITELLM_CLE_AGENTS`** (plan 2, tâche 3) et la page Musique répond — sans cela, ne pas fusionner : cette PR retire `apps` d'agent-musique.
   2. `make litellm-provision rotate=agent-musique` : la clé est recréée avec son utilisateur de service ; ranger la nouvelle valeur dans `infra/env` (`AGENT_MUSIQUE_LITELLM_KEY`), `make vault-env`. (Sans cette étape tout fonctionne, mais le journal dit `appelant : inconnu`.)
   3. Fusionner : le déploiement construit `infra-agent-musique:4` et redéploie `mcp`.
   4. Vérifier, depuis la page Musique du Portail : « enregistre <un disque d'essai> en CD » → « note créée » ; la note et `Discographie.md` sont à jour dans S3 ; `Journal du documentaliste.md` a une entrée `appelant : agent-musique` pour la note et **aucune** pour `Discographie.md` ; redemander aussitôt le même disque avec un autre état → « refusé : la note a été modifiée il y a moins de 10 minutes ».
   5. **Seulement ensuite** : `./scripts/provision-s3.sh agent-musique obsidian 0 Read,List`.
-  6. Vérifier : avec l'identité `agent-musique`, un `aws s3 cp` vers le bucket est refusé ; une question (« qu'est-ce que j'ai de Miles Davis ? ») répond toujours ; après 10 minutes, un second enregistrement passe.
+  6. Vérifier : un appel à agent-musique avec la clé `ai` (équipe `apps`) est refusé (403 `agent-policy`) et la page Musique du Portail répond toujours ; avec l'identité `agent-musique`, un `aws s3 cp` vers le bucket est refusé ; une question (« qu'est-ce que j'ai de Miles Davis ? ») répond toujours ; après 10 minutes, un second enregistrement passe.
   7. Annuler l'enregistrement d'essai : `{"action": "annuler", "numero": N}` avec la clé `nicolas-doc`, puis redemander un enregistrement quelconque pour régénérer l'index.
 - [ ] **Step 3: Commit et PR en brouillon** `git commit -am "docs: agent-musique writes through agent-doc, read-only S3 identity"`, `gh pr create --draft`. Ne pas fusionner.

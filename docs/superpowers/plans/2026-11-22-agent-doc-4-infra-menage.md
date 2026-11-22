@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - Toutes celles du plan 3 (jamais de suppression définitive, version relue avant tout retrait, calme, journal, seul `coffre.py` écrit dans S3, rien ne sort du homelab, aucun contenu de note dans les journaux du conteneur).
-- **Zones protégées** : une note pour laquelle `Coffre.protege()` est vrai n'est jamais déplacée, fusionnée, archivée, ni réécrite pour corriger un lien. Si un déplacement exige de réécrire un lien dans une note protégée, le déplacement est refusé.
+- **Zones protégées** (`06 - Modèles/`, `05 - Journal/`, `04 - Archives/`, `_Claude/`, `Accueil.md`, `À propos de moi.md`, `_CLAUDE.md`, `index.md`, `log.md`, fichiers générés, tableaux kanban) : une note pour laquelle `Coffre.protege()` est vrai n'est jamais déplacée, fusionnée, archivée, ni réécrite pour corriger un lien. Si un déplacement exige de réécrire un lien dans une note protégée, le déplacement est refusé.
 - **Aucun lien cassé par le code** : une opération qui retire une note réécrit d'abord tous les liens entrants connus du RAG ; si le RAG ne répond pas, ou si une note à réécrire est en période de calme, l'opération entière est refusée, rien n'est écrit.
 - **Fusion mécanique** : les deux contenus sont gardés en entier dans la note cible ; gemma n'écrit que le chapeau. Un échec de gemma ne bloque pas la fusion (pas de chapeau).
 - **Une opération = une entrée de journal**, avec toutes ses `ops`, même interrompue (`"incomplet": true`).
@@ -37,7 +37,9 @@
 **Files:**
 - Create: `docs/superpowers/spikes/2026-11-remotely-save-suppression.md`
 
-Aucun code. Les manipulations touchent le vrai coffre et le Mac de Nicolas : **elles sont faites par Nicolas, ou par l'agent seulement avec son accord explicite, étape par étape**, sur des notes d'essai `00 - Inbox/Spike RS <lettre>.md` créées pour l'occasion. Rien d'autre n'est modifié. Accès S3 : identité `agent-doc` (plan 3), par `https://s3.infra.famillelallier.net`.
+Aucun code. Décision de Nicolas (2026-11-22) : **le spike est fait par un agent, étape par étape, et chaque étape attend l'accord explicite de Nicolas avant d'être exécutée** (l'agent annonce la manipulation exacte — objet, commande —, attend le « oui », l'exécute, rapporte l'observation, puis propose la suivante). Les manipulations touchent le vrai coffre : elles ne portent que sur des notes d'essai `00 - Inbox/Spike RS <lettre>.md` créées pour l'occasion. Ce qui se passe dans Obsidian sur le Mac (créer une note, lancer une synchro, lire un réglage) est fait ou observé par Nicolas, à la demande de l'agent. Accès S3 : identité `agent-doc` (plan 3), par `https://s3.infra.famillelallier.net`.
+
+- [ ] **Étape 0 — avant toute manipulation, par Nicolas :** exclure `_versions/` dans les réglages du plugin Remotely Save (sans exclure `_Claude` ni `_CLAUDE.md`), sur chaque appareil qui synchronise le coffre, et le confirmer à l'agent. Rien n'est écrit dans S3 avant cette confirmation.
 
 **Questions auxquelles le compte rendu répond, avec la manipulation et l'observation de chacune :**
 
@@ -45,11 +47,11 @@ Aucun code. Les manipulations touchent le vrai coffre et le Mac de Nicolas : **e
 - [ ] **Q2 — note modifiée sur le Mac après la dernière synchro.** Même chose avec `Spike RS B.md`, mais la modifier dans Obsidian **avant** de synchroniser. Observer : la version locale est-elle renvoyée (attendu : oui, et c'est le bon comportement — on ne perd pas ce que Nicolas vient d'écrire) ?
 - [ ] **Q3 — Mac absent.** `Spike RS C.md` : retirer l'objet, puis ne synchroniser qu'après au moins une nuit (et, si possible, après une synchro d'un autre appareil). Même observation que Q1.
 - [ ] **Q4 — déplacement.** `Spike RS D.md` : écrire le même contenu sous `03 - Ressources/Spike RS D.md` puis retirer l'ancien. Observer : un seul fichier sur le Mac, au nouvel endroit, sans copie « conflit ».
-- [ ] **Q5 — `_versions/`.** Écrire `<préfixe>_versions/Spike RS E.md/20261122T000000Z.md`. Observer : arrive-t-il sur le Mac ? Relever dans les réglages du plugin : « synchroniser les fichiers et dossiers en `_` » (le coffre a déjà un dossier `_Claude`), la liste d'exclusions (expressions régulières), le seuil de protection contre les suppressions en masse, et la version du plugin. Si `_versions/` descend sur le Mac : trouver le réglage qui l'exclut **sans** exclure `_Claude` ni `_CLAUDE.md`, l'appliquer, refaire l'essai.
+- [ ] **Q5 — `_versions/` (vérifie l'étape 0).** Écrire `<préfixe>_versions/Spike RS E.md/20261122T000000Z.md`. Observer : il ne doit **pas** arriver sur le Mac. Relever dans les réglages du plugin : « synchroniser les fichiers et dossiers en `_` » (le coffre a déjà un dossier `_Claude`), la liste d'exclusions (expressions régulières), le seuil de protection contre les suppressions en masse, et la version du plugin. Si `_versions/` descend sur le Mac : trouver le réglage qui l'exclut **sans** exclure `_Claude` ni `_CLAUDE.md`, l'appliquer, refaire l'essai.
 - [ ] **Q6 — droit de retirer.** L'identité `agent-doc` (`Read,Write,List`) peut-elle faire `DeleteObject` ? L'identité `rag` (`Read,List`) est-elle bien refusée ?
 - [ ] **Q7 — rythme.** Quel est l'intervalle de synchro automatique du Mac ? La règle de calme (10 minutes) le couvre-t-elle ?
 
-- [ ] **Nettoyer** : retirer toutes les notes `Spike RS *` du coffre et de `_versions/`.
+- [ ] **Nettoyer** (avec l'accord de Nicolas, comme chaque étape) : retirer toutes les notes `Spike RS *` du coffre et de `_versions/`.
 - [ ] **Écrire le compte rendu** : une section par question (manipulation, observation, capture si utile), puis le **verdict** :
 
 | Si | Alors |

@@ -4,7 +4,7 @@
 
 > **Ce plan s'exécute dans le dépôt `nicolaslallier/AI`**, pas dans RAG. Le recopier dans `AI/docs/superpowers/plans/` au début de la PR. Partir d'`origin/main` à jour, sur une branche, PR en brouillon ; ne jamais pousser sur `main` (un merge redéploie le Portail).
 
-**Goal:** Permettre à agent-doc de créer, sans session de navigateur, une tâche de documentation seule directement « Prête » dans le projet Portail d'un dépôt, et de recevoir son lien.
+**Goal:** Permettre à agent-doc de créer, sans session de navigateur, une tâche de documentation seule directement « Prête » dans le projet Portail d'un dépôt, et de recevoir son lien ; et faire appeler les agents A2A par le Portail avec une clé limitée aux modèles locaux.
 
 **Architecture:** Une seule route hors de `/api/` (`POST /service/taches-doc`), authentifiée par un jeton de service comparé en temps constant. Elle retrouve le projet par l'URL de son dépôt, réutilise `creer_tache` et `deplacer_tache`, et réveille l'ordonnanceur. Le vhost ferme `/service` au LAN ; seuls les conteneurs d'`infra-net` l'atteignent.
 
@@ -18,6 +18,7 @@
 - Corps : `{"depot": "<nom du dépôt, sans propriétaire>", "demande": "<texte>", "appelant": "<nom>"}`.
 - Réponses : 201 `{"tache_id", "projet_id", "lien", "existante": false}` ; 200 avec `existante: true` si une tâche identique est déjà ouverte ; 401 jeton absent ou faux ; 503 jeton de service non configuré ; 404 aucun projet pour ce dépôt ; 409 plusieurs projets pour ce dépôt ; 429 trop de tâches de service ouvertes dans le projet ; 422 corps invalide.
 - Secret : clé `PORTAIL_JETON_SERVICE` du secret OpenBao `infra/portail`, **facultative** (absente : route en 503, le reste du Portail inchangé).
+- Clé locale : `PORTAIL_LITELLM_CLE_AGENTS` (`infra/portail`, facultative) = clé LiteLLM d'alias `portail-agents`, équipe `agents` ; utilisée pour tout appel du Portail à un agent A2A (agent-musique aujourd'hui).
 
 ## Global Constraints
 
@@ -141,15 +142,48 @@ def test_service_ferme_sur_le_vhost_et_jeton_facultatif():
 
 ---
 
-### Task 3: Documentation, étapes manuelles, PR
+### Task 3: Clé LiteLLM locale pour les appels aux agents
+
+Décision de Nicolas (2026-11-22) : le Portail n'appelle plus les agents A2A avec sa clé `ai` (équipe `apps`, qui a des modèles infonuagiques) mais avec une clé de l'équipe `agents`, d'alias `portail-agents` (créée côté Infra, plan 3 du projet 2, tâche 1).
+
+**Files:**
+- Modify: `backend/portail/config.py`, `backend/portail/api.py` (route `/api/musique`), `deploy/portainer-stack.yml`, `scripts/vault-render-env.sh`
+- Test: `backend/tests/test_musique.py`, `backend/tests/test_pile.py`
+
+**Interfaces:**
+- Produces: `Reglages.litellm_cle_agents: str = ""` (`PORTAIL_LITELLM_CLE_AGENTS`) ; la route `/api/musique` passe à `demander(...)` `r.litellm_cle_agents or r.litellm_cle`. Aucun autre appel ne change (les modèles restent appelés avec `litellm_cle`). Pile : `PORTAIL_LITELLM_CLE_AGENTS: ${PORTAIL_LITELLM_CLE_AGENTS:-}` ; `vault-render-env.sh` : paire dans `MAP`, nom dans `FACULTATIVES`. Tout futur appel du Portail à agent-doc utilise la même clé.
+
+- [ ] **Step 1: Écrire les tests qui échouent**
+
+```python
+async def test_musique_appelle_avec_la_cle_des_agents(...):       # sur le modèle des tests existants de /api/musique (transport httpx simulé)
+    # reglages(litellm_cle="cle-apps", litellm_cle_agents="cle-agents") -> la requête vers LiteLLM porte « Bearer cle-agents »
+    # reglages(litellm_cle="cle-apps", litellm_cle_agents="")           -> « Bearer cle-apps » (repli, rien ne casse avant l'étape manuelle)
+
+def test_cle_des_agents_facultative_dans_la_pile():               # tests/test_pile.py
+    assert "PORTAIL_LITELLM_CLE_AGENTS: ${PORTAIL_LITELLM_CLE_AGENTS:-}" in (RACINE / "deploy" / "portainer-stack.yml").read_text()
+    rendu = VAULT.read_text()
+    assert "PORTAIL_LITELLM_CLE_AGENTS=PORTAIL_LITELLM_CLE_AGENTS" in rendu
+    assert " PORTAIL_LITELLM_CLE_AGENTS " in re.search(r'FACULTATIVES="([^"]*)"', rendu).group(1)
+```
+
+- [ ] **Step 2: Lancer** `uv run pytest tests/test_musique.py tests/test_pile.py -v` — attendu : ÉCHEC.
+- [ ] **Step 3: Implémenter.**
+- [ ] **Step 4: Relancer** `uv run pytest -q` — attendu : SUCCÈS.
+- [ ] **Step 5: Commit** `git commit -am "feat: clé LiteLLM locale (équipe agents) pour les appels du Portail aux agents A2A"`
+
+---
+
+### Task 4: Documentation, étapes manuelles, PR
 
 **Files:**
 - Modify: `README.md`, `deploy/infra/README.md`
 
-- [ ] **Step 1: Écrire** dans `README.md` (section des clés du secret `infra/portail`) : `PORTAIL_JETON_SERVICE` (facultative), ce qu'elle ouvre (une seule route), qui l'utilise (agent-doc, dépôt Infra), et le tableau des réponses du contrat.
+- [ ] **Step 1: Écrire** dans `README.md` (section des clés du secret `infra/portail`) : `PORTAIL_LITELLM_CLE_AGENTS` (facultative ; clé de l'équipe `agents`, modèles locaux seulement, utilisée pour les agents A2A) et `PORTAIL_JETON_SERVICE` (facultative), ce qu'elle ouvre (une seule route), qui l'utilise (agent-doc, dépôt Infra), et le tableau des réponses du contrat.
 - [ ] **Step 2: Écrire** dans `deploy/infra/README.md` une section « agent-doc (jeton de service) », étapes dans cet ordre, **toutes faites par Nicolas** :
   1. `openssl rand -hex 32` ; ranger la valeur dans OpenBao : `infra/portail` clé `PORTAIL_JETON_SERVICE`, et `infra/env` clé `AGENT_DOC_PORTAIL_JETON` (même valeur) ;
   2. fusionner cette PR (le Portail se redéploie) ;
   3. recopier `deploy/nginx/portail.conf` dans l'Infra (fait par le plan 3 du projet 2, tâche 9) ;
-  4. vérifier : `curl -sk -o /dev/null -w '%{http_code}' -X POST https://portail.infra.famillelallier.net/service/taches-doc` rend `404` ; depuis un conteneur d'`infra-net`, le même `POST` sur `http://portail:8000/service/taches-doc` sans jeton rend `401`, et avec le jeton et un dépôt qui a un projet, `201` avec un lien — la tâche apparaît dans la colonne « Prête » puis part en exécution.
+  4. clé locale : après `make litellm-provision` dans l'Infra (plan 3 du projet 2, tâche 1), ranger la clé `portail-agents` dans `infra/portail`, clé `PORTAIL_LITELLM_CLE_AGENTS`, puis redéployer le Portail ; vérifier que la page Musique répond toujours. C'est seulement après cela que l'Infra retire `apps` d'agent-musique (plan 5) ;
+  5. vérifier : `curl -sk -o /dev/null -w '%{http_code}' -X POST https://portail.infra.famillelallier.net/service/taches-doc` rend `404` ; depuis un conteneur d'`infra-net`, le même `POST` sur `http://portail:8000/service/taches-doc` sans jeton rend `401`, et avec le jeton et un dépôt qui a un projet, `201` avec un lien — la tâche apparaît dans la colonne « Prête » puis part en exécution.
 - [ ] **Step 3: Commit et PR en brouillon** `git commit -am "docs: jeton de service du Portail pour agent-doc"` puis `gh pr create --draft`. Ne pas fusionner.
