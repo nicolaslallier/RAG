@@ -50,10 +50,10 @@ def passe(conn, genre: str, config, reglages, modeles, sources: list[str] | None
                 b = indexer_source(conn, src, lecteur, config.indexation, modeles,
                                    sans_repos=genre != "incrementale")
                 bilan[src.nom] = asdict(b) | {"graphe": maj_graphe(conn, src, lecteur, reglages)}
-            except Exception as e:
+            except Exception:
                 conn.rollback()
                 log.exception("%s : passe en échec", src.nom)
-                bilan[src.nom] = {"erreur": f"{type(e).__name__}: {e}"[:500]}
+                bilan[src.nom] = {"erreur": "echec"}  # détail dans le journal seulement
         if genre == "nocturne":
             try:
                 bilan["semantique"] = passe_semantique(conn, config, modeles)

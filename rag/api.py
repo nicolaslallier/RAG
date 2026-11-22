@@ -149,7 +149,9 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
             caches = {r["nom"] for r in conn.execute(
                 "SELECT nom FROM sources WHERE NOT visibilite = ANY(%s)", (sorted(niveaux),))}
         if nuit:  # le bilan ne nomme pas une source que ce jeton ne voit pas
-            nuit["bilan"] = {k: v for k, v in nuit["bilan"].items() if k not in caches}
+            nuit["bilan"] = {k: ({"erreur": "echec"} if isinstance(v, dict) and "erreur" in v
+                                 else v)
+                             for k, v in nuit["bilan"].items() if k not in caches}
         return {"sources": sources, "en_cours": en_cours, "derniere_nocturne": nuit}
 
     @app.get("/sante")

@@ -219,3 +219,17 @@ def test_etat_en_cours(client, bd):
     assert client.get("/etat", headers=auth).json()["en_cours"]["genre"] == "demandee"
 
 
+
+
+def test_etat_n_expose_aucun_message_d_exception(client, bd, cfg, reglages, faux_modeles,
+                                                 monkeypatch):
+    def boum(*a, **k):
+        raise RuntimeError("échec sur /srv/secret/chemin https://user:mdp@hote.interne/x")
+    monkeypatch.setattr(travailleur, "passe_semantique", boum)
+    monkeypatch.setattr(travailleur, "indexer_source", boum)
+    passe(bd, "nocturne", charger_config(cfg), reglages, faux_modeles)
+    brut = client.get("/etat", headers=auth).text
+    assert "/srv/secret" not in brut and "hote.interne" not in brut and "RuntimeError" not in brut
+    e = client.get("/etat", headers=auth).json()["derniere_nocturne"]
+    assert e["ok"] is False and e["bilan"]["coffre-maison"] == {"erreur": "echec"}
+    assert "/srv/secret" not in str(bd.execute("SELECT bilan FROM passes").fetchone())
