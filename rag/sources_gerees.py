@@ -1,11 +1,21 @@
 """Sources git gérées en base : chiffrement des jetons (Coffret) et liste des sources actives."""
 
 import logging
+import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet, InvalidToken
+from pydantic import ValidationError
 
 from rag.config import Config, ErreurConfig, Reglages, SourceConf
+from rag.gestion import (
+    MotifInvalide,
+    SourceInconnue,
+    demander_reindexation,
+    valider_motif,
+    verrouiller_source,
+)
 
 log = logging.getLogger(__name__)
 
@@ -67,3 +77,158 @@ def sources_actives(conn, config: Config, coffret: Coffret | None) -> list[Sourc
                           visibilite=r["visibilite"])
         actives.append(SourceActive(conf, jeton, r["utilisateur"]))
     return actives
+
+
+class SourceInvalide(ValueError):
+    """Source refusée ; rien n'est écrit."""
+
+
+class JetonImpossible(SourceInvalide):
+    """Un jeton est fourni mais le coffret (RAG_CLE_SECRETS) est absent."""
+
+
+_UTILISATEUR = re.compile(r"^[\w.@+-]+$")
+
+
+def valider(nom: str, emplacement: str, branche: str, visibilite: str, exclure: list[str],
+            utilisateur: str, *, noms_reserves: set[str]) -> SourceConf:
+    """`SourceConf` de type code, ou `SourceInvalide`. `noms_reserves` : sources du YAML."""
+    if nom in noms_reserves:
+        raise SourceInvalide("nom réservé")
+    if not isinstance(emplacement, str) or not emplacement.strip():
+        raise SourceInvalide("l'URL est obligatoire")
+    emplacement = emplacement.strip()
+    try:
+        u = urlsplit(emplacement)
+        hote = u.hostname
+        u.port  # noqa: B018 : lève ValueError si le port est invalide
+    except ValueError as e:
+        raise SourceInvalide("URL invalide") from e
+    if u.scheme != "https" or not hote or not u.netloc or u.username or u.password \
+            or re.search(r"\s", emplacement):
+        raise SourceInvalide("l'URL doit être https://hôte/… sans identifiants")
+    if not isinstance(branche, str) or not branche.strip() or branche.startswith("-") \
+            or re.search(r"\s", branche):
+        raise SourceInvalide("branche invalide")
+    if not isinstance(utilisateur, str) or not _UTILISATEUR.match(utilisateur):
+        raise SourceInvalide("nom d'utilisateur invalide")
+    try:
+        motifs = [valider_motif(m) for m in exclure]
+    except MotifInvalide as e:
+        raise SourceInvalide(str(e)) from e
+    try:
+        return SourceConf(nom=nom, type="code", emplacement=emplacement, branche=branche,
+                          exclure=motifs, visibilite=visibilite)
+    except ValidationError as e:
+        raise SourceInvalide("nom ou visibilité invalide") from e
+
+
+def ajouter(conn, conf: SourceConf, *, utilisateur: str, jeton: str | None,
+            coffret: Coffret | None) -> None:
+    """Enregistre une source git gérée et demande son indexation."""
+    if jeton and coffret is None:
+        raise JetonImpossible("RAG_CLE_SECRETS absente : impossible d'enregistrer un jeton")
+    chiffre = coffret.chiffrer(jeton) if jeton and coffret else None
+    try:
+        verrouiller_source(conn, conf.nom)
+        if conn.execute("SELECT 1 FROM sources WHERE nom = %s", (conf.nom,)).fetchone():
+            raise SourceInvalide("nom déjà pris")
+        conn.execute(
+            """INSERT INTO sources (nom, type, emplacement, branche, visibilite, exclure,
+                                    jeton_chiffre, utilisateur, geree, demande_le)
+               VALUES (%s, 'code', %s, %s, %s, %s, %s, %s, true, now())""",
+            (conf.nom, conf.emplacement, conf.branche, conf.visibilite, list(conf.exclure),
+             chiffre, utilisateur))
+        conn.execute("NOTIFY rag_reindexer")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def _geree(conn, nom: str) -> dict:
+    r = conn.execute("SELECT * FROM sources WHERE nom = %s AND geree", (nom,)).fetchone()
+    if r is None:
+        raise SourceInconnue(nom)
+    return r
+
+
+def modifier(conn, nom: str, conf: SourceConf, *, utilisateur: str, jeton: str | None,
+             retirer_jeton: bool, coffret: Coffret | None) -> set[str]:
+    """Applique les changements ; rend les champs modifiés (voir la spec, « Effets »)."""
+    if jeton and coffret is None:
+        raise JetonImpossible("RAG_CLE_SECRETS absente : impossible d'enregistrer un jeton")
+    try:
+        verrouiller_source(conn, nom)
+        r = _geree(conn, nom)
+        changes: set[str] = set()
+        if conf.emplacement != r["emplacement"]:
+            changes.add("emplacement")
+        if conf.branche != (r["branche"] or "main"):
+            changes.add("branche")
+        if conf.visibilite != r["visibilite"]:
+            changes.add("visibilite")
+        if list(conf.exclure) != list(r["exclure"]):
+            changes.add("exclure")
+        if utilisateur != r["utilisateur"]:
+            changes.add("utilisateur")
+        nouveau_jeton = None
+        if jeton and coffret:
+            nouveau_jeton = coffret.chiffrer(jeton)
+            changes.add("jeton")
+        elif retirer_jeton and r["jeton_chiffre"] is not None:
+            changes.add("jeton")
+        if not changes:
+            conn.rollback()
+            return changes
+        if changes & {"emplacement", "branche"}:
+            sid = r["id"]
+            conn.execute("DELETE FROM documents WHERE source_id = %s", (sid,))
+            conn.execute("DELETE FROM noeuds WHERE source_id = %s", (sid,))
+            conn.execute("DELETE FROM exclus WHERE source_id = %s", (sid,))
+            conn.execute("UPDATE sources SET revision = NULL, graphe_revision = NULL"
+                         " WHERE id = %s", (sid,))
+        conn.execute(
+            """UPDATE sources SET emplacement = %s, branche = %s, visibilite = %s, exclure = %s,
+                   utilisateur = %s,
+                   sans_garde = sans_garde OR %s
+               WHERE id = %s""",
+            (conf.emplacement, conf.branche, conf.visibilite, list(conf.exclure), utilisateur,
+             bool(changes & {"emplacement", "branche", "exclure"}), r["id"]))
+        if "jeton" in changes:
+            conn.execute("UPDATE sources SET jeton_chiffre = %s WHERE id = %s",
+                         (nouveau_jeton, r["id"]))
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    if changes != {"visibilite"}:
+        demander_reindexation(conn, nom)
+    return changes
+
+
+def bilan_suppression(conn, nom: str) -> dict:
+    """Ce qu'effacerait `supprimer` ; `SourceInconnue` si absente ou non gérée."""
+    r = _geree(conn, nom)
+    n = lambda sql, *a: conn.execute(sql, a).fetchone()["n"]
+    return {
+        "nom": nom,
+        "emplacement": r["emplacement"],
+        "documents": n("SELECT count(*) AS n FROM documents WHERE source_id = %s", r["id"]),
+        "exclus": n("SELECT count(*) AS n FROM exclus WHERE source_id = %s", r["id"]),
+        "exclusions_manuelles": n(
+            "SELECT count(*) AS n FROM exclusions_manuelles WHERE source = %s", nom),
+    }
+
+
+def supprimer(conn, nom: str) -> None:
+    """Efface la source gérée et tout ce qui en vient (cascade) ; `SourceInconnue` sinon."""
+    try:
+        verrouiller_source(conn, nom)
+        _geree(conn, nom)
+        conn.execute("DELETE FROM exclusions_manuelles WHERE source = %s", (nom,))
+        conn.execute("DELETE FROM sources WHERE nom = %s AND geree", (nom,))
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
