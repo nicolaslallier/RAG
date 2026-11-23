@@ -530,3 +530,10 @@ def test_modifier_exclure_remet_le_graphe_a_zero(bd):
 def test_ajouter_pose_sans_garde(bd):
     ajouter(bd, _valider(nom="neuf"), utilisateur="x", jeton=None, coffret=None)
     assert _ligne(bd, "neuf")["sans_garde"] is True
+
+
+def test_import_export_garde_travail(bd):
+    importer(bd, "- {nom: a, emplacement: https://github.com/a/b.git, visibilite: travail}",
+             noms_reserves=RESERVES)
+    assert _ligne(bd, "a")["visibilite"] == "travail"
+    assert "visibilite: travail" in exporter(bd)

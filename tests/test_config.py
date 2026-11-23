@@ -69,3 +69,10 @@ def test_poids_source_negatif_refuse():
     r = charger_config(Path("config/rag.yaml")).recherche
     with pytest.raises(pydantic.ValidationError):
         r.model_validate(r.model_dump() | {"poids_source": {"code": -0.1}})
+
+
+def test_tout_contient_travail():
+    from rag.config import PUBLIC, TOUT, SourceConf
+    assert TOUT == frozenset({"public-maison", "prive", "travail"})
+    assert "travail" not in PUBLIC
+    SourceConf(nom="a", type="code", emplacement="https://h/a.git", visibilite="travail")

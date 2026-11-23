@@ -16,7 +16,7 @@
     <input id="branche" name="branche" required autocomplete="off" value="{{ source.branche or 'main' }}">
     <label for="visibilite">Visibilité</label>
     <select id="visibilite" name="visibilite">
-      {% for v in ("public-maison", "prive") %}<option value="{{ v }}"{% if source.visibilite == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
+      {% for v in ("public-maison", "prive", "travail") %}<option value="{{ v }}"{% if source.visibilite == v %} selected{% endif %}>{{ v }}</option>{% endfor %}
     </select>
     <label for="exclure">Exclusions (un motif par ligne)</label>
     <textarea id="exclure" name="exclure" rows="4" autocomplete="off">{{ source.exclure | join("\n") }}</textarea>

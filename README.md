@@ -55,7 +55,7 @@ Règle : un paramètre à la fois, comparé à la référence ; consigner le ré
 | MCP **(changé)** | LiteLLM `mcp_servers.rag` → **`http://192.168.2.40:8000/mcp`**, `Authorization: Bearer` = `RAG_MCP_TOKEN` (même valeur que `RAG_JETON`, niveau `public-maison`) ; **sept** outils : `rag_chercher`, `rag_lister`, `rag_repondre`, `rag_chemin`, `rag_expliquer`, **`rag_sources`** et **`rag_fichiers`** (ces deux derniers en lecture seule) ; équipes `[admin]` | Infra (config), RAG (serveur) |
 | Runner **(précisé)** | `runner-rag`, label `rag`, dépôt `nicolaslallier/RAG`, `GH_RUNNER_TOKEN_RAG`, sans socket Docker ; **reste sur `192.168.2.10`** : il n'appelle que Portainer et OpenBao, par URL ; variable `PORTAINER_ENDPOINT_ID` = `6` | Infra |
 | Env. des conteneurs **(changé)** | `RAG_DATABASE_URL`, `RAG_LITELLM_URL`, **`RAG_LITELLM_CA`**, `RAG_LITELLM_CLE`, `RAG_JETON`, `RAG_JETON_PRIVE`, `RAG_JETON_REINDEXER`, `RAG_GITHUB_JETON`, `RAG_CLE_SECRETS`, `RAG_SOURCES_AMORCE`, `RAG_S3_ENDPOINT`, `RAG_S3_ACCESS_KEY`, `RAG_S3_SECRET_KEY`, **`AWS_CA_BUNDLE`**, `RAG_COFFRE_BUCKET`, `RAG_COFFRE_PREFIXE`, `RAG_DONNEES_DIR`, `RAG_CONFIG` ; pour `rag-postgres` : `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PASSWORD` (= `RAG_DB_PASSWORD`) | RAG |
-| Niveaux de visibilité **(changé)** | `RAG_JETON` → `public-maison` ; `RAG_JETON_PRIVE` → `public-maison` + `prive` **et gestion de l'index par l'interface `/ui/`**, **à n'utiliser que depuis le MacBook lui-même** (le port 8000 est en HTTP) ; `RAG_JETON_REINDEXER` → réindexation seulement, aucune lecture | RAG |
+| Niveaux de visibilité **(changé)** | `RAG_JETON` → `public-maison` ; `RAG_JETON_PRIVE` → `public-maison` + `prive` + `travail` **et gestion de l'index par l'interface `/ui/`**, **à n'utiliser que depuis le MacBook lui-même** (le port 8000 est en HTTP) ; `RAG_JETON_REINDEXER` → réindexation seulement, aucune lecture | RAG |
 
 Valeurs en double à garder égales **(changé)** : `RAG_S3_SECRET_KEY` (`infra/env` et `infra/rag`) ; `RAG_MCP_TOKEN` (`infra/env`) = `RAG_JETON` (`infra/rag`). **`RAG_DB_PASSWORD` n'est plus un double** : seule la copie d'`infra/rag` compte ; celle d'`infra/env` ne sert plus qu'à la base inutilisée de l'Infra.
 
@@ -67,7 +67,7 @@ dans un cookie `rag_session` (`HttpOnly`, `SameSite=Strict`, limité à `/ui`).
 
 - `RAG_JETON` : lecture seule. Voit les sources `public-maison`, leurs fichiers (indexés ou exclus,
   avec la raison), le détail des morceaux d'un fichier et la liste des exclusions.
-- `RAG_JETON_PRIVE` : voit aussi les sources `prive` et **peut écrire** : exclure un fichier ou un
+- `RAG_JETON_PRIVE` : voit aussi les sources `prive` et `travail` et **peut écrire** : exclure un fichier ou un
   motif (aperçu puis confirmation, seconde confirmation au-delà de 100 documents), annuler une
   exclusion, importer et exporter les exclusions, demander une réindexation. Sans
   `RAG_JETON_PRIVE` dans l'environnement, l'interface est en lecture seule.

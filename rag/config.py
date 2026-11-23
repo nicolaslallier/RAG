@@ -14,7 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 VERSION_ANALYSEUR = 2
 
 PUBLIC: frozenset[str] = frozenset({"public-maison"})
-TOUT: frozenset[str] = frozenset({"public-maison", "prive"})
+TOUT: frozenset[str] = frozenset({"public-maison", "prive", "travail"})
 
 
 # Bornes des entrées, partagées par l'API HTTP et le serveur MCP.
@@ -68,7 +68,7 @@ class SourceConf(_Strict):
     branche: str = "main"
     exclure: list[str] = []
     repos_minutes: int = 0
-    visibilite: Literal["public-maison", "prive"]
+    visibilite: Literal["public-maison", "prive", "travail"]
 
 
 class IndexationConf(_Strict):
