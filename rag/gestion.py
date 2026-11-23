@@ -49,7 +49,7 @@ class SourceInconnue(Exception):
 def sources(conn, *, niveaux: frozenset[str]) -> list[dict]:
     """Sources visibles, triées par nom, avec leurs comptes de fichiers indexés et exclus."""
     return conn.execute(
-        """SELECT s.nom, s.type, s.visibilite, s.revision, s.indexe_le,
+        """SELECT s.nom, s.type, s.visibilite, s.revision, s.indexe_le, s.geree,
                   (SELECT count(*) FROM documents d WHERE d.source_id = s.id) AS documents,
                   (SELECT count(*) FROM exclus e
                     WHERE e.source_id = s.id AND e.raison <> 'manuelle') AS exclus_auto,

@@ -39,6 +39,21 @@ from rag.gestion import exclusions as lister_exclusions
 from rag.gestion import fichier as lire_fichier
 from rag.gestion import fichiers as lister_fichiers
 from rag.gestion import sources as lister_sources
+from rag.sources import ErreurSource, jeton_general, verifier_depot
+from rag.sources_gerees import (
+    Coffret,
+    JetonIllisible,
+    JetonImpossible,
+    SourceInvalide,
+    _origine,
+    ajouter,
+    bilan_suppression,
+    modifier,
+    supprimer,
+    valider,
+)
+from rag.sources_gerees import exporter as exporter_sources
+from rag.sources_gerees import importer as importer_sources
 
 log = logging.getLogger("rag.ui")
 
@@ -76,8 +91,34 @@ def _en_texte(valeur) -> str:
     return json.dumps(valeur, ensure_ascii=False)
 
 
+def _motifs(texte: str) -> list[str]:
+    """Un motif d'exclusion par ligne ; lignes vides ignorées."""
+    return [m.strip() for m in texte.splitlines() if m.strip()]
+
+
+async def _lire_fichier_import(request: Request) -> bytes | tuple[str, int]:
+    """Contenu du fichier téléversé, ou `(message, statut)` si refusé. Corps lu après la garde."""
+    trop_gros = f"Fichier trop gros : {IMPORT_MAX // 1024} Ko au plus."
+    longueur = request.headers.get("content-length", "")
+    if longueur.isdigit() and int(longueur) > IMPORT_MAX + IMPORT_MARGE:
+        return trop_gros, 413
+    try:
+        async with request.form(max_files=1, max_fields=1) as formulaire:
+            fichier = formulaire.get("fichier")
+            if not isinstance(fichier, UploadFile):
+                return "Choisissez un fichier YAML.", 400
+            contenu = await fichier.read(IMPORT_MAX + 1)  # l'en-tête seul ne suffit pas
+    except StarletteHTTPException:  # formulaire multipart malformé
+        return "Formulaire illisible.", 400
+    if len(contenu) > IMPORT_MAX:
+        return trop_gros, 413
+    return contenu
+
+
 def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_possible: bool,
-               database_url: str, version_id: Callable[[], int | None]) -> APIRouter:
+               database_url: str, version_id: Callable[[], int | None],
+               coffret: Coffret | None = None, github_jeton: str = "",
+               noms_reserves: set[str] = frozenset()) -> APIRouter:
     gabarits = Jinja2Templates(directory=DOSSIER / "gabarits")  # autoescape actif (.html)
     gabarits.env.filters["en_requete"] = lambda v: quote(str(v), safe="")  # tout encodé, « / » aussi
     gabarits.env.filters["en_texte"] = _en_texte  # texte simple : échappé par le gabarit
@@ -288,20 +329,10 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
     async def importer_exclusions(request: Request,
                                   niveaux: Annotated[frozenset[str], Depends(session)]):
         # Corps lu ici, après `ecrivain` : un formulaire déclaré serait lu avant la garde.
-        trop_gros = f"Fichier trop gros : {IMPORT_MAX // 1024} Ko au plus."
-        longueur = request.headers.get("content-length", "")
-        if longueur.isdigit() and int(longueur) > IMPORT_MAX + IMPORT_MARGE:
-            return message(request, trop_gros, 413, erreur=True)
-        try:
-            async with request.form(max_files=1, max_fields=1) as formulaire:
-                fichier = formulaire.get("fichier")
-                if not isinstance(fichier, UploadFile):
-                    return message(request, "Choisissez un fichier YAML.", 400, erreur=True)
-                contenu = await fichier.read(IMPORT_MAX + 1)  # l'en-tête seul ne suffit pas
-        except StarletteHTTPException:  # formulaire multipart malformé
-            return message(request, "Formulaire illisible.", 400, erreur=True)
-        if len(contenu) > IMPORT_MAX:
-            return message(request, trop_gros, 413, erreur=True)
+        lu = await _lire_fichier_import(request)
+        if isinstance(lu, tuple):
+            return message(request, lu[0], lu[1], erreur=True)
+        contenu = lu
         try:
             texte = contenu.decode("utf-8")
         except UnicodeDecodeError:
@@ -321,5 +352,161 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
         texte = (f"{bilan['ajoutees']} ajoutées, {bilan['ignorees']} déjà présentes, "
                  f"{pluriel(n, 'document')} retiré{'s' if n > 1 else ''}.")
         return await run_in_threadpool(message, request, texte, niveaux=niveaux)
+
+    # --- Sources git --------------------------------------------------------------------------
+
+    def ecrivain_visible(niveaux: Annotated[frozenset[str], Depends(session)]) -> None:
+        if not peut_ecrire(niveaux):  # GET des formulaires : l'écrivain seulement
+            raise HTTPException(403, "réservé à l'écrivain", headers=SANS_CACHE)
+
+    def source_geree(nom: str) -> dict:
+        with connexion(database_url) as conn:
+            r = conn.execute("SELECT * FROM sources WHERE nom = %s AND geree", (nom,)).fetchone()
+        if r is None:
+            raise HTTPException(404, INTROUVABLE, headers=SANS_CACHE)
+        return r
+
+    def redirection_sources() -> Response:
+        return _sans_cache(Response(headers={"HX-Redirect": "/ui/"}))
+
+    @routeur.get("/sources-git/nouvelle", response_class=HTMLResponse,
+                 dependencies=[Depends(ecrivain_visible)])
+    def formulaire_nouvelle(request: Request):
+        source = {"nom": "", "emplacement": "", "branche": "main", "visibilite": "public-maison",
+                  "exclure": [], "utilisateur": "x-access-token", "jeton_chiffre": None}
+        return page_ui(request, "source_git.html", source=source, creation=True,
+                       coffret=coffret is not None)
+
+    @routeur.get("/sources-git/export", dependencies=[Depends(ecrivain_visible)])
+    def exporter_les_sources():
+        with connexion(database_url) as conn:
+            texte = exporter_sources(conn)
+        return _sans_cache(Response(texte, media_type="text/yaml", headers={
+            "Content-Disposition": 'attachment; filename="sources-rag.yaml"'}))
+
+    @routeur.post("/sources-git", response_class=HTMLResponse, dependencies=[Depends(ecrivain)])
+    def creer_source(request: Request, nom: Annotated[str, Form()],
+                     emplacement: Annotated[str, Form()], branche: Annotated[str, Form()] = "main",
+                     visibilite: Annotated[str, Form()] = "public-maison",
+                     exclure: Annotated[str, Form()] = "", utilisateur: Annotated[str, Form()] = "",
+                     jeton: Annotated[str, Form()] = ""):
+        utilisateur = utilisateur.strip() or "x-access-token"
+        jeton = jeton.strip()
+        try:
+            conf = valider(nom.strip(), emplacement, branche.strip(), visibilite, _motifs(exclure),
+                           utilisateur, noms_reserves=set(noms_reserves))
+            if jeton and coffret is None:
+                raise JetonImpossible("RAG_CLE_SECRETS absente : impossible d'enregistrer un jeton")
+            verifier_depot(conf.emplacement, conf.branche,
+                           jeton or jeton_general(conf.emplacement, github_jeton), utilisateur)
+            with connexion(database_url) as conn:
+                ajouter(conn, conf, utilisateur=utilisateur, jeton=jeton or None, coffret=coffret)
+        except (SourceInvalide, ErreurSource) as e:
+            return message(request, f"Source refusée : {e}.", 400, erreur=True)
+        log.info("source git ajoutée : %s", conf.nom)
+        return redirection_sources()
+
+    @routeur.get("/sources-git/{nom}/modifier", response_class=HTMLResponse,
+                 dependencies=[Depends(ecrivain_visible)])
+    def formulaire_modifier(request: Request, nom: str):
+        return page_ui(request, "source_git.html", source=source_geree(nom), creation=False,
+                       coffret=coffret is not None)
+
+    @routeur.post("/sources-git/{nom}/modifier", response_class=HTMLResponse,
+                  dependencies=[Depends(ecrivain)])
+    def modifier_source(request: Request, nom: str, emplacement: Annotated[str, Form()],
+                        branche: Annotated[str, Form()] = "main",
+                        visibilite: Annotated[str, Form()] = "public-maison",
+                        exclure: Annotated[str, Form()] = "",
+                        utilisateur: Annotated[str, Form()] = "",
+                        jeton: Annotated[str, Form()] = "",
+                        retirer_jeton: Annotated[str, Form()] = ""):
+        actuelle = source_geree(nom)
+        utilisateur = utilisateur.strip() or "x-access-token"
+        jeton = jeton.strip()
+        retirer = bool(retirer_jeton)
+        try:
+            conf = valider(nom, emplacement, branche.strip(), visibilite, _motifs(exclure),
+                           utilisateur, noms_reserves=set(noms_reserves))
+            if jeton and coffret is None:
+                raise JetonImpossible("RAG_CLE_SECRETS absente : impossible d'enregistrer un jeton")
+            stocke = actuelle["jeton_chiffre"] is not None
+            reseau = (conf.emplacement != actuelle["emplacement"]
+                      or conf.branche != (actuelle["branche"] or "main")
+                      or utilisateur != actuelle["utilisateur"]
+                      or bool(jeton) or (retirer and stocke))
+            if reseau:
+                verifier_depot(conf.emplacement, conf.branche,
+                               _jeton_de_verification(actuelle, conf.emplacement, jeton, retirer),
+                               utilisateur)
+            with connexion(database_url) as conn:
+                modifier(conn, nom, conf, utilisateur=utilisateur, jeton=jeton or None,
+                         retirer_jeton=retirer, coffret=coffret)
+        except SourceInconnue:
+            raise HTTPException(404, INTROUVABLE, headers=SANS_CACHE) from None
+        except (SourceInvalide, ErreurSource) as e:
+            return message(request, f"Modification refusée : {e}.", 400, erreur=True)
+        log.info("source git modifiée : %s", nom)
+        return redirection_sources()
+
+    def _jeton_de_verification(actuelle: dict, emplacement: str, jeton: str, retirer: bool) -> str:
+        """Jeton pour joindre le dépôt, comme le fera le travailleur : le nouveau, sinon
+        l'enregistré (même origine, non retiré), sinon le jeton général (github.com)."""
+        if jeton:
+            return jeton
+        if (not retirer and coffret is not None and actuelle["jeton_chiffre"] is not None
+                and _origine(emplacement) == _origine(actuelle["emplacement"])):
+            try:
+                return coffret.dechiffrer(actuelle["jeton_chiffre"])
+            except JetonIllisible:
+                pass
+        return jeton_general(emplacement, github_jeton)
+
+    @routeur.get("/sources-git/{nom}/supprimer", response_class=HTMLResponse,
+                 dependencies=[Depends(ecrivain_visible)])
+    def confirmer_suppression(request: Request, nom: str):
+        try:
+            with connexion(database_url) as conn:
+                bilan = bilan_suppression(conn, nom)
+        except SourceInconnue:
+            raise HTTPException(404, INTROUVABLE, headers=SANS_CACHE) from None
+        return page_ui(request, "supprimer_source.html", bilan=bilan)
+
+    @routeur.post("/sources-git/{nom}/supprimer", response_class=HTMLResponse,
+                  dependencies=[Depends(ecrivain)])
+    def supprimer_source(nom: str):
+        try:
+            with connexion(database_url) as conn:
+                supprimer(conn, nom)
+        except SourceInconnue:
+            raise HTTPException(404, INTROUVABLE, headers=SANS_CACHE) from None
+        log.info("source git supprimée : %s", nom)
+        return redirection_sources()
+
+    @routeur.post("/sources-git/import", response_class=HTMLResponse,
+                  dependencies=[Depends(ecrivain)])
+    async def importer_les_sources(request: Request):
+        lu = await _lire_fichier_import(request)
+        if isinstance(lu, tuple):
+            return message(request, lu[0], lu[1], erreur=True)
+        try:
+            texte = lu.decode("utf-8")
+        except UnicodeDecodeError:
+            return message(request, "Fichier illisible : UTF-8 attendu.", 400, erreur=True)
+
+        def importer_en_base() -> dict:
+            with connexion(database_url) as conn:
+                return importer_sources(conn, texte, noms_reserves=set(noms_reserves))
+
+        try:
+            bilan = await run_in_threadpool(importer_en_base)
+        except SourceInvalide as e:
+            return message(request, f"Import refusé : {e}.", 400, erreur=True)
+        log.info("import de sources git : %d ajoutées, %d modifiées, %d inchangées",
+                 bilan["ajoutees"], bilan["modifiees"], bilan["inchangees"])
+        a, m, i = bilan["ajoutees"], bilan["modifiees"], bilan["inchangees"]
+        return message(request, f"{a} ajoutée{'s' if a > 1 else ''}, "
+                       f"{m} modifiée{'s' if m > 1 else ''}, {i} inchangée{'s' if i > 1 else ''}. "
+                       "Rechargez la page pour voir la liste.")
 
     return routeur

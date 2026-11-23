@@ -16,5 +16,10 @@
         hx-target="closest tr" hx-swap="outerHTML">Réindexer</button>
     {%- else %}—{% endif -%}
   </td>
+  {%- if ecrivain %}
+  <td>{% if s.geree %}<a href="/ui/sources-git/{{ s.nom | urlencode }}/modifier">Modifier</a>
+    <a href="/ui/sources-git/{{ s.nom | urlencode }}/supprimer">Supprimer</a>
+    {%- else %}<span class="aide">(config)</span>{% endif %}</td>
+  {%- endif %}
 </tr>
 {%- endmacro %}

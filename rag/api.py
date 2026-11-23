@@ -38,6 +38,7 @@ from rag.modeles import ErreurModele, modeles_depuis
 from rag.recherche import Filtres, chercher
 from rag.reponse import repondre, repondre_flux
 from rag.rerank import reranker_depuis
+from rag.sources_gerees import coffret_depuis
 from rag.ui import STATIQUE, routeur_ui, validation_sans_cache
 
 log = logging.getLogger("rag.api")
@@ -243,7 +244,9 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
     app.include_router(routeur_ui(
         niveaux_de=niveaux_de, ecriture_possible=bool(reglages.jeton_prive),
         database_url=reglages.database_url,
-        version_id=lambda: _avec_conn(version_id, empreinte)))
+        version_id=lambda: _avec_conn(version_id, empreinte),
+        coffret=coffret_depuis(reglages), github_jeton=reglages.github_jeton,
+        noms_reserves={s.nom for s in config.sources}))
     app.add_exception_handler(RequestValidationError, validation_sans_cache)
     app.mount("/ui/statique", StaticFiles(directory=STATIQUE), name="ui_statique")
 

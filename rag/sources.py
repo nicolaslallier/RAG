@@ -232,6 +232,11 @@ def client_s3(reglages):
     )
 
 
+def jeton_general(emplacement: str, github_jeton: str) -> str:
+    """Jeton de repli d'un dépôt https : le jeton GitHub général ne sert qu'à github.com."""
+    return github_jeton if urlsplit(emplacement).hostname == "github.com" else ""
+
+
 def lecteur_pour(source, reglages, jeton: str | None = None, utilisateur: str = "x-access-token"):
     if source.emplacement == "s3":
         p = reglages.coffre_prefixe.strip()
@@ -240,7 +245,6 @@ def lecteur_pour(source, reglages, jeton: str | None = None, utilisateur: str = 
     if source.type == "obsidian":
         return LecteurDossier(Path(source.emplacement).expanduser())
     if jeton is None:  # le jeton général ne sert qu'à github.com
-        hote = urlsplit(source.emplacement).hostname
-        jeton = reglages.github_jeton if hote == "github.com" else ""
+        jeton = jeton_general(source.emplacement, reglages.github_jeton)
     return LecteurGit(source.emplacement, Path(reglages.donnees_dir) / "clones" / source.nom,
                       source.branche, jeton, utilisateur, protocoles="https")

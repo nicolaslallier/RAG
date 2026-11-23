@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block titre %}Supprimer {{ bilan.nom }}{% endblock %}
+{% block contenu %}
+<h1>Supprimer la source « {{ bilan.nom }} »</h1>
+<section class="carte bloc">
+  <p>Dépôt : <code>{{ bilan.emplacement }}</code></p>
+  <ul>
+    <li>{{ bilan.documents }} document{{ "s" if bilan.documents > 1 }} indexé{{ "s" if bilan.documents > 1 }}</li>
+    <li>{{ bilan.exclus }} fichier{{ "s" if bilan.exclus > 1 }} exclu{{ "s" if bilan.exclus > 1 }}</li>
+    <li>{{ bilan.exclusions_manuelles }} exclusion{{ "s" if bilan.exclusions_manuelles > 1 }} manuelle{{ "s" if bilan.exclusions_manuelles > 1 }}</li>
+  </ul>
+  <p class="aide">Tout cela sera effacé, ainsi que le jeton enregistré. Cette action est définitive.</p>
+  <div id="resultat" aria-live="polite"></div>
+  <button type="button" class="danger" hx-post="/ui/sources-git/{{ bilan.nom | urlencode }}/supprimer"
+          hx-target="#resultat" hx-swap="innerHTML">Supprimer définitivement</button>
+  <a href="/ui/">Annuler</a>
+</section>
+{% endblock %}
