@@ -145,3 +145,18 @@ def test_exclus_disparu_du_listage_est_oublie(bd, depot, tmp_path, faux_modeles)
     indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
                    faux_modeles)
     assert bd.execute("SELECT count(*) n FROM exclus WHERE chemin = 'uv.lock'").fetchone()["n"] == 0
+
+
+def test_source_changee_pendant_la_passe_n_ecrit_rien(bd, depot, tmp_path, faux_modeles):
+    from rag.indexeur import SourceSupprimee
+    inscrire_source(bd, "depot-test", emplacement="https://x/nouveau.git")
+    ancienne = SRC_CODE.model_copy(update={"emplacement": "https://x/ancien.git"})
+    with pytest.raises(SourceSupprimee, match="changée ou supprimée"):
+        indexer_source(bd, ancienne, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)
+    assert bd.execute("SELECT count(*) n FROM documents").fetchone()["n"] == 0
+    autre_branche = SRC_CODE.model_copy(update={"emplacement": "https://x/nouveau.git",
+                                                "branche": "dev"})
+    with pytest.raises(SourceSupprimee):
+        indexer_source(bd, autre_branche, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)

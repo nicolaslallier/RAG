@@ -506,3 +506,27 @@ def test_sources_maison_valides():
     from rag.sources_gerees import lire_export
     # sources `code` de config/rag.yaml au 2026-11-23
     assert len(lire_export(Path("config/sources-maison.yaml").read_text())) == 50
+
+
+@pytest.mark.parametrize("branche", ["*", "ma*", "a?b", "a[b", "a:b", "a..b", "a~1", "a^", "a\\b",
+                                     "dev/", "dev.lock", "/dev", "a//b", "a@{1}", "x.", "a\x01"])
+def test_branche_a_motif_ou_reservee_refusee(branche):
+    with pytest.raises(SourceInvalide):
+        _valider(branche=branche)
+
+
+def test_branche_hierarchique_acceptee():
+    assert _valider(branche="feature/main-2.1").branche == "feature/main-2.1"
+
+
+def test_modifier_exclure_remet_le_graphe_a_zero(bd):
+    _gerer(bd)
+    bd.execute("UPDATE sources SET graphe_revision = 'abc' WHERE nom = 'g'")
+    bd.commit()
+    assert _modif(bd, "g", exclure=["*.csv"]) == {"exclure"}
+    assert _ligne(bd, "g")["graphe_revision"] is None
+
+
+def test_ajouter_pose_sans_garde(bd):
+    ajouter(bd, _valider(nom="neuf"), utilisateur="x", jeton=None, coffret=None)
+    assert _ligne(bd, "neuf")["sans_garde"] is True

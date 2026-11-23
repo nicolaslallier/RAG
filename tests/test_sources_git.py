@@ -180,3 +180,12 @@ def test_jamais_de_suppression_hors_du_dossier_des_clones(tmp_path):
     with pytest.raises(ErreurSource):
         LecteurGit("x", tmp_path / "precieux").synchroniser()
     assert (tmp_path / "precieux" / "f").exists()
+
+
+def test_verifier_depot_ne_confond_pas_suffixe_ni_motif(depot):
+    git(depot, "branch", "feature/main")
+    git(depot, "branch", "-m", "main", "autre")
+    for faux in ("main", "ma*", "*", "eature/main"):
+        with pytest.raises(ErreurSource, match="introuvable"):
+            verifier_depot(str(depot), faux, protocoles=None)
+    verifier_depot(str(depot), "feature/main", protocoles=None)

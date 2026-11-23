@@ -9,6 +9,7 @@ from datetime import time as heure
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import psycopg.errors
 from psycopg.types.json import Jsonb
 
 from rag.db import connexion
@@ -82,6 +83,9 @@ def passe(conn, genre: str, config, reglages, modeles, sources: list[str] | None
             except SourceSupprimee:
                 conn.rollback()
                 bilan[src.nom] = {"supprimee": True}
+            except psycopg.errors.ForeignKeyViolation:
+                conn.rollback()  # source supprimée en cours de passe : ses documents n'ont plus de parent
+                bilan[src.nom] = {"supprimee": True}
             except Exception:
                 conn.rollback()
                 log.exception("%s : passe en échec", src.nom)
@@ -126,8 +130,10 @@ def tour(conn, config, reglages, modeles, maintenant: datetime | None = None) ->
     genre, sources = prochaine(maintenant or datetime.now(MTL), derniere, demandes)
     b = passe(conn, genre, config, reglages, modeles, sources, sans_garde)
     if "ignoree" not in b:  # une demande arrivée pendant la passe reste pour la suivante
-        conn.execute("UPDATE sources SET demande_le = NULL, sans_garde = false "
-                     "WHERE nom = ANY(%s) AND demande_le <= %s", (demandes, t0))
+        echecs = [n for n, v in b.items() if isinstance(v, dict) and "erreur" in v]
+        conn.execute("UPDATE sources SET demande_le = NULL, "
+                     "sans_garde = sans_garde AND nom = ANY(%s) "
+                     "WHERE nom = ANY(%s) AND demande_le <= %s", (echecs, demandes, t0))
         conn.commit()
     return b
 

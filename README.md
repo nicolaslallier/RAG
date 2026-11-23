@@ -98,11 +98,16 @@ depuis l'écran Sources (`RAG_JETON_PRIVE` requis) : « Ajouter une source git �
   et la créer dans OpenBao (`infra/rag`) avec les autres secrets de la pile `rag`. Une clé invalide
   empêche l'API et le travailleur de démarrer ; sans clé, aucun jeton par source ne s'enregistre.
   **Perdre la clé** : les jetons enregistrés sont illisibles, il faut les ressaisir.
+  Une clé **valide mais différente** n'arrête pas le démarrage : les jetons stockés deviennent
+  illisibles, les sources retombent en accès anonyme (avertissement au journal), les dépôts privés
+  échouent à leur passe → ressaisir les jetons dans l'écran Sources.
 - **`RAG_GITHUB_JETON` est devenu facultatif** : il ne sert que pour les sources github.com qui n'ont
   pas de jeton propre.
 - **Amorçage unique** : `RAG_SOURCES_AMORCE` (`config/sources-maison.yaml`, les 50 sources de la
   maison) est lu une seule fois par `rag migrer` ; un marqueur dans la table `instance` empêche de
-  recommencer, même si des sources sont supprimées ensuite.
+  recommencer, même si des sources sont supprimées ensuite. `RAG_SOURCES_AMORCE` est posé par le
+  fichier de pile lui-même (`deploy/portainer-stack.yml`), pas fourni par l'Infra. Une fois la prod
+  amorcée, on peut le retirer de la pile.
 
 ## Étapes manuelles avant le premier déploiement
 
@@ -154,7 +159,10 @@ l'écran Exclusions, ou
     docker --context colima exec rag-rag-1 rag sources exporter > sources-rag.yaml
 
 (l'export ne contient jamais les jetons : à ressaisir après une restauration). Garder ces fichiers
-hors de la VM. Après un `colima delete` : relancer la pile, réimporter
+hors de la VM. **Après une perte de la base**, vider `RAG_SOURCES_AMORCE` dans la pile *avant* de
+redémarrer : sinon `rag migrer` ré-amorce depuis `sources-maison.yaml` et ressuscite les sources
+supprimées depuis l'interface. Importer ensuite le dernier export des sources (et celui des
+exclusions). Après un `colima delete` : relancer la pile (même précaution), réimporter
 (boutons « Importer » des écrans Exclusions et Sources) puis réindexer. Seuls `banc/` et `config/` (dans git),
 ces exclusions et ces sources sont irremplaçables. Le volume vit dans la VM : `colima delete` l'efface (comme
 `rag-donnees`), une réindexation complète est alors à prévoir.

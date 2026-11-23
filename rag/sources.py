@@ -126,7 +126,7 @@ def verifier_depot(url: str, branche: str, jeton: str = "", utilisateur: str = "
     """Lève ErreurSource si le dépôt est injoignable ou si la branche n'existe pas."""
     env, secrets = _env_git(url, jeton, utilisateur, protocoles)
     try:
-        r = subprocess.run(["git", "ls-remote", "--heads", "--", url, branche], check=False,
+        r = subprocess.run(["git", "ls-remote", "--heads", "--", url, f"refs/heads/{branche}"], check=False,
                            env=env, capture_output=True, timeout=delai_s)
     except subprocess.TimeoutExpired:
         raise ErreurSource("git ls-remote : délai dépassé") from None
@@ -135,7 +135,8 @@ def verifier_depot(url: str, branche: str, jeton: str = "", utilisateur: str = "
     if r.returncode:
         msg = _masquer(r.stderr.decode(errors="replace").strip(), secrets)
         raise ErreurSource(f"git ls-remote : {msg}")
-    if not r.stdout.strip():
+    voulu = f"\trefs/heads/{branche}"
+    if not any(ligne.endswith(voulu) for ligne in r.stdout.decode(errors="replace").splitlines()):
         raise ErreurSource(f"branche introuvable : {branche}")
 
 

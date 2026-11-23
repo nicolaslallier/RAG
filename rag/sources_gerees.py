@@ -89,6 +89,7 @@ class JetonImpossible(SourceInvalide):
     """Un jeton est fourni mais le coffret (RAG_CLE_SECRETS) est absent."""
 
 
+_BRANCHE_INTERDITE = re.compile(r"[*?\[:~^\\\x00-\x1f\x7f]|\.\.")
 _UTILISATEUR = re.compile(r"^[\w.@+-]+$")
 
 
@@ -109,8 +110,10 @@ def valider(nom: str, emplacement: str, branche: str, visibilite: str, exclure: 
     if u.scheme != "https" or not hote or not u.netloc or u.username or u.password \
             or re.search(r"\s", emplacement):
         raise SourceInvalide("l'URL doit être https://hôte/… sans identifiants")
-    if not isinstance(branche, str) or not branche.strip() or branche.startswith("-") \
-            or re.search(r"\s", branche):
+    if not isinstance(branche, str) or not branche.strip() or branche.startswith(("-", "/")) \
+            or re.search(r"\s", branche) or _BRANCHE_INTERDITE.search(branche) \
+            or branche.endswith(("/", ".lock", ".")) \
+            or "//" in branche or "@{" in branche or branche == "@":
         raise SourceInvalide("branche invalide")
     if not isinstance(utilisateur, str) or not _UTILISATEUR.match(utilisateur):
         raise SourceInvalide("nom d'utilisateur invalide")
@@ -133,8 +136,8 @@ def _inserer_source(conn, conf: SourceConf, utilisateur: str,
         raise SourceInvalide("nom déjà pris")
     conn.execute(
         """INSERT INTO sources (nom, type, emplacement, branche, visibilite, exclure,
-                                jeton_chiffre, utilisateur, geree, demande_le)
-           VALUES (%s, 'code', %s, %s, %s, %s, %s, %s, true, now())""",
+                                jeton_chiffre, utilisateur, geree, demande_le, sans_garde)
+           VALUES (%s, 'code', %s, %s, %s, %s, %s, %s, true, now(), true)""",
         (conf.nom, conf.emplacement, conf.branche, conf.visibilite, list(conf.exclure),
          chiffre, utilisateur))
     conn.execute("NOTIFY rag_reindexer")
@@ -207,6 +210,8 @@ def _appliquer_modification(conn, nom: str, conf: SourceConf, utilisateur: str,
            WHERE id = %s""",
         (conf.emplacement, conf.branche, conf.visibilite, list(conf.exclure), utilisateur,
          bool(changes & {"emplacement", "branche", "exclure"}), r["id"]))
+    if "exclure" in changes:  # les nœuds des fichiers nouvellement exclus doivent disparaître
+        conn.execute("UPDATE sources SET graphe_revision = NULL WHERE id = %s", (r["id"],))
     if "jeton" in changes:
         conn.execute("UPDATE sources SET jeton_chiffre = %s WHERE id = %s",
                      (nouveau_jeton, r["id"]))

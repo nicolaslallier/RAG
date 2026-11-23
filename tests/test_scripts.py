@@ -167,6 +167,16 @@ def test_up_refuse_une_variable_obligatoire_vide(faux, tmp_path):
     assert r.returncode != 0 and "IMAGE_TAG" in r.stderr and faux.requetes == []
 
 
+def test_up_accepte_un_jeton_github_vide(faux, tmp_path):
+    env = env_up(faux, tmp_path)
+    f = Path(env["RAG_STACK_ENV"])
+    lignes = [ligne for ligne in f.read_text().splitlines()
+              if not ligne.startswith("RAG_GITHUB_JETON=")]
+    f.write_text("\n".join([*lignes, "RAG_GITHUB_JETON="]) + "\n")
+    r = lancer("scripts/portainer-stack.sh", "up", env=env)
+    assert r.returncode == 0, r.stderr
+
+
 def test_aucun_secret_en_argv():
     for s in ("scripts/vault-render-env.sh", "scripts/portainer-stack.sh"):
         t = Path(s).read_text()

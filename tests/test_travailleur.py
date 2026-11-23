@@ -364,3 +364,41 @@ def test_sans_garde_apres_changement_d_url(bd, depot, tmp_path, reglages, faux_m
     assert compte(bd, "documents") == 1
     r = bd.execute("SELECT sans_garde, demande_le FROM sources").fetchone()
     assert r["sans_garde"] is False and r["demande_le"] is None
+
+
+def test_cle_etrangere_en_cours_de_passe_est_une_suppression(bd, coffre, reglages, faux_modeles,
+                                                             monkeypatch, caplog):
+    import psycopg.errors
+    conf = config_pour(("coffre-maison", coffre)).model_copy(update={"sources": []})
+    inscrire_source(bd, "fantome")
+    _brancher_git_local(monkeypatch)
+
+    def casse(*a, **k):
+        raise psycopg.errors.ForeignKeyViolation("documents_source_id_fkey")
+    monkeypatch.setattr(travailleur, "indexer_source", casse)
+    b = passe(bd, "demandee", conf, reglages, faux_modeles)
+    assert b["fantome"] == {"supprimee": True}
+    assert "passe en échec" not in caplog.text
+    assert bd.execute("SELECT ok FROM passes").fetchone()["ok"] is True
+
+
+def test_sans_garde_conserve_apres_une_passe_en_echec(bd, depot, reglages, faux_modeles,
+                                                       monkeypatch):
+    _brancher_git_local(monkeypatch)
+    conf = BASE.model_copy(update={"sources": []})
+    inscrire_source(bd, "depot-x", emplacement=str(depot))
+    inscrire_source(bd, "depot-y", emplacement=str(depot))
+    bd.execute("UPDATE sources SET demande_le = now(), sans_garde = true")
+    bd.commit()
+    vrai = travailleur.indexer_source
+
+    def selon(conn, src, *a, **k):
+        if src.nom == "depot-x":
+            raise RuntimeError("boum")
+        return vrai(conn, src, *a, **k)
+    monkeypatch.setattr(travailleur, "indexer_source", selon)
+    b = tour(bd, conf, reglages, faux_modeles)
+    assert b["depot-x"] == {"erreur": "echec"} and "erreur" not in b["depot-y"]
+    lignes = {r["nom"]: r for r in bd.execute("SELECT nom, sans_garde, demande_le FROM sources")}
+    assert lignes["depot-x"]["sans_garde"] is True and lignes["depot-x"]["demande_le"] is None
+    assert lignes["depot-y"]["sans_garde"] is False

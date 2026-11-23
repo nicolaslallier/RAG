@@ -114,11 +114,13 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     maintenant = maintenant or datetime.now(UTC)
     bilan = Bilan()
     if source.type == "code":  # gérée en base : une source supprimée ne se recrée jamais
-        r = conn.execute("SELECT id FROM sources WHERE nom = %s AND type = 'code'",
-                         (source.nom,)).fetchone()
+        r = conn.execute(
+            """SELECT id FROM sources WHERE nom = %s AND type = 'code' AND emplacement = %s
+                  AND COALESCE(branche, 'main') = %s""",
+            (source.nom, source.emplacement, source.branche or "main")).fetchone()
         if r is None:
             conn.rollback()
-            raise SourceSupprimee(source.nom)
+            raise SourceSupprimee(f"{source.nom} : source changée ou supprimée")
         source_id = r["id"]
     else:
         source_id = conn.execute(
