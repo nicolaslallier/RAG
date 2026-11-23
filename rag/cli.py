@@ -1,4 +1,4 @@
-"""CLI `rag` : migrer, indexer, chercher, servir, exclusions."""
+"""CLI `rag` : migrer, indexer, chercher, servir, exclusions, sources."""
 
 import argparse
 import sys
@@ -190,6 +190,35 @@ def _exclusions_cli(conn, a) -> int:
     return 0
 
 
+def _sources_cli(conn, a, config) -> int:
+    from rag.sources_gerees import SourceInvalide, exporter, importer
+    if a.action == "exporter":
+        print(exporter(conn), end="")
+        return 0
+    if a.action == "lister":
+        for r in conn.execute("SELECT * FROM sources WHERE geree ORDER BY nom"):
+            jeton = "jeton" if r["jeton_chiffre"] is not None else "—"
+            print(f"{r['nom']}\t{r['emplacement']}\t{r['branche'] or 'main'}\t"
+                  f"{r['visibilite']}\t{jeton}")
+        return 0
+    try:
+        texte = Path(a.fichier).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        print("fichier illisible, rien d'importé : UTF-8 attendu", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"fichier illisible, rien d'importé : {e.strerror or e}", file=sys.stderr)
+        return 1
+    try:
+        r = importer(conn, texte, noms_reserves={s.nom for s in config.sources})
+    except SourceInvalide as e:
+        print(f"fichier invalide, rien d'importé : {e}", file=sys.stderr)
+        return 1
+    print(f"{r['ajoutees']} ajoutée(s), {r['modifiees']} modifiée(s), "
+          f"{r['inchangees']} inchangée(s)", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="rag")
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -230,6 +259,10 @@ def main(argv: list[str] | None = None) -> int:
     pexc = sp.add_parser("exclusions").add_subparsers(dest="action", required=True)
     pexc.add_parser("exporter")
     pexc.add_parser("importer").add_argument("fichier")
+    psrc = sp.add_parser("sources").add_subparsers(dest="action", required=True)
+    psrc.add_parser("lister")
+    psrc.add_parser("exporter")
+    psrc.add_parser("importer").add_argument("fichier")
     sp.add_parser("travailleur")
     for nom in ("question", "lister", "repondre"):
         pq = sp.add_parser(nom)
@@ -283,6 +316,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.cmd == "exclusions":
             return _exclusions_cli(conn, a)
+        if a.cmd == "sources":
+            return _sources_cli(conn, a, config)
         modeles = modeles_depuis(reglages)
         if a.cmd == "indexer":
             return _indexer(conn, reglages, config, modeles, a.source, a.complet, a.forcer)

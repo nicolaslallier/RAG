@@ -335,3 +335,111 @@ def test_changement_de_chemin_seul_garde_le_jeton(bd):
     ch = _modif(bd, "g", emplacement="https://x/autre.git")
     assert ch == {"emplacement"}
     assert bytes(_ligne(bd, "g")["jeton_chiffre"]) == b"opaque"
+
+
+# --- export / import ---
+
+import yaml
+
+from rag.sources_gerees import exporter, importer, lire_export
+
+
+def _nb(bd):
+    return bd.execute("SELECT count(*) AS n FROM sources").fetchone()["n"]
+
+
+def test_export_sans_jeton(bd):
+    ajouter(bd, _valider(nom="b", exclure=["*.md"]), utilisateur="u", jeton="ghp_secret",
+            coffret=_coffret())
+    ajouter(bd, _valider(nom="a"), utilisateur="x-access-token", jeton=None, coffret=None)
+    texte = exporter(bd)
+    assert "jeton" not in texte and "ghp_secret" not in texte
+    donnees = yaml.safe_load(texte)
+    assert [d["nom"] for d in donnees] == ["a", "b"]
+    assert set(donnees[0]) == {"nom", "emplacement", "branche", "visibilite", "exclure",
+                               "utilisateur"}
+    assert lire_export(texte) == donnees
+
+
+def test_export_ignore_les_sources_du_yaml(bd):
+    _inserer(bd, "yaml", False)
+    assert yaml.safe_load(exporter(bd)) == []
+
+
+@pytest.mark.parametrize("texte", [
+    "- {nom: a, emplacement: https://h/a.git, jeton: x}",
+    "- {nom: a, emplacement: file:///etc}",
+    "- {nom: a, emplacement: https://h/a.git}\n- {nom: '..', emplacement: https://h/b.git}",
+    "- {nom: a, emplacement: https://h/a.git}\n- {nom: coffre-maison, emplacement: https://h/b.git}",
+    "- {nom: a}",
+    "- {emplacement: https://h/a.git}",
+    "- pas un dictionnaire",
+    "pas une liste",
+    "[",
+])
+def test_import_refuse_tout_ou_rien(bd, texte):
+    with pytest.raises(SourceInvalide):
+        importer(bd, texte, noms_reserves=RESERVES)
+    assert _nb(bd) == 0
+
+
+def test_import_nomme_l_entree(bd):
+    with pytest.raises(SourceInvalide, match="entrée 2"):
+        importer(bd, "- {nom: a, emplacement: https://h/a.git}\n- {nom: b}",
+                 noms_reserves=RESERVES)
+
+
+def test_import_ajoute_et_modifie(bd):
+    ajouter(bd, _valider(nom="vieux"), utilisateur="x-access-token", jeton=None, coffret=None)
+    bd.execute("UPDATE sources SET demande_le = NULL")
+    bd.commit()
+    bilan = importer(bd, "- {nom: vieux, emplacement: https://github.com/a/b.git, branche: dev}\n"
+                         "- {nom: neuf, emplacement: https://github.com/a/c.git}",
+                     noms_reserves=RESERVES)
+    assert bilan == {"ajoutees": 1, "modifiees": 1, "inchangees": 0}
+    assert _ligne(bd, "vieux")["branche"] == "dev" and _ligne(bd, "vieux")["demande_le"]
+    assert _ligne(bd, "neuf")["geree"] and _ligne(bd, "neuf")["demande_le"]
+
+
+def test_import_inchangees(bd):
+    ajouter(bd, _valider(nom="a"), utilisateur="x-access-token", jeton=None, coffret=None)
+    bilan = importer(bd, exporter(bd), noms_reserves=RESERVES)
+    assert bilan == {"ajoutees": 0, "modifiees": 0, "inchangees": 1}
+
+
+def test_import_garde_le_jeton(bd):
+    c = _coffret()
+    ajouter(bd, _valider(nom="a"), utilisateur="x-access-token", jeton="ghp_x", coffret=c)
+    importer(bd, "- {nom: a, emplacement: https://github.com/a/b.git, branche: dev}",
+             noms_reserves=RESERVES)
+    assert c.dechiffrer(_ligne(bd, "a")["jeton_chiffre"]) == "ghp_x"
+
+
+def test_import_changement_d_hote_retire_le_jeton(bd):
+    ajouter(bd, _valider(nom="a"), utilisateur="x-access-token", jeton="ghp_x",
+            coffret=_coffret())
+    importer(bd, "- {nom: a, emplacement: https://autre.example/a/b.git}", noms_reserves=RESERVES)
+    assert _ligne(bd, "a")["jeton_chiffre"] is None
+
+
+def test_import_echec_en_cours_annule_tout(bd, monkeypatch):
+    from rag import sources_gerees
+    appels = []
+    reel = sources_gerees._inserer_source
+
+    def casse(*a, **k):
+        appels.append(1)
+        if len(appels) == 2:
+            raise RuntimeError("boum")
+        return reel(*a, **k)
+    monkeypatch.setattr(sources_gerees, "_inserer_source", casse)
+    with pytest.raises(RuntimeError):
+        importer(bd, "- {nom: a, emplacement: https://h/a.git}\n"
+                     "- {nom: b, emplacement: https://h/b.git}", noms_reserves=RESERVES)
+    assert _nb(bd) == 0
+
+
+def test_import_nom_non_gere_refuse(bd):
+    _inserer(bd, "yaml", False)
+    with pytest.raises(SourceInvalide, match="déjà pris"):
+        importer(bd, "- {nom: yaml, emplacement: https://h/a.git}", noms_reserves=RESERVES)

@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+import yaml
 from cryptography.fernet import Fernet, InvalidToken
 from pydantic import ValidationError
 
@@ -123,6 +124,21 @@ def valider(nom: str, emplacement: str, branche: str, visibilite: str, exclure: 
         raise SourceInvalide("nom ou visibilité invalide") from e
 
 
+def _inserer_source(conn, conf: SourceConf, utilisateur: str,
+                    chiffre: bytes | None) -> None:
+    """INSERT d'une source gérée, sans commit (l'appelant tient la transaction)."""
+    verrouiller_source(conn, conf.nom)
+    if conn.execute("SELECT 1 FROM sources WHERE nom = %s", (conf.nom,)).fetchone():
+        raise SourceInvalide("nom déjà pris")
+    conn.execute(
+        """INSERT INTO sources (nom, type, emplacement, branche, visibilite, exclure,
+                                jeton_chiffre, utilisateur, geree, demande_le)
+           VALUES (%s, 'code', %s, %s, %s, %s, %s, %s, true, now())""",
+        (conf.nom, conf.emplacement, conf.branche, conf.visibilite, list(conf.exclure),
+         chiffre, utilisateur))
+    conn.execute("NOTIFY rag_reindexer")
+
+
 def ajouter(conn, conf: SourceConf, *, utilisateur: str, jeton: str | None,
             coffret: Coffret | None) -> None:
     """Enregistre une source git gérée et demande son indexation."""
@@ -130,16 +146,7 @@ def ajouter(conn, conf: SourceConf, *, utilisateur: str, jeton: str | None,
         raise JetonImpossible("RAG_CLE_SECRETS absente : impossible d'enregistrer un jeton")
     chiffre = coffret.chiffrer(jeton) if jeton and coffret else None
     try:
-        verrouiller_source(conn, conf.nom)
-        if conn.execute("SELECT 1 FROM sources WHERE nom = %s", (conf.nom,)).fetchone():
-            raise SourceInvalide("nom déjà pris")
-        conn.execute(
-            """INSERT INTO sources (nom, type, emplacement, branche, visibilite, exclure,
-                                    jeton_chiffre, utilisateur, geree, demande_le)
-               VALUES (%s, 'code', %s, %s, %s, %s, %s, %s, true, now())""",
-            (conf.nom, conf.emplacement, conf.branche, conf.visibilite, list(conf.exclure),
-             chiffre, utilisateur))
-        conn.execute("NOTIFY rag_reindexer")
+        _inserer_source(conn, conf, utilisateur, chiffre)
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -161,53 +168,62 @@ def _geree(conn, nom: str) -> dict:
     return r
 
 
+def _appliquer_modification(conn, nom: str, conf: SourceConf, utilisateur: str,
+                            nouveau_jeton: bytes | None, retirer_jeton: bool) -> set[str]:
+    """Écrit les changements d'une source gérée, sans commit ; rend les champs modifiés."""
+    verrouiller_source(conn, nom)
+    r = _geree(conn, nom)
+    changes: set[str] = set()
+    if conf.emplacement != r["emplacement"]:
+        changes.add("emplacement")
+    if conf.branche != (r["branche"] or "main"):
+        changes.add("branche")
+    if conf.visibilite != r["visibilite"]:
+        changes.add("visibilite")
+    if list(conf.exclure) != list(r["exclure"]):
+        changes.add("exclure")
+    if utilisateur != r["utilisateur"]:
+        changes.add("utilisateur")
+    if nouveau_jeton is not None:
+        changes.add("jeton")
+    elif (retirer_jeton or _origine(conf.emplacement) != _origine(r["emplacement"])) \
+            and r["jeton_chiffre"] is not None:
+        # Un changement d'hôte ne doit jamais envoyer l'ancien jeton au nouveau.
+        changes.add("jeton")
+    if not changes:
+        return changes
+    if changes & {"emplacement", "branche"}:
+        sid = r["id"]
+        conn.execute("DELETE FROM documents WHERE source_id = %s", (sid,))
+        conn.execute("DELETE FROM noeuds WHERE source_id = %s", (sid,))
+        conn.execute("DELETE FROM exclus WHERE source_id = %s", (sid,))
+        conn.execute("UPDATE sources SET revision = NULL, graphe_revision = NULL"
+                     " WHERE id = %s", (sid,))
+    conn.execute(
+        """UPDATE sources SET emplacement = %s, branche = %s, visibilite = %s, exclure = %s,
+               utilisateur = %s,
+               sans_garde = sans_garde OR %s
+           WHERE id = %s""",
+        (conf.emplacement, conf.branche, conf.visibilite, list(conf.exclure), utilisateur,
+         bool(changes & {"emplacement", "branche", "exclure"}), r["id"]))
+    if "jeton" in changes:
+        conn.execute("UPDATE sources SET jeton_chiffre = %s WHERE id = %s",
+                     (nouveau_jeton, r["id"]))
+    return changes
+
+
 def modifier(conn, nom: str, conf: SourceConf, *, utilisateur: str, jeton: str | None,
              retirer_jeton: bool, coffret: Coffret | None) -> set[str]:
     """Applique les changements ; rend les champs modifiés (voir la spec, « Effets »)."""
     if jeton and coffret is None:
         raise JetonImpossible("RAG_CLE_SECRETS absente : impossible d'enregistrer un jeton")
     try:
-        verrouiller_source(conn, nom)
-        r = _geree(conn, nom)
-        changes: set[str] = set()
-        if conf.emplacement != r["emplacement"]:
-            changes.add("emplacement")
-        if conf.branche != (r["branche"] or "main"):
-            changes.add("branche")
-        if conf.visibilite != r["visibilite"]:
-            changes.add("visibilite")
-        if list(conf.exclure) != list(r["exclure"]):
-            changes.add("exclure")
-        if utilisateur != r["utilisateur"]:
-            changes.add("utilisateur")
-        nouveau_jeton = None
-        if jeton and coffret:
-            nouveau_jeton = coffret.chiffrer(jeton)
-            changes.add("jeton")
-        elif (retirer_jeton or _origine(conf.emplacement) != _origine(r["emplacement"])) \
-                and r["jeton_chiffre"] is not None:
-            # Un changement d'hôte ne doit jamais envoyer l'ancien jeton au nouveau.
-            changes.add("jeton")
+        changes = _appliquer_modification(
+            conn, nom, conf, utilisateur,
+            coffret.chiffrer(jeton) if jeton and coffret else None, retirer_jeton)
         if not changes:
             conn.rollback()
             return changes
-        if changes & {"emplacement", "branche"}:
-            sid = r["id"]
-            conn.execute("DELETE FROM documents WHERE source_id = %s", (sid,))
-            conn.execute("DELETE FROM noeuds WHERE source_id = %s", (sid,))
-            conn.execute("DELETE FROM exclus WHERE source_id = %s", (sid,))
-            conn.execute("UPDATE sources SET revision = NULL, graphe_revision = NULL"
-                         " WHERE id = %s", (sid,))
-        conn.execute(
-            """UPDATE sources SET emplacement = %s, branche = %s, visibilite = %s, exclure = %s,
-                   utilisateur = %s,
-                   sans_garde = sans_garde OR %s
-               WHERE id = %s""",
-            (conf.emplacement, conf.branche, conf.visibilite, list(conf.exclure), utilisateur,
-             bool(changes & {"emplacement", "branche", "exclure"}), r["id"]))
-        if "jeton" in changes:
-            conn.execute("UPDATE sources SET jeton_chiffre = %s WHERE id = %s",
-                         (nouveau_jeton, r["id"]))
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -242,3 +258,99 @@ def supprimer(conn, nom: str) -> None:
     except BaseException:
         conn.rollback()
         raise
+
+
+# --- export / import YAML ---
+
+_CLES_EXPORT = ("nom", "emplacement", "branche", "visibilite", "exclure", "utilisateur")
+_DEFAUTS = {"branche": "main", "visibilite": "public-maison", "exclure": [],
+            "utilisateur": "x-access-token"}
+
+
+def exporter(conn) -> str:
+    """YAML des sources gérées, triées par nom. Jamais de jeton."""
+    lignes = [{"nom": r["nom"], "emplacement": r["emplacement"],
+               "branche": r["branche"] or "main", "visibilite": r["visibilite"],
+               "exclure": list(r["exclure"]), "utilisateur": r["utilisateur"]}
+              for r in conn.execute("SELECT * FROM sources WHERE geree ORDER BY nom")]
+    return yaml.safe_dump(lignes, allow_unicode=True, sort_keys=False)
+
+
+def lire_export(texte: str, *, noms_reserves: set[str] = frozenset()) -> list[dict]:
+    """Entrées validées (défauts appliqués) ou `SourceInvalide("entrée i : …")`."""
+    try:
+        donnees = yaml.safe_load(texte)
+    except yaml.YAMLError as e:
+        raise SourceInvalide("YAML illisible") from e
+    if donnees is None:
+        return []
+    if not isinstance(donnees, list):
+        raise SourceInvalide("une liste de sources est attendue")
+    sorties: list[dict] = []
+    vus: set[str] = set()
+    for i, e in enumerate(donnees, 1):
+        try:
+            if not isinstance(e, dict):
+                raise SourceInvalide("un dictionnaire est attendu")
+            inconnues = set(e) - set(_CLES_EXPORT)
+            if inconnues:
+                raise SourceInvalide("clé(s) inconnue(s) : "
+                                     + ", ".join(sorted(map(str, inconnues))))
+            for k in ("nom", "emplacement"):
+                if k not in e:
+                    raise SourceInvalide(f"« {k} » est obligatoire")
+            d = {**_DEFAUTS, **e}
+            d["exclure"] = list(d["exclure"]) if isinstance(d["exclure"], list) else None
+            if d["exclure"] is None:
+                raise SourceInvalide("« exclure » doit être une liste")
+            if not isinstance(d["nom"], str):
+                raise SourceInvalide("nom invalide")
+            if d["nom"] in vus:
+                raise SourceInvalide("nom en double")
+            conf = valider(d["nom"], d["emplacement"], d["branche"], d["visibilite"],
+                           d["exclure"], d["utilisateur"], noms_reserves=noms_reserves)
+        except SourceInvalide as err:
+            raise SourceInvalide(f"entrée {i} : {err}") from err
+        vus.add(conf.nom)
+        sorties.append({"nom": conf.nom, "emplacement": conf.emplacement,
+                        "branche": conf.branche, "visibilite": conf.visibilite,
+                        "exclure": list(conf.exclure), "utilisateur": d["utilisateur"]})
+    return sorties
+
+
+def importer(conn, texte: str, *, noms_reserves: set[str]) -> dict:
+    """Ajoute ou met à jour les sources du YAML en une transaction ; rien n'est supprimé.
+
+    Jamais de jeton : celui d'une source connue est gardé (sauf changement d'hôte).
+    """
+    entrees = lire_export(texte, noms_reserves=noms_reserves)
+    bilan = {"ajoutees": 0, "modifiees": 0, "inchangees": 0}
+    try:
+        a_reindexer: list[str] = []
+        for e in entrees:
+            conf = SourceConf(nom=e["nom"], type="code", emplacement=e["emplacement"],
+                              branche=e["branche"], exclure=e["exclure"],
+                              visibilite=e["visibilite"])
+            verrouiller_source(conn, conf.nom)
+            if conn.execute("SELECT 1 FROM sources WHERE nom = %s AND geree",
+                            (conf.nom,)).fetchone():
+                changes = _appliquer_modification(conn, conf.nom, conf, e["utilisateur"],
+                                                  None, False)
+                if not changes:
+                    bilan["inchangees"] += 1
+                    continue
+                bilan["modifiees"] += 1
+                if changes != {"visibilite"}:
+                    a_reindexer.append(conf.nom)
+            else:
+                _inserer_source(conn, conf, e["utilisateur"], None)
+                bilan["ajoutees"] += 1
+        if a_reindexer:
+            conn.execute("UPDATE sources SET demande_le = now() WHERE nom = ANY(%s)",
+                         (a_reindexer,))
+            conn.execute("NOTIFY rag_reindexer")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return bilan

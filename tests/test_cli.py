@@ -78,3 +78,29 @@ def test_cli_exclusions_importer_fichier_illisible(env_cli, capsys, tmp_path):
     assert "UTF-8" in capsys.readouterr().err
     assert cli.main(["exclusions", "exporter"]) == 0
     assert yaml.safe_load(capsys.readouterr().out) == []
+
+
+def test_cli_sources_exporter_lister_importer(env_cli, capsys, tmp_path):
+    f = tmp_path / "sources.yaml"
+    f.write_text("- {nom: depot, emplacement: https://github.com/a/b.git}\n")
+    assert cli.main(["sources", "importer", str(f)]) == 0
+    assert "1 ajoutée(s), 0 modifiée(s), 0 inchangée(s)" in capsys.readouterr().err
+    assert cli.main(["sources", "lister"]) == 0
+    sortie = capsys.readouterr().out
+    assert "depot" in sortie and "https://github.com/a/b.git" in sortie and "—" in sortie
+    assert cli.main(["sources", "exporter"]) == 0
+    assert yaml.safe_load(capsys.readouterr().out) == [
+        {"nom": "depot", "emplacement": "https://github.com/a/b.git", "branche": "main",
+         "visibilite": "public-maison", "exclure": [], "utilisateur": "x-access-token"}]
+
+
+def test_cli_sources_importer_nom_reserve(env_cli, capsys, tmp_path):
+    f = tmp_path / "sources.yaml"
+    f.write_text("- {nom: coffre-maison, emplacement: https://github.com/a/b.git}\n")
+    assert cli.main(["sources", "importer", str(f)]) == 1
+    assert "entrée 1" in capsys.readouterr().err
+
+
+def test_cli_sources_importer_fichier_illisible(env_cli, capsys, tmp_path):
+    assert cli.main(["sources", "importer", str(tmp_path / "absent.yaml")]) == 1
+    assert "illisible" in capsys.readouterr().err
