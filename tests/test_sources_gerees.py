@@ -305,3 +305,33 @@ def test_bilan_suppression_source_inconnue(bd):
     _inserer(bd, "coffre-maison", False)
     with pytest.raises(gestion.SourceInconnue):
         bilan_suppression(bd, "coffre-maison")
+
+
+def test_changement_d_hote_retire_le_jeton(bd):
+    _gerer(bd, jeton=b"opaque")
+    ch = _modif(bd, "g", emplacement="https://autre.example/x.git")
+    assert ch == {"emplacement", "jeton"}
+    assert _ligne(bd, "g")["jeton_chiffre"] is None
+
+
+def test_changement_de_port_retire_le_jeton(bd):
+    _gerer(bd, jeton=b"opaque")
+    bd.execute("UPDATE sources SET emplacement = 'https://h.example/x.git' WHERE nom = 'g'")
+    bd.commit()
+    assert "jeton" in _modif(bd, "g", emplacement="https://h.example:8443/x.git")
+    assert _ligne(bd, "g")["jeton_chiffre"] is None
+
+
+def test_changement_d_hote_avec_nouveau_jeton(bd):
+    _gerer(bd, jeton=b"opaque")
+    c = _coffret()
+    ch = _modif(bd, "g", emplacement="https://autre.example/x.git", jeton="ghp_n", coffret=c)
+    assert ch == {"emplacement", "jeton"}
+    assert c.dechiffrer(_ligne(bd, "g")["jeton_chiffre"]) == "ghp_n"
+
+
+def test_changement_de_chemin_seul_garde_le_jeton(bd):
+    _gerer(bd, jeton=b"opaque")
+    ch = _modif(bd, "g", emplacement="https://x/autre.git")
+    assert ch == {"emplacement"}
+    assert bytes(_ligne(bd, "g")["jeton_chiffre"]) == b"opaque"

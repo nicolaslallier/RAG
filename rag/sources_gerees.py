@@ -146,6 +146,14 @@ def ajouter(conn, conf: SourceConf, *, utilisateur: str, jeton: str | None,
         raise
 
 
+def _origine(url: str) -> tuple[str, str, int | None]:
+    try:
+        u = urlsplit(url)
+        return (u.scheme.lower(), (u.hostname or "").lower(), u.port)
+    except ValueError:
+        return (url, "", None)
+
+
 def _geree(conn, nom: str) -> dict:
     r = conn.execute("SELECT * FROM sources WHERE nom = %s AND geree", (nom,)).fetchone()
     if r is None:
@@ -176,7 +184,9 @@ def modifier(conn, nom: str, conf: SourceConf, *, utilisateur: str, jeton: str |
         if jeton and coffret:
             nouveau_jeton = coffret.chiffrer(jeton)
             changes.add("jeton")
-        elif retirer_jeton and r["jeton_chiffre"] is not None:
+        elif (retirer_jeton or _origine(conf.emplacement) != _origine(r["emplacement"])) \
+                and r["jeton_chiffre"] is not None:
+            # Un changement d'hôte ne doit jamais envoyer l'ancien jeton au nouveau.
             changes.add("jeton")
         if not changes:
             conn.rollback()
