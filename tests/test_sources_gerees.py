@@ -64,3 +64,10 @@ def test_jeton_illisible_ignore_avec_avertissement(bd, caplog):
     _inserer(bd, "a-depot", True, jeton=Coffret(cle_a).chiffrer("ghp_secret"))
     [s] = [s for s in sources_actives(bd, _config(), Coffret(cle_b)) if s.conf.nom == "a-depot"]
     assert s.jeton is None and "a-depot" in caplog.text and "ghp_" not in caplog.text
+
+
+def test_jeton_sans_cle_ignore_avec_avertissement(bd, caplog):
+    cle = Fernet.generate_key().decode()
+    _inserer(bd, "a-depot", True, jeton=Coffret(cle).chiffrer("ghp_secret"))
+    [s] = [s for s in sources_actives(bd, _config(), None) if s.conf.nom == "a-depot"]
+    assert s.jeton is None and "a-depot" in caplog.text and "ghp_" not in caplog.text

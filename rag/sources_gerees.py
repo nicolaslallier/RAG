@@ -54,11 +54,14 @@ def sources_actives(conn, config: Config, coffret: Coffret | None) -> list[Sourc
     actives = [SourceActive(s) for s in config.sources if s.type == "obsidian"]
     for r in conn.execute("SELECT * FROM sources WHERE geree ORDER BY nom"):
         jeton = None
-        if r["jeton_chiffre"] is not None and coffret is not None:
-            try:
-                jeton = coffret.dechiffrer(r["jeton_chiffre"])
-            except JetonIllisible:
-                log.warning("jeton illisible pour la source %s : ignoré", r["nom"])
+        if r["jeton_chiffre"] is not None:
+            if coffret is None:
+                log.warning("jeton ignoré pour la source %s : RAG_CLE_SECRETS absente", r["nom"])
+            else:
+                try:
+                    jeton = coffret.dechiffrer(r["jeton_chiffre"])
+                except JetonIllisible:
+                    log.warning("jeton illisible pour la source %s : ignoré", r["nom"])
         conf = SourceConf(nom=r["nom"], type="code", emplacement=r["emplacement"],
                           branche=r["branche"] or "main", exclure=list(r["exclure"]),
                           visibilite=r["visibilite"])
