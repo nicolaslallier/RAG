@@ -313,6 +313,9 @@ def main(argv: list[str] | None = None) -> int:
     with ouvrir as conn:
         if a.cmd == "migrer":
             print("\n".join(migrer(conn)) or "rien à migrer")
+            if reglages.sources_amorce:
+                from rag.sources_gerees import amorcer
+                print(f"{amorcer(conn, reglages.sources_amorce)} source(s) git amorcée(s)")
             return 0
         if a.cmd == "exclusions":
             return _exclusions_cli(conn, a)

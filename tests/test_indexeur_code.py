@@ -96,9 +96,10 @@ def test_source_supprimee_n_est_pas_recreee(bd, depot, tmp_path, faux_modeles):
 
 
 def test_la_config_de_prod_exclut_le_banc_du_depot_rag():
-    for f in ("config/rag.yaml", "config/dev.yaml"):
-        rag = next(s for s in charger_config(Path(f)).sources if s.nom == "RAG")
-        assert motif_exclusion("banc/etalon.yaml", b"- id: x", rag.exclure) == "config"
+    from rag.sources_gerees import lire_export
+    rag = next(e for e in lire_export(Path("config/sources-maison.yaml").read_text())
+               if e["nom"] == "RAG")
+    assert motif_exclusion("banc/etalon.yaml", b"- id: x", rag["exclure"]) == "config"
 
 
 def test_le_coffre_git_n_est_pas_une_source():

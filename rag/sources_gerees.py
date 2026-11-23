@@ -3,6 +3,7 @@
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import yaml
@@ -354,3 +355,44 @@ def importer(conn, texte: str, *, noms_reserves: set[str]) -> dict:
         conn.rollback()
         raise
     return bilan
+
+
+_VERROU_AMORCE = 7242   # à côté de VERROU_MIGRATION (7240) et du travailleur (7241)
+
+
+def amorcer(conn, chemin: Path) -> int:
+    """Amorçage unique : verse les sources du fichier en base, sans réindexer.
+
+    Upsert par nom (une ligne déjà indexée garde id, révision et documents), `geree = true`,
+    ni `demande_le` ni `sans_garde` touchés. Le marqueur `instance.sources_amorcees` est posé
+    dans la même transaction : un second appel rend 0. Rend le nombre de sources versées.
+    """
+    entrees = lire_export(Path(chemin).read_text(encoding="utf-8"))
+    try:
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (_VERROU_AMORCE,))
+        if conn.execute("SELECT 1 FROM instance WHERE cle = 'sources_amorcees'").fetchone():
+            conn.rollback()
+            return 0
+        for e in entrees:
+            verrouiller_source(conn, e["nom"])
+            conn.execute(
+                """INSERT INTO sources (nom, type, emplacement, branche, visibilite, exclure,
+                                        utilisateur, geree)
+                   VALUES (%s, 'code', %s, %s, %s, %s, %s, true)
+                   ON CONFLICT (nom) DO UPDATE SET
+                     type = 'code', geree = true, emplacement = EXCLUDED.emplacement,
+                     branche = EXCLUDED.branche, visibilite = EXCLUDED.visibilite,
+                     exclure = EXCLUDED.exclure, utilisateur = EXCLUDED.utilisateur""",
+                (e["nom"], e["emplacement"], e["branche"], e["visibilite"], e["exclure"],
+                 e["utilisateur"]))
+        noms = [e["nom"] for e in entrees]
+        for r in conn.execute("SELECT nom FROM sources WHERE type = 'code' AND NOT geree"
+                              " AND NOT (nom = ANY(%s)) ORDER BY nom", (noms,)).fetchall():
+            log.warning("source de code %s absente du fichier d'amorçage : gardée telle quelle",
+                        r["nom"])
+        conn.execute("INSERT INTO instance (cle, valeur) VALUES ('sources_amorcees', 'oui')")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return len(entrees)

@@ -107,7 +107,7 @@ def test_rendu_ecrit_les_cles_et_rien_sur_la_sortie(faux, tmp_path):
     assert r.returncode == 0, r.stderr
     lignes = f.read_text().splitlines()
     assert "RAG_JETON=" + J1 in lignes and "RAG_JETON_PRIVE=" in lignes
-    assert "RAG_COFFRE_PREFIXE=" in lignes and len(lignes) == 8
+    assert "RAG_COFFRE_PREFIXE=" in lignes and len(lignes) == 9 and "RAG_CLE_SECRETS=" in lignes
     assert all(v not in r.stdout + r.stderr for v in COFFRE.values())
     assert oct(f.stat().st_mode)[-3:] == "600"
 
@@ -120,7 +120,6 @@ def test_rendu_masque_les_valeurs_dans_actions(faux, tmp_path):
 
 @pytest.mark.parametrize("coffre,attendu", [
     (SANS("RAG_S3_SECRET_KEY"), "RAG_S3_SECRET_KEY"),
-    (AVEC(RAG_GITHUB_JETON=""), "RAG_GITHUB_JETON"),
     (AVEC(RAG_JETON="court"), "RAG_JETON"),
     (AVEC(RAG_JETON_REINDEXER=J1), "RAG_JETON_REINDEXER"),
     (AVEC(RAG_JETON_PRIVE=J2), "RAG_JETON_PRIVE"),
@@ -178,3 +177,11 @@ def test_aucun_secret_en_argv():
 def test_shellcheck():
     assert subprocess.run(["shellcheck", "scripts/vault-render-env.sh",
                            "scripts/portainer-stack.sh"], check=False).returncode == 0
+
+
+def test_rendu_jeton_github_et_cle_secrets_facultatifs(faux, tmp_path):
+    faux.coffre = AVEC(RAG_GITHUB_JETON="")
+    r = lancer("scripts/vault-render-env.sh", env=env_rendu(faux, tmp_path))
+    assert r.returncode == 0, r.stderr
+    lignes = (tmp_path / "rag.env").read_text().splitlines()
+    assert "RAG_GITHUB_JETON=" in lignes and "RAG_CLE_SECRETS=" in lignes

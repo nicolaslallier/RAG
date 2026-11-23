@@ -443,3 +443,66 @@ def test_import_nom_non_gere_refuse(bd):
     _inserer(bd, "yaml", False)
     with pytest.raises(SourceInvalide, match="déjà pris"):
         importer(bd, "- {nom: yaml, emplacement: https://h/a.git}", noms_reserves=RESERVES)
+
+
+# --- amorçage unique -------------------------------------------------------------------
+
+def test_amorcer_garde_les_lignes(bd, index_code, tmp_path):
+    from rag.sources_gerees import amorcer
+    bd.execute("UPDATE sources SET geree = false WHERE nom = 'depot-test'")   # ligne non gérée
+    bd.commit()
+    avant = bd.execute("SELECT id, revision FROM sources WHERE nom='depot-test'").fetchone()
+    docs = bd.execute("SELECT count(*) AS n FROM documents").fetchone()["n"]
+    assert docs > 0
+    f = tmp_path / "amorce.yaml"
+    f.write_text('- {nom: depot-test, emplacement: "https://x/d.git", exclure: ["banc/**"]}\n')
+    assert amorcer(bd, f) == 1
+    apres = bd.execute("SELECT * FROM sources WHERE nom='depot-test'").fetchone()
+    assert (apres["id"], apres["revision"]) == (avant["id"], avant["revision"])
+    assert bd.execute("SELECT count(*) AS n FROM documents").fetchone()["n"] == docs
+    assert apres["geree"] and apres["exclure"] == ["banc/**"]
+    assert apres["emplacement"] == "https://x/d.git" and apres["sans_garde"] is False
+    assert apres["demande_le"] is None
+    assert amorcer(bd, f) == 0
+
+
+def test_amorcer_instance_neuve(bd, tmp_path):
+    from rag.sources_gerees import amorcer
+    f = tmp_path / "vide.yaml"
+    f.write_text("")
+    assert amorcer(bd, f) == 0
+    assert bd.execute("SELECT count(*) AS n FROM sources").fetchone()["n"] == 0
+    assert bd.execute("SELECT 1 FROM instance WHERE cle = 'sources_amorcees'").fetchone()
+
+
+def test_amorcer_insere_une_source_neuve_sans_reindexation(bd, tmp_path):
+    from rag.sources_gerees import amorcer
+    f = tmp_path / "a.yaml"
+    f.write_text('- {nom: neuve, emplacement: "https://x/n.git", branche: master}\n')
+    assert amorcer(bd, f) == 1
+    r = bd.execute("SELECT * FROM sources WHERE nom='neuve'").fetchone()
+    assert r["geree"] and r["type"] == "code" and r["branche"] == "master"
+    assert r["demande_le"] is None
+
+
+def test_amorcer_journalise_les_lignes_absentes(bd, tmp_path, caplog):
+    from rag.sources_gerees import amorcer
+    bd.execute("INSERT INTO sources (nom, type, emplacement, visibilite, branche)"
+               " VALUES ('orpheline', 'code', 'x', 'public-maison', 'main')")
+    bd.commit()
+    f = tmp_path / "a.yaml"
+    f.write_text("")
+    with caplog.at_level("WARNING"):
+        amorcer(bd, f)
+    assert "orpheline" in caplog.text
+
+
+def test_config_principale_sans_source_de_code():
+    for f in ("config/rag.yaml", "config/dev.yaml"):
+        assert all(s.type != "code" for s in charger_config(Path(f)).sources)
+
+
+def test_sources_maison_valides():
+    from rag.sources_gerees import lire_export
+    # sources `code` de config/rag.yaml au 2026-11-23
+    assert len(lire_export(Path("config/sources-maison.yaml").read_text())) == 50

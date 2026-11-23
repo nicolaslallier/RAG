@@ -50,7 +50,7 @@ def test_une_source_sans_visibilite_est_refusee(tmp_path):
     from pydantic import ValidationError
 
     d = yaml.safe_load(Path("config/rag.yaml").read_text())
-    del d["sources"][1]["visibilite"]
+    del d["sources"][0]["visibilite"]
     (tmp_path / "c.yaml").write_text(yaml.safe_dump(d))
     with pytest.raises(ValidationError, match="visibilite"):
         charger_config(tmp_path / "c.yaml")

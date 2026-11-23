@@ -1,0 +1,56 @@
+# Sources git amorcées une seule fois en base par `rag migrer` (RAG_SOURCES_AMORCE).
+# Ensuite, elles se gèrent depuis l'interface web ou `rag sources`.
+# Format de `rag sources exporter` ; extraites de config/rag.yaml le 2026-11-23.
+# Code : un clone par dépôt, origin/<branche> seulement (gh repo list nicolaslallier, 2026-11-21).
+# Absents : obsidian-maison (le coffre est lu dans S3), policy (pas de main), AI_Backend et
+# WWIII (vides, sans branche), ollama-metrics (fourche d'un projet tiers), mcp-fichiers (n'existe pas).
+- {nom: AI, emplacement: "https://github.com/nicolaslallier/AI.git", visibilite: public-maison}
+- {nom: Infra, emplacement: "https://github.com/nicolaslallier/Infra.git", visibilite: public-maison}
+- {nom: Jarvis, emplacement: "https://github.com/nicolaslallier/Jarvis.git", visibilite: public-maison}
+- {nom: EA, emplacement: "https://github.com/nicolaslallier/EA.git", visibilite: public-maison}
+- {nom: DarkAngel, emplacement: "https://github.com/nicolaslallier/DarkAngel.git", visibilite: public-maison}
+- {nom: Final, emplacement: "https://github.com/nicolaslallier/Final.git", visibilite: public-maison}
+- {nom: Glee, emplacement: "https://github.com/nicolaslallier/Glee.git", visibilite: public-maison}
+- {nom: Heaven, emplacement: "https://github.com/nicolaslallier/Heaven.git", visibilite: public-maison}
+- {nom: Midas, emplacement: "https://github.com/nicolaslallier/Midas.git", visibilite: public-maison}
+- {nom: Moria, emplacement: "https://github.com/nicolaslallier/Moria.git", visibilite: public-maison}
+- {nom: orchestre, emplacement: "https://github.com/nicolaslallier/orchestre.git", visibilite: public-maison}
+- {nom: RAG, emplacement: "https://github.com/nicolaslallier/RAG.git", visibilite: public-maison, exclure: ["banc/**"]}
+- {nom: Heaven-backend, emplacement: "https://github.com/nicolaslallier/Heaven-backend.git", visibilite: public-maison}
+- {nom: Heaven-frontend, emplacement: "https://github.com/nicolaslallier/Heaven-frontend.git", visibilite: public-maison}
+- {nom: DragonWarrior, emplacement: "https://github.com/nicolaslallier/DragonWarrior.git", visibilite: public-maison}
+- {nom: Nurse, emplacement: "https://github.com/nicolaslallier/Nurse.git", visibilite: public-maison}
+- {nom: RPG, emplacement: "https://github.com/nicolaslallier/RPG.git", visibilite: public-maison}
+- {nom: Thor, emplacement: "https://github.com/nicolaslallier/Thor.git", visibilite: public-maison}
+- {nom: Frey, emplacement: "https://github.com/nicolaslallier/Frey.git", visibilite: public-maison}
+- {nom: Odin, emplacement: "https://github.com/nicolaslallier/Odin.git", visibilite: public-maison}
+- {nom: Beacon, emplacement: "https://github.com/nicolaslallier/Beacon.git", visibilite: public-maison}
+- {nom: Beacon-Library, emplacement: "https://github.com/nicolaslallier/Beacon-Library.git", visibilite: public-maison}
+- {nom: infrastructure-Diagram, emplacement: "https://github.com/nicolaslallier/infrastructure-Diagram.git", visibilite: public-maison}
+- {nom: infrastructure-docs-viewer, emplacement: "https://github.com/nicolaslallier/infrastructure-docs-viewer.git", visibilite: public-maison}
+- {nom: infrastructure, emplacement: "https://github.com/nicolaslallier/infrastructure.git", visibilite: public-maison}
+- {nom: infrastructure-docs-viewer-api, emplacement: "https://github.com/nicolaslallier/infrastructure-docs-viewer-api.git", visibilite: public-maison}
+- {nom: AI_Front, emplacement: "https://github.com/nicolaslallier/AI_Front.git", visibilite: public-maison}
+- {nom: AI2, emplacement: "https://github.com/nicolaslallier/AI2.git", visibilite: public-maison}
+- {nom: AI_Middle, emplacement: "https://github.com/nicolaslallier/AI_Middle.git", visibilite: public-maison}
+- {nom: AI_Infra, emplacement: "https://github.com/nicolaslallier/AI_Infra.git", visibilite: public-maison}
+- {nom: Zeus, emplacement: "https://github.com/nicolaslallier/Zeus.git", visibilite: public-maison}
+- {nom: TDDRAGON, emplacement: "https://github.com/nicolaslallier/TDDRAGON.git", visibilite: public-maison}
+- {nom: LOTR, emplacement: "https://github.com/nicolaslallier/LOTR.git", visibilite: public-maison}
+- {nom: WWIII-APIC, emplacement: "https://github.com/nicolaslallier/WWIII-APIC.git", visibilite: public-maison}
+- {nom: home-apic, emplacement: "https://github.com/nicolaslallier/home-apic.git", visibilite: public-maison}
+- {nom: Home-PSBL, emplacement: "https://github.com/nicolaslallier/Home-PSBL.git", visibilite: public-maison}
+- {nom: Home-Web-Portal, emplacement: "https://github.com/nicolaslallier/Home-Web-Portal.git", visibilite: public-maison}
+- {nom: mcppostgres, emplacement: "https://github.com/nicolaslallier/mcppostgres.git", visibilite: public-maison}
+- {nom: PYSIAPIC, emplacement: "https://github.com/nicolaslallier/PYSIAPIC.git", visibilite: public-maison}
+- {nom: Friday-APIC, emplacement: "https://github.com/nicolaslallier/Friday-APIC.git", visibilite: public-maison}
+- {nom: Friday-Utils, emplacement: "https://github.com/nicolaslallier/Friday-Utils.git", visibilite: public-maison}
+- {nom: Friday-WPUI, emplacement: "https://github.com/nicolaslallier/Friday-WPUI.git", visibilite: public-maison}
+- {nom: mcp-architecture, emplacement: "https://github.com/nicolaslallier/mcp-architecture.git", visibilite: public-maison}
+- {nom: WebMaison, emplacement: "https://github.com/nicolaslallier/WebMaison.git", visibilite: public-maison}
+- {nom: mcp-fs-gateway, emplacement: "https://github.com/nicolaslallier/mcp-fs-gateway.git", visibilite: public-maison}
+- {nom: opencode-global, emplacement: "https://github.com/nicolaslallier/opencode-global.git", visibilite: public-maison}
+- {nom: maison, emplacement: "https://github.com/nicolaslallier/maison.git", visibilite: public-maison}
+- {nom: Dedupfs, emplacement: "https://github.com/nicolaslallier/Dedupfs.git", branche: master, visibilite: public-maison}
+- {nom: MyTutorial, emplacement: "https://github.com/nicolaslallier/MyTutorial.git", branche: master, visibilite: public-maison}
+- {nom: Tutorial, emplacement: "https://github.com/nicolaslallier/Tutorial.git", branche: master, visibilite: public-maison}
