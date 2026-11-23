@@ -1198,6 +1198,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "graphifyy" },
     { name = "httpx" },
@@ -1225,6 +1226,7 @@ rerank = [
 [package.metadata]
 requires-dist = [
     { name = "boto3" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "graphifyy", specifier = "==0.9.114" },
     { name = "httpx" },

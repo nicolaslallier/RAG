@@ -67,7 +67,7 @@ def _base():
 @pytest.fixture
 def bd(_base):
     conn = connexion(_base)
-    conn.execute("TRUNCATE sources, index_versions, passes, exclusions_manuelles CASCADE")
+    conn.execute("TRUNCATE sources, index_versions, passes, exclusions_manuelles, instance CASCADE")
     conn.commit()
     yield conn
     conn.rollback()
