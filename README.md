@@ -48,13 +48,13 @@ Règle : un paramètre à la fois, comparé à la référence ; consigner le ré
 | Pile **(changé)** | Portainer `rag`, **environnement Mac-book** (Colima du MacBook, par l'agent `192.168.2.40:9001`) ; services `rag` (API, port 8000), `rag-indexeur` et **`rag-postgres`** ; fichier `deploy/portainer-stack.yml` du dépôt RAG, envoyé comme texte | RAG |
 | Image **(changé)** | `ghcr.io/nicolaslallier/rag:sha-<7 car.>` (paquet privé), **`linux/arm64`** ; contient la CA de l'Infra (certificat public) en `/etc/rag/infra-ca.crt` | RAG |
 | Base **(changé)** | **Postgres dédié dans la pile** : service `rag-postgres`, `pgvector/pgvector:0.8.6-pg18-bookworm` épinglé par digest (arm64), volume nommé `rag-pgdata`, aucun port publié, joignable seulement sur le réseau de la pile (`rag-postgres:5432`) ; base `rag`, rôle `rag` (propriétaire de son instance) ; mot de passe `RAG_DB_PASSWORD` (lettres et chiffres seulement) ; `vector`, `unaccent` et `pg_trgm` créées par la migration du RAG. La base `rag` du Postgres de l'Infra (`192.168.2.10`) **n'est plus utilisée ; elle est laissée en place, rien n'est supprimé** | **RAG** |
-| OpenBao | secret KV v2 `infra/rag` (chemin d'API `infra/data/rag`) ; politique `rag-deploy` (lecture de ce secret seulement) ; clés : `RAG_DB_PASSWORD`, `RAG_LITELLM_CLE`, `RAG_JETON`, `RAG_JETON_PRIVE` (facultative), `RAG_JETON_REINDEXER`, `RAG_GITHUB_JETON`, `RAG_S3_SECRET_KEY`, `RAG_COFFRE_PREFIXE` (facultative) | Infra (politique), Nicolas (valeurs) |
+| OpenBao | secret KV v2 `infra/rag` (chemin d'API `infra/data/rag`) ; politique `rag-deploy` (lecture de ce secret seulement) ; clés : `RAG_DB_PASSWORD`, `RAG_LITELLM_CLE`, `RAG_JETON`, `RAG_JETON_PRIVE` (facultative), `RAG_JETON_REINDEXER`, `RAG_GITHUB_JETON` (facultative), `RAG_CLE_SECRETS` (clé Fernet des jetons par source ; sans elle aucun jeton ne peut être enregistré), `RAG_S3_SECRET_KEY`, `RAG_COFFRE_PREFIXE` (facultative) | Infra (politique), Nicolas (valeurs) |
 | LiteLLM **(changé)** | **`https://litellm.infra.famillelallier.net`**, vérifié par la CA de l'Infra (`RAG_LITELLM_CA`) ; clé d'alias `rag`, équipe `agents` (modèles locaux seulement) ; modèles utilisés : `qwen3-embedding:0.6b`, `gemma4:26b-a4b-it-qat`, `qwen3.8:27b-mlx` (juge) | Infra |
 | S3 (coffre) **(changé)** | **`https://s3.infra.famillelallier.net`**, vérifié par la CA de l'Infra (`AWS_CA_BUNDLE`) ; bucket `obsidian`, identité `rag` en **`Read,List`**, secret `RAG_S3_SECRET_KEY` ; préfixe du coffre `RAG_COFFRE_PREFIXE` = valeur de `ORGANIZER_VAULT_PREFIX` de l'Infra | Infra |
-| GitHub (code) | `RAG_GITHUB_JETON` : jeton à portée fine, `Contents: Read` sur les dépôts `nicolaslallier/*` | Nicolas |
+| GitHub (code) | `RAG_GITHUB_JETON` **(facultatif)** : jeton à portée fine, `Contents: Read` sur les dépôts `nicolaslallier/*` ; ne sert plus qu'aux sources github.com sans jeton propre | Nicolas |
 | MCP **(changé)** | LiteLLM `mcp_servers.rag` → **`http://192.168.2.40:8000/mcp`**, `Authorization: Bearer` = `RAG_MCP_TOKEN` (même valeur que `RAG_JETON`, niveau `public-maison`) ; **sept** outils : `rag_chercher`, `rag_lister`, `rag_repondre`, `rag_chemin`, `rag_expliquer`, **`rag_sources`** et **`rag_fichiers`** (ces deux derniers en lecture seule) ; équipes `[admin]` | Infra (config), RAG (serveur) |
 | Runner **(précisé)** | `runner-rag`, label `rag`, dépôt `nicolaslallier/RAG`, `GH_RUNNER_TOKEN_RAG`, sans socket Docker ; **reste sur `192.168.2.10`** : il n'appelle que Portainer et OpenBao, par URL ; variable `PORTAINER_ENDPOINT_ID` = `6` | Infra |
-| Env. des conteneurs **(changé)** | `RAG_DATABASE_URL`, `RAG_LITELLM_URL`, **`RAG_LITELLM_CA`**, `RAG_LITELLM_CLE`, `RAG_JETON`, `RAG_JETON_PRIVE`, `RAG_JETON_REINDEXER`, `RAG_GITHUB_JETON`, `RAG_S3_ENDPOINT`, `RAG_S3_ACCESS_KEY`, `RAG_S3_SECRET_KEY`, **`AWS_CA_BUNDLE`**, `RAG_COFFRE_BUCKET`, `RAG_COFFRE_PREFIXE`, `RAG_DONNEES_DIR`, `RAG_CONFIG` ; pour `rag-postgres` : `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PASSWORD` (= `RAG_DB_PASSWORD`) | RAG |
+| Env. des conteneurs **(changé)** | `RAG_DATABASE_URL`, `RAG_LITELLM_URL`, **`RAG_LITELLM_CA`**, `RAG_LITELLM_CLE`, `RAG_JETON`, `RAG_JETON_PRIVE`, `RAG_JETON_REINDEXER`, `RAG_GITHUB_JETON`, `RAG_CLE_SECRETS`, `RAG_SOURCES_AMORCE`, `RAG_S3_ENDPOINT`, `RAG_S3_ACCESS_KEY`, `RAG_S3_SECRET_KEY`, **`AWS_CA_BUNDLE`**, `RAG_COFFRE_BUCKET`, `RAG_COFFRE_PREFIXE`, `RAG_DONNEES_DIR`, `RAG_CONFIG` ; pour `rag-postgres` : `POSTGRES_USER`, `POSTGRES_DB`, `POSTGRES_PASSWORD` (= `RAG_DB_PASSWORD`) | RAG |
 | Niveaux de visibilité **(changé)** | `RAG_JETON` → `public-maison` ; `RAG_JETON_PRIVE` → `public-maison` + `prive` **et gestion de l'index par l'interface `/ui/`**, **à n'utiliser que depuis le MacBook lui-même** (le port 8000 est en HTTP) ; `RAG_JETON_REINDEXER` → réindexation seulement, aucune lecture | RAG |
 
 Valeurs en double à garder égales **(changé)** : `RAG_S3_SECRET_KEY` (`infra/env` et `infra/rag`) ; `RAG_MCP_TOKEN` (`infra/env`) = `RAG_JETON` (`infra/rag`). **`RAG_DB_PASSWORD` n'est plus un double** : seule la copie d'`infra/rag` compte ; celle d'`infra/env` ne sert plus qu'à la base inutilisée de l'Infra.
@@ -79,6 +79,30 @@ dans un cookie `rag_session` (`HttpOnly`, `SameSite=Strict`, limité à `/ui`).
   source (indexés ou exclus, avec la raison).
 - Un motif d'exclusion suit `fnmatch` (le `*` traverse les `/`), 1 à 1000 caractères ; la raison est
   facultative (500 caractères au plus). Le contenu d'un fichier exclu n'est jamais lu ni affiché.
+
+### Sources git gérées dans l'interface
+
+Les sources de code ne sont plus dans `config/rag.yaml` : elles vivent dans la base et se gèrent
+depuis l'écran Sources (`RAG_JETON_PRIVE` requis) : « Ajouter une source git », « Modifier » et
+« Supprimer » par source, « Exporter » et « Importer » pour l'ensemble. En ligne de commande :
+`rag sources lister|exporter|importer <fichier>`.
+
+- **Ajout** : la source est indexée tout de suite (elle apparaît « en attente » jusqu'à la passe).
+- **Modification** : un changement de dépôt ou de branche déclenche une réindexation. La branche est
+  vérifiée avant d'enregistrer : une branche absente donne un message d'erreur et rien n'est changé.
+  Si l'**hôte** change, le jeton enregistré est retiré, sauf si un nouveau jeton est saisi.
+- **Suppression** (après confirmation) : efface complètement la source (fichiers, morceaux, clone
+  local, effacé au tour suivant du travailleur).
+- **Jetons par source** : chiffrés en base avec `RAG_CLE_SECRETS`, une clé Fernet. La générer par
+  `uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+  et la créer dans OpenBao (`infra/rag`) avec les autres secrets de la pile `rag`. Une clé invalide
+  empêche l'API et le travailleur de démarrer ; sans clé, aucun jeton par source ne s'enregistre.
+  **Perdre la clé** : les jetons enregistrés sont illisibles, il faut les ressaisir.
+- **`RAG_GITHUB_JETON` est devenu facultatif** : il ne sert que pour les sources github.com qui n'ont
+  pas de jeton propre.
+- **Amorçage unique** : `RAG_SOURCES_AMORCE` (`config/sources-maison.yaml`, les 50 sources de la
+  maison) est lu une seule fois par `rag migrer` ; un marqueur dans la table `instance` empêche de
+  recommencer, même si des sources sont supprimées ensuite.
 
 ## Étapes manuelles avant le premier déploiement
 
@@ -118,14 +142,19 @@ Aucune n'est faite par un agent.
 
 ## Sauvegarde
 
-`rag-pgdata` ne contient qu'**une seule** donnée irremplaçable : les **exclusions manuelles** (posées
-par l'interface `/ui/`). Tout le reste se reconstruit par `rag indexer --complet` depuis le coffre
+`rag-pgdata` ne contient que **deux** données irremplaçables : les **exclusions manuelles** et les
+**sources git** (posées par l'interface `/ui/`). Tout le reste se reconstruit par `rag indexer --complet` depuis le coffre
 (S3) et GitHub. **Exporter après chaque changement d'exclusion** : bouton « Exporter (YAML) » de
 l'écran Exclusions, ou
 
     docker --context colima exec rag-rag-1 rag exclusions exporter > exclusions-rag.yaml
 
-et garder ce fichier hors de la VM. Après un `colima delete` : relancer la pile, réimporter
-(bouton « Importer » de l'écran Exclusions) puis réindexer. Seuls `banc/` et `config/` (dans git) et
-ces exclusions sont irremplaçables. Le volume vit dans la VM : `colima delete` l'efface (comme
+**Exporter aussi les sources après chaque changement** : bouton « Exporter » de l'écran Sources, ou
+
+    docker --context colima exec rag-rag-1 rag sources exporter > sources-rag.yaml
+
+(l'export ne contient jamais les jetons : à ressaisir après une restauration). Garder ces fichiers
+hors de la VM. Après un `colima delete` : relancer la pile, réimporter
+(boutons « Importer » des écrans Exclusions et Sources) puis réindexer. Seuls `banc/` et `config/` (dans git),
+ces exclusions et ces sources sont irremplaçables. Le volume vit dans la VM : `colima delete` l'efface (comme
 `rag-donnees`), une réindexation complète est alors à prévoir.
