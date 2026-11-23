@@ -6,7 +6,7 @@ from rag.config import PUBLIC, SourceConf, charger_config
 from rag.indexeur import indexer_source, version_courante
 from rag.recherche import chercher
 from rag.sources import LecteurDossier
-from tests.conftest import indexer_coffre
+from tests.conftest import indexer_coffre, inscrire_source
 
 CONFIG = charger_config(Path("config/rag.yaml"))
 R = CONFIG.recherche
@@ -21,6 +21,7 @@ def _code(bd, tmp_path, faux_modeles, fichiers):
     for chemin, texte in fichiers.items():
         (d / chemin).parent.mkdir(parents=True, exist_ok=True)
         (d / chemin).write_text(texte)
+    inscrire_source(bd, "code")
     indexer_source(bd, SourceConf(visibilite="public-maison", nom="code", type="code",
                                   emplacement="x"), LecteurDossier(d), CONFIG.indexation,
                    faux_modeles)

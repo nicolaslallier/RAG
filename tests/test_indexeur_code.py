@@ -1,15 +1,24 @@
 from pathlib import Path
 
+import pytest
+
 from rag.config import PUBLIC, SourceConf, charger_config
 from rag.exclusions import motif_exclusion
 from rag.indexeur import indexer_source, version_courante
 from rag.recherche import Filtres, chercher
 from rag.sources import LecteurGit, lecteur_pour
-from tests.conftest import commit, git
+from tests.conftest import commit, git, inscrire_source
 
 CONFIG = charger_config(Path("config/rag.yaml"))
 CONF = CONFIG.indexation
 SRC_CODE = SourceConf(visibilite="public-maison", nom="depot-test", type="code", emplacement="x")
+
+
+@pytest.fixture(autouse=True)
+def source_en_base(request, bd):
+    """Les sources code sont gérées en base : `indexer_source` ne les crée plus."""
+    if request.node.name != "test_source_supprimee_n_est_pas_recreee":
+        inscrire_source(bd, "depot-test")
 
 
 def chemins(bd):
@@ -76,6 +85,14 @@ def test_lecteur_pour_le_code(tmp_path):
     lec = lecteur_pour(SourceConf(visibilite="public-maison", nom="AI", type="code", emplacement="u", branche="dev"), R)
     assert isinstance(lec, LecteurGit) and lec.dest == tmp_path / "clones" / "AI"
     assert lec.branche == "dev"
+
+
+def test_source_supprimee_n_est_pas_recreee(bd, depot, tmp_path, faux_modeles):
+    from rag.indexeur import SourceSupprimee
+    with pytest.raises(SourceSupprimee):
+        indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)
+    assert bd.execute("SELECT count(*) n FROM sources").fetchone()["n"] == 0
 
 
 def test_la_config_de_prod_exclut_le_banc_du_depot_rag():

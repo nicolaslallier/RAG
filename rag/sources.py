@@ -9,6 +9,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 log = logging.getLogger(__name__)
 
@@ -96,18 +97,55 @@ class LecteurS3:
         return self._quand
 
 
+def _env_git(url: str, jeton: str, utilisateur: str,
+             protocoles: str | None) -> tuple[dict, list[str]]:
+    """Environnement de git et secrets à masquer. Le jeton ne passe jamais par l'URL ni un argument."""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    secrets: list[str] = []
+    if protocoles is not None:
+        env["GIT_ALLOW_PROTOCOL"] = protocoles
+    parts = urlsplit(url)
+    if jeton and parts.scheme in ("http", "https") and parts.hostname:
+        b64 = base64.b64encode(f"{utilisateur}:{jeton}".encode()).decode()
+        secrets = [jeton, b64]
+        hote = parts.hostname + (f":{parts.port}" if parts.port else "")
+        env |= {"GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": f"http.{parts.scheme}://{hote}/.extraheader",
+                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {b64}"}
+    return env, secrets
+
+
+def _masquer(msg: str, secrets: list[str]) -> str:
+    for s in secrets:
+        msg = msg.replace(s, "***")
+    return msg
+
+
+def verifier_depot(url: str, branche: str, jeton: str = "", utilisateur: str = "x-access-token",
+                   *, protocoles: str | None = "https", delai_s: int = 30) -> None:
+    """Lève ErreurSource si le dépôt est injoignable ou si la branche n'existe pas."""
+    env, secrets = _env_git(url, jeton, utilisateur, protocoles)
+    try:
+        r = subprocess.run(["git", "ls-remote", "--heads", "--", url, branche], check=False,
+                           env=env, capture_output=True, timeout=delai_s)
+    except subprocess.TimeoutExpired:
+        raise ErreurSource("git ls-remote : délai dépassé") from None
+    except OSError as e:
+        raise ErreurSource(f"git ls-remote : {type(e).__name__}") from None
+    if r.returncode:
+        msg = _masquer(r.stderr.decode(errors="replace").strip(), secrets)
+        raise ErreurSource(f"git ls-remote : {msg}")
+    if not r.stdout.strip():
+        raise ErreurSource(f"branche introuvable : {branche}")
+
+
 class LecteurGit:
     """Clone propre au service, qui suit `origin/<branche>` (réécritures d'historique comprises)."""
 
-    def __init__(self, url: str, dest: Path, branche: str = "main", jeton: str = ""):
+    def __init__(self, url: str, dest: Path, branche: str = "main", jeton: str = "",
+                 utilisateur: str = "x-access-token", protocoles: str | None = None):
         self.url, self.dest, self.branche = url, Path(dest).absolute(), branche
-        self._secrets = []
-        self._env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        if jeton:  # jamais dans une URL ni un argument : par l'environnement de git seulement
-            b64 = base64.b64encode(f"x-access-token:{jeton}".encode()).decode()
-            self._secrets = [jeton, b64]
-            self._env |= {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
-                          "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {b64}"}
+        self._env, self._secrets = _env_git(url, jeton, utilisateur, protocoles)
         self._sha = ""
 
     def _git(self, *args: str, cwd: Path | None = None) -> str:
@@ -119,9 +157,7 @@ class LecteurGit:
         except OSError as e:
             raise ErreurSource(f"git {args[0]} : {type(e).__name__}") from None
         if r.returncode:
-            msg = r.stderr.decode(errors="replace").strip()
-            for s in self._secrets:
-                msg = msg.replace(s, "***")
+            msg = _masquer(r.stderr.decode(errors="replace").strip(), self._secrets)
             raise ErreurSource(f"git {args[0]} : {msg}")
         return r.stdout.decode(errors="replace")
 
@@ -139,6 +175,8 @@ class LecteurGit:
         else:
             b = self.branche
             try:
+                if self._git("remote", "get-url", "origin").strip() != self.url:
+                    raise ErreurSource("URL d'origine changée")
                 self._git("fetch", "origin", f"+{b}:refs/remotes/origin/{b}")
                 self._git("reset", "--hard", f"origin/{b}")
             except ErreurSource as e:  # clone abîmé : on repart de zéro (il appartient au service)
@@ -194,12 +232,15 @@ def client_s3(reglages):
     )
 
 
-def lecteur_pour(source, reglages):
+def lecteur_pour(source, reglages, jeton: str | None = None, utilisateur: str = "x-access-token"):
     if source.emplacement == "s3":
         p = reglages.coffre_prefixe.strip()
         prefixe = p.rstrip("/") + "/" if p.strip("/") else ""
         return LecteurS3(client_s3(reglages), reglages.coffre_bucket, prefixe)
     if source.type == "obsidian":
         return LecteurDossier(Path(source.emplacement).expanduser())
+    if jeton is None:  # le jeton général ne sert qu'à github.com
+        hote = urlsplit(source.emplacement).hostname
+        jeton = reglages.github_jeton if hote == "github.com" else ""
     return LecteurGit(source.emplacement, Path(reglages.donnees_dir) / "clones" / source.nom,
-                      source.branche, reglages.github_jeton)
+                      source.branche, jeton, utilisateur, protocoles="https")

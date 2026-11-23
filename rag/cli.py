@@ -10,11 +10,12 @@ from rag.banc.execution import ajouter_cli_banc, commande_banc
 from rag.config import PUBLIC, TOUT, Reglages, charger_config, empreinte_indexation
 from rag.db import connexion, migrer
 from rag.graphe import maj_graphe
-from rag.indexeur import CoffrePartielError, indexer_source
+from rag.indexeur import CoffrePartielError, SourceSupprimee, indexer_source
 from rag.modeles import modeles_depuis
 from rag.recherche import Filtres, chercher
 from rag.rerank import reranker_depuis
 from rag.sources import ErreurSource, lecteur_pour
+from rag.sources_gerees import coffret_depuis, sources_actives
 
 
 def _indexer(conn, reglages, config, modeles, noms=None, complet=False, forcer=False) -> int:
@@ -34,17 +35,23 @@ def _indexer(conn, reglages, config, modeles, noms=None, complet=False, forcer=F
 
 def _indexer_verrouille(conn, reglages, config, modeles, noms, complet, forcer) -> int:
     code = 0
-    for src in config.sources:
+    actives = sources_actives(conn, config, coffret_depuis(reglages))
+    conn.commit()
+    for active in actives:
+        src = active.conf
         if noms and src.nom not in noms:
             continue
         debut = time.monotonic()
-        lecteur = lecteur_pour(src, reglages)
+        lecteur = lecteur_pour(src, reglages, active.jeton, active.utilisateur)
         try:
             b = indexer_source(conn, src, lecteur, config.indexation, modeles,
                                forcer=forcer, sans_repos=complet)
         except CoffrePartielError as e:
             print(f"ERREUR {e}", file=sys.stderr)
             return 2
+        except SourceSupprimee:
+            print(f"{src.nom} : source supprimée, ignorée", file=sys.stderr)
+            continue
         except ErreurSource as e:  # un dépôt injoignable n'arrête pas les autres
             print(f"ERREUR {src.nom} : {e}", file=sys.stderr)
             code = 1
@@ -284,11 +291,13 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd in ("chemin", "expliquer"):
             return _graphe_cli(conn, a)
         if a.cmd == "graphe":
-            for src in config.sources:
+            for active in sources_actives(conn, config, coffret_depuis(reglages)):
+                src = active.conf
                 if not a.source or src.nom in a.source:
                     print(f"{src.nom} : "
-                          + maj_graphe(conn, src, lecteur_pour(src, reglages), reglages,
-                                       forcer=True))
+                          + maj_graphe(conn, src, lecteur_pour(src, reglages, active.jeton,
+                                                               active.utilisateur),
+                                       reglages, forcer=True))
                     if src.type == "obsidian":
                         from rag.graphe import charger_wikiliens
                         for chemin, cible in getattr(charger_wikiliens, "non_resolues", []):

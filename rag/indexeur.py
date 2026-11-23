@@ -104,18 +104,30 @@ def _ecrire(conn, source_id, chemin, e, sha, note, ms, v, vec_de, existant) -> i
     return len(ms)
 
 
+class SourceSupprimee(Exception):
+    """La source code n'existe plus en base : rien à indexer."""
+
+
 def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, modeles, *,
                    forcer: bool = False, sans_repos: bool = False,
                    maintenant: datetime | None = None) -> Bilan:
     maintenant = maintenant or datetime.now(UTC)
     bilan = Bilan()
-    source_id = conn.execute(
-        """INSERT INTO sources (nom, type, emplacement, branche, visibilite)
-           VALUES (%s, %s, %s, %s, %s)
-           ON CONFLICT (nom) DO UPDATE SET type=EXCLUDED.type, emplacement=EXCLUDED.emplacement,
-             branche=EXCLUDED.branche, visibilite=EXCLUDED.visibilite RETURNING id""",
-        (source.nom, source.type, source.emplacement, source.branche, source.visibilite),
-    ).fetchone()["id"]
+    if source.type == "code":  # gérée en base : une source supprimée ne se recrée jamais
+        r = conn.execute("SELECT id FROM sources WHERE nom = %s AND type = 'code'",
+                         (source.nom,)).fetchone()
+        if r is None:
+            conn.rollback()
+            raise SourceSupprimee(source.nom)
+        source_id = r["id"]
+    else:
+        source_id = conn.execute(
+            """INSERT INTO sources (nom, type, emplacement, branche, visibilite)
+               VALUES (%s, %s, %s, %s, %s)
+               ON CONFLICT (nom) DO UPDATE SET type=EXCLUDED.type, emplacement=EXCLUDED.emplacement,
+                 branche=EXCLUDED.branche, visibilite=EXCLUDED.visibilite RETURNING id""",
+            (source.nom, source.type, source.emplacement, source.branche, source.visibilite),
+        ).fetchone()["id"]
     conn.commit()
     v = version_courante(conn, conf)
     motifs = motifs_manuels(conn, source.nom)

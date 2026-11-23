@@ -8,7 +8,7 @@ from rag.indexeur import indexer_source
 from rag.modeles import ErreurModele
 from rag.semantique import concepts_de_note, mentions_de_code, passe_semantique
 from rag.sources import LecteurDossier
-from tests.conftest import indexer_coffre
+from tests.conftest import indexer_coffre, inscrire_source
 
 CONFIG = charger_config(Path("config/rag.yaml"))
 NOTES = {"deploiement.md": "# Déploiement\n\nVoir [[outils]].",
@@ -36,6 +36,7 @@ def _code(bd, tmp_path, faux_modeles, nom, fichiers, noeuds):
         (d / chemin).parent.mkdir(parents=True, exist_ok=True)
         (d / chemin).write_text(texte)
     src = SourceConf(visibilite="public-maison", nom=nom, type="code", emplacement="x")
+    inscrire_source(bd, nom)
     indexer_source(bd, src, LecteurDossier(d), CONFIG.indexation, faux_modeles)
     charger_graphe(bd, nom, {"noeuds": noeuds, "liens": []})
 
