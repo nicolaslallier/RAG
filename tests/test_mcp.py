@@ -91,6 +91,16 @@ def test_mcp_respecte_les_niveaux(client, bd):
                  {"Authorization": "Bearer priv"})
 
 
+def test_mcp_respecte_le_niveau_travail(client, bd):
+    bd.execute("UPDATE sources SET visibilite = 'travail'")
+    bd.commit()
+    priv = {"Authorization": "Bearer priv"}
+    assert outil(client, "rag_chercher", {"question": "recette de poulet"}) == []
+    assert outil(client, "rag_chercher", {"question": "recette de poulet"}, priv)
+    assert "coffre-maison" not in str(outil(client, "rag_sources", {}))
+    assert "coffre-maison" in str(outil(client, "rag_sources", {}, priv))
+
+
 def test_aucun_outil_de_reindexation():
     assert "reindex" not in Path("rag/mcp_serveur.py").read_text().lower()
 

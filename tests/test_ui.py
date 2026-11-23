@@ -122,6 +122,14 @@ def test_sources_public_ne_voit_pas_prive(client, bd):
     assert "coffre-maison" in connecter(client, "priv").get("/ui/").text
 
 
+def test_sources_public_ne_voit_pas_travail(client, bd):
+    bd.execute("UPDATE sources SET visibilite = 'travail'")
+    bd.commit()
+    assert "coffre-maison" not in connecter(client, "pub").get("/ui/").text
+    r = connecter(client, "priv").get("/ui/")
+    assert "coffre-maison" in r.text and "Réindexer" in r.text
+
+
 def test_boutons_absents_pour_le_jeton_public(client):
     assert "Réindexer" not in connecter(client, "pub").get("/ui/").text
     assert "Réindexer" in connecter(client, "priv").get("/ui/").text
@@ -560,6 +568,16 @@ def test_connexion_depuis_un_site_tiers_refusee(client):
     assert ok.status_code == 303
 
 
+def test_source_travail_introuvable_avec_cookie_public(client, index, bd):
+    bd.execute("UPDATE sources SET visibilite = 'travail'")
+    bd.commit()
+    connecter(client, "pub")
+    for url in ("/ui/sources/coffre-maison", lien("coffre-maison", PATE)):
+        r = client.get(url)
+        assert r.status_code == 404 and "Source ou fichier introuvable." in r.text
+    assert connecter(client, "priv").get("/ui/sources/coffre-maison").status_code == 200
+
+
 # --- Sources git : ajouter, modifier, supprimer, exporter, importer --------------------------
 
 from cryptography.fernet import Fernet
@@ -826,3 +844,25 @@ def test_main_occupe_toute_la_largeur():
     regle_main = re.search(r"^main\s*\{([^}]*)\}", css, re.MULTILINE).group(1)
     assert "max-width" not in regle_main
     assert re.search(r"^\.connexion\s*\{[^}]*max-width:\s*26rem", css, re.MULTILINE)
+
+
+def test_formulaire_propose_travail(gc):
+    assert '<option value="travail"' in gc.get("/ui/sources-git/nouvelle").text
+
+
+def test_modifier_vers_travail_sans_reseau(gc, bd, appels):
+    ajouter_par_ui(gc)
+    appels.clear()
+    avant = source_git(bd)["demande_le"]
+    r = modifier_par_ui(gc, visibilite="travail")
+    assert r.status_code == 200 and r.headers["hx-redirect"] == "/ui/"
+    assert appels == []
+    s = source_git(bd)
+    assert s["visibilite"] == "travail" and s["demande_le"] == avant
+
+
+def test_visibilite_inconnue_refusee(gc, bd, appels):
+    ajouter_par_ui(gc)
+    r = modifier_par_ui(gc, visibilite="pro")
+    assert "hx-redirect" not in r.headers
+    assert source_git(bd)["visibilite"] == "public-maison"

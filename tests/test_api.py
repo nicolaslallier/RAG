@@ -64,6 +64,15 @@ def test_le_jeton_public_ne_voit_pas_une_source_privee(client, bd):
         "resultats"]
 
 
+def test_le_jeton_public_ne_voit_pas_une_source_travail(client, bd):
+    bd.execute("UPDATE sources SET visibilite = 'travail'")
+    bd.commit()
+    assert client.post("/chercher", json={"question": "poulet"}, headers=auth).json()[
+        "resultats"] == []
+    assert client.post("/chercher", json={"question": "poulet"}, headers=auth_prive).json()[
+        "resultats"]
+
+
 def test_jeton_prive_vide_n_ouvre_rien(cfg, faux_modeles):
     c = faire(cfg, faux_modeles, jeton_prive="")
     for h in ("Bearer ", "Bearer", ""):
