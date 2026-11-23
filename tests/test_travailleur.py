@@ -12,8 +12,10 @@ from rag.api import create_app
 from rag.config import Config, Reglages, charger_config
 from rag.db import connexion
 from rag.indexeur import CoffrePartielError
-from rag.travailleur import fermer_interrompues, passe, prochaine, tour
-from tests.conftest import NOTES_TEST, URL
+from rag.sources import LecteurGit
+from rag.sources_gerees import modifier
+from rag.travailleur import fermer_interrompues, menage_dossiers, passe, prochaine, tour
+from tests.conftest import NOTES_TEST, URL, commit, git, inscrire_source
 
 BASE = charger_config(Path("config/rag.yaml"))
 
@@ -299,3 +301,104 @@ def test_indexer_cli_respecte_le_verrou(bd, coffre, reglages, faux_modeles):
         bd2.execute("SELECT pg_advisory_unlock(7241)")
     assert _indexer(bd, reglages, config_pour(("coffre-maison", coffre)), faux_modeles,
                     complet=True) == 0
+
+
+def test_menage_dossiers(tmp_path):
+    for d in ("clones/a", "clones/b", "graphe/b", "graphe/a"):
+        (tmp_path / d).mkdir(parents=True)
+    (tmp_path / "clones" / "fichier").write_text("x")
+    (tmp_path / "autre").mkdir()
+    assert menage_dossiers(tmp_path, {"a"}) == ["b"]
+    assert (tmp_path / "clones/a").exists() and (tmp_path / "graphe/a").exists()
+    assert not (tmp_path / "clones/b").exists() and not (tmp_path / "graphe/b").exists()
+    assert (tmp_path / "clones" / "fichier").exists() and (tmp_path / "autre").exists()
+
+
+def _brancher_git_local(monkeypatch):
+    monkeypatch.setattr(travailleur, "lecteur_pour", lambda s, r, j=None, u="x": LecteurGit(
+        s.emplacement, Path(r.donnees_dir) / "clones" / s.nom, s.branche))
+    monkeypatch.setattr(travailleur, "maj_graphe", lambda *a, **k: "ok")
+
+
+def test_passe_source_supprimee_sans_erreur(bd, coffre, reglages, faux_modeles, monkeypatch):
+    conf = config_pour(("coffre-maison", coffre))
+    seule = conf.model_copy(update={"sources": []})
+    inscrire_source(bd, "fantome")
+    (reglages.donnees_dir / "clones" / "orpheline").mkdir(parents=True)
+    _brancher_git_local(monkeypatch)
+    vrai = travailleur.sources_actives
+    actives = vrai(bd, seule, None)
+    bd.execute("DELETE FROM sources WHERE nom = 'fantome'")
+    bd.commit()  # supprimée entre la lecture de la liste et son tour
+    monkeypatch.setattr(travailleur, "sources_actives", lambda *a: actives)
+    b = passe(bd, "demandee", seule, reglages, faux_modeles)
+    assert b["fantome"] == {"supprimee": True}
+    assert bd.execute("SELECT ok FROM passes").fetchone()["ok"] is True
+    assert compte(bd, "sources") == 0
+    assert not (reglages.donnees_dir / "clones" / "orpheline").exists()
+
+
+def test_sans_garde_apres_changement_d_url(bd, depot, tmp_path, reglages, faux_modeles,
+                                           monkeypatch):
+    _brancher_git_local(monkeypatch)
+    conf = BASE.model_copy(update={"sources": []})
+    inscrire_source(bd, "depot-x", emplacement=str(depot))
+    passe(bd, "demandee", conf, reglages, faux_modeles)
+    avant = compte(bd, "documents")
+    assert avant > 1
+    d2 = tmp_path / "depot2"
+    d2.mkdir()
+    git(d2, "init", "-q", "-b", "main")
+    git(d2, "config", "user.email", "t@t")
+    git(d2, "config", "user.name", "t")
+    commit(d2, "seul.py", "def seul():\n    return 1\n")
+    from rag.config import SourceConf
+    nouvelle = SourceConf(visibilite="public-maison", nom="depot-x", type="code",
+                          emplacement=str(d2), branche="main", exclure=[])
+    changes = modifier(bd, "depot-x", nouvelle, utilisateur="x-access-token", jeton=None,
+                       retirer_jeton=False, coffret=None)
+    assert "emplacement" in changes
+    assert bd.execute("SELECT sans_garde FROM sources").fetchone()["sans_garde"] is True
+    b = tour(bd, conf, reglages, faux_modeles)
+    assert "erreur" not in b["depot-x"]
+    assert compte(bd, "documents") == 1
+    r = bd.execute("SELECT sans_garde, demande_le FROM sources").fetchone()
+    assert r["sans_garde"] is False and r["demande_le"] is None
+
+
+def test_cle_etrangere_en_cours_de_passe_est_une_suppression(bd, coffre, reglages, faux_modeles,
+                                                             monkeypatch, caplog):
+    import psycopg.errors
+    conf = config_pour(("coffre-maison", coffre)).model_copy(update={"sources": []})
+    inscrire_source(bd, "fantome")
+    _brancher_git_local(monkeypatch)
+
+    def casse(*a, **k):
+        raise psycopg.errors.ForeignKeyViolation("documents_source_id_fkey")
+    monkeypatch.setattr(travailleur, "indexer_source", casse)
+    b = passe(bd, "demandee", conf, reglages, faux_modeles)
+    assert b["fantome"] == {"supprimee": True}
+    assert "passe en échec" not in caplog.text
+    assert bd.execute("SELECT ok FROM passes").fetchone()["ok"] is True
+
+
+def test_sans_garde_conserve_apres_une_passe_en_echec(bd, depot, reglages, faux_modeles,
+                                                       monkeypatch):
+    _brancher_git_local(monkeypatch)
+    conf = BASE.model_copy(update={"sources": []})
+    inscrire_source(bd, "depot-x", emplacement=str(depot))
+    inscrire_source(bd, "depot-y", emplacement=str(depot))
+    bd.execute("UPDATE sources SET demande_le = now(), sans_garde = true")
+    bd.commit()
+    vrai = travailleur.indexer_source
+
+    def selon(conn, src, *a, **k):
+        if src.nom == "depot-x":
+            raise RuntimeError("boum")
+        return vrai(conn, src, *a, **k)
+    monkeypatch.setattr(travailleur, "indexer_source", selon)
+    b = tour(bd, conf, reglages, faux_modeles)
+    assert b["depot-x"] == {"erreur": "echec"} and "erreur" not in b["depot-y"]
+    lignes = {r["nom"]: r for r in bd.execute("SELECT nom, sans_garde, demande_le FROM sources")}
+    assert lignes["depot-x"]["sans_garde"] is True and lignes["depot-x"]["demande_le"] is None
+    assert lignes["depot-y"]["sans_garde"] is False

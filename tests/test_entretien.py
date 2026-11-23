@@ -5,7 +5,7 @@ from rag.entretien import doublons, liens_entrants, orphelines
 from rag.graphe import charger_wikiliens
 from rag.indexeur import indexer_source, version_courante
 from rag.sources import LecteurDossier
-from tests.conftest import indexer_coffre
+from tests.conftest import indexer_coffre, inscrire_source
 
 CONF = charger_config(Path("config/rag.yaml")).indexation
 TEXTE = "# Bouillon\n\nBouillon de poulet, carottes, céleri, oignon, laurier et thym mijotés."
@@ -35,6 +35,7 @@ def test_doublons_ignore_le_code(bd, tmp_path, faux_modeles):
     (d / "x.py").write_text("def f():\n    return 1\n")
     (d / "y.py").write_text("def f():\n    return 1\n")
     src = SourceConf(visibilite="public-maison", nom="code", type="code", emplacement="x")
+    inscrire_source(bd, "code")
     indexer_source(bd, src, LecteurDossier(d), CONF, faux_modeles)
     assert doublons(bd, v(bd), niveaux=PUBLIC) == []
     assert orphelines(bd, niveaux=PUBLIC) == []

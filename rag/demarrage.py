@@ -5,6 +5,7 @@ import time
 from typing import Literal
 
 from rag.config import ErreurConfig, Reglages, charger_config
+from rag.sources_gerees import coffret_depuis
 
 MIN_JETON = 32
 
@@ -23,16 +24,17 @@ def verifier_reglages(r: Reglages, role: Literal["api", "travailleur"]) -> None:
         vus[v] = nom
     if not r.litellm_cle:
         raise ErreurConfig("RAG_LITELLM_CLE vide")
+    coffret_depuis(r)   # une clé invalide arrête le démarrage (API comme travailleur)
     if role == "travailleur":
         sources = charger_config(r.config).sources
+        if any(s.type == "code" for s in sources):
+            print("avertissement : le YAML contient des sources de code, ignorées ; "
+                  "elles vivent en base (interface web ou `rag sources`)", file=sys.stderr)
         if any(s.type == "obsidian" and s.emplacement == "s3" for s in sources):
             if not r.s3_secret_key:
                 raise ErreurConfig("RAG_S3_SECRET_KEY vide alors qu'une source lit S3")
             if not r.s3_endpoint.startswith("https://"):   # le coffre ne passe pas en clair
                 raise ErreurConfig("RAG_S3_ENDPOINT doit être en https://")
-        if any(s.type == "code" and s.emplacement.startswith("https://github.com/")
-               for s in sources) and not r.github_jeton:
-            raise ErreurConfig("RAG_GITHUB_JETON vide alors qu'une source clone GitHub")
 
 
 def _masquer(texte: str, url: str) -> str:

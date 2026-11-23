@@ -5,6 +5,20 @@
 <h1>Sources</h1>
 <p class="aide">{% if en_cours %}Passe en cours : {{ en_cours.genre }}, depuis le {{ en_cours.debut.strftime("%Y-%m-%d %H:%M") }}.{% else %}Aucune passe en cours.{% endif %}</p>
 {% if not ecrivain %}<p class="aide">Lecture seule : la gestion de l'index demande le jeton privé.</p>{% endif %}
+{% if ecrivain %}
+<section class="carte bloc">
+  <p><a class="bouton" href="/ui/sources-git/nouvelle">Ajouter une source git</a>
+     <a href="/ui/sources-git/export" download>Exporter</a></p>
+  <form class="filtres" hx-post="/ui/sources-git/import" hx-encoding="multipart/form-data"
+        hx-target="#resultat-import" hx-swap="innerHTML">
+    <label for="fichier">Importer</label>
+    <input id="fichier" type="file" name="fichier" accept=".yaml,.yml,text/yaml" required>
+    <button type="submit" class="secondaire">Importer</button>
+  </form>
+  <p class="aide">Import : ajoute ou met à jour, ne supprime rien, ne touche jamais aux jetons ; 1 Mo au plus.</p>
+  <div id="resultat-import" aria-live="polite"></div>
+</section>
+{% endif %}
 {% if sources %}
 <div class="defilement">
 <table>
@@ -16,6 +30,7 @@
       <th scope="col" class="nombre">Exclus (auto)</th>
       <th scope="col" class="nombre">Exclus (manuels)</th>
       <th scope="col">Réindexation</th>
+      {% if ecrivain %}<th scope="col">Actions</th>{% endif %}
     </tr>
   </thead>
   <tbody>

@@ -557,3 +557,264 @@ def test_connexion_depuis_un_site_tiers_refusee(client):
     ok = client.post("/ui/connexion", data={"jeton": "priv"}, follow_redirects=False,
                      headers={"Origin": "http://testserver"})
     assert ok.status_code == 303
+
+
+# --- Sources git : ajouter, modifier, supprimer, exporter, importer --------------------------
+
+from cryptography.fernet import Fernet
+
+from rag.sources import ErreurSource
+
+FORM_GIT = {"nom": "mon-depot", "emplacement": "https://exemple.org/a/b.git", "branche": "main",
+            "visibilite": "public-maison", "exclure": "docs/**\n\n  *.lock  ", "utilisateur": "",
+            "jeton": ""}
+
+
+@pytest.fixture
+def cle():
+    return Fernet.generate_key().decode()
+
+
+@pytest.fixture
+def gc(cfg, faux_modeles, cle):
+    """Écrivain avec coffret."""
+    return connecter(faire(cfg, faux_modeles, jeton_prive="priv", cle_secrets=cle), "priv")
+
+
+@pytest.fixture
+def appels(monkeypatch):
+    """Remplace `verifier_depot` vu par l'interface ; liste des appels."""
+    liste = []
+    monkeypatch.setattr("rag.ui.verifier_depot", lambda *a, **k: liste.append((a, k)))
+    return liste
+
+
+def source_git(bd, nom="mon-depot"):
+    return bd.execute("SELECT * FROM sources WHERE nom = %s", (nom,)).fetchone()
+
+
+def ajouter_par_ui(gc, **champs):
+    return gc.post("/ui/sources-git", headers=HX, data=FORM_GIT | champs)
+
+
+def test_ajouter_source_par_l_interface(gc, bd, appels):
+    r = ajouter_par_ui(gc, jeton="ghp_secret", utilisateur="moi")
+    assert r.status_code == 200 and r.headers["hx-redirect"] == "/ui/"
+    s = source_git(bd)
+    assert s["geree"] and s["type"] == "code" and s["demande_le"] is not None
+    assert s["exclure"] == ["docs/**", "*.lock"] and s["utilisateur"] == "moi"
+    assert s["jeton_chiffre"] is not None and b"ghp_secret" not in bytes(s["jeton_chiffre"])
+    (args, kw), = appels
+    assert args[:2] == ("https://exemple.org/a/b.git", "main")
+    assert "ghp_secret" in args or kw.get("jeton") == "ghp_secret"
+
+
+def test_ajouter_utilisateur_vide_prend_le_defaut(gc, bd, appels):
+    ajouter_par_ui(gc)
+    assert source_git(bd)["utilisateur"] == "x-access-token"
+
+
+def test_ajouter_depot_injoignable_n_ecrit_rien(gc, bd, monkeypatch):
+    def refuse(*a, **k):
+        raise ErreurSource("git ls-remote : *** refusé")
+    monkeypatch.setattr("rag.ui.verifier_depot", refuse)
+    r = ajouter_par_ui(gc)
+    assert r.status_code == 400 and "*** refusé" in r.text and "hx-redirect" not in r.headers
+    assert source_git(bd) is None
+
+
+def test_ajouter_refuse_nom_reserve_et_url_invalide(gc, bd, appels):
+    r = ajouter_par_ui(gc, nom="coffre-maison")
+    assert r.status_code == 400 and "nom réservé" in r.text
+    r = ajouter_par_ui(gc, emplacement="http://exemple.org/x")
+    assert r.status_code == 400 and appels == [] and source_git(bd) is None
+
+
+def test_ajouter_jeton_sans_coffret_refuse(client, bd, appels):
+    connecter(client, "priv")
+    r = ajouter_par_ui(client, jeton="ghp_secret")
+    assert r.status_code == 400 and "RAG_CLE_SECRETS" in r.text and source_git(bd) is None
+
+
+def modifier_page(gc, nom="mon-depot"):
+    return gc.get(f"/ui/sources-git/{nom}/modifier")
+
+
+def test_formulaire_ne_reaffiche_jamais_le_jeton(gc, bd, appels):
+    ajouter_par_ui(gc, jeton="ghp_secret")
+    r = modifier_page(gc)
+    assert r.status_code == 200 and "ghp_secret" not in r.text
+    assert "(jeton enregistré)" in r.text and 'name="retirer_jeton"' in r.text
+    assert "Changer d'hôte retire le jeton enregistré" in r.text
+    assert "readonly" in r.text and "docs/**" in r.text
+
+
+def test_formulaire_sans_jeton_enregistre(gc, bd, appels):
+    ajouter_par_ui(gc)
+    assert "(jeton enregistré)" not in modifier_page(gc).text
+
+
+def modifier_par_ui(gc, **champs):
+    return gc.post("/ui/sources-git/mon-depot/modifier", headers=HX,
+                   data={k: v for k, v in FORM_GIT.items() if k != "nom"} | champs)
+
+
+def test_modifier_sans_jeton_ne_verifie_pas_si_rien_de_reseau(gc, bd, appels):
+    ajouter_par_ui(gc, jeton="ghp_secret")
+    appels.clear()
+    avant = bytes(source_git(bd)["jeton_chiffre"])
+    r = modifier_par_ui(gc, visibilite="prive")
+    assert r.status_code == 200 and r.headers["hx-redirect"] == "/ui/"
+    assert appels == []
+    s = source_git(bd)
+    assert s["visibilite"] == "prive" and bytes(s["jeton_chiffre"]) == avant
+
+
+def test_modifier_branche_verifie_avec_le_jeton_enregistre(gc, bd, appels):
+    ajouter_par_ui(gc, jeton="ghp_secret")
+    appels.clear()
+    r = modifier_par_ui(gc, branche="dev")
+    assert r.status_code == 200 and len(appels) == 1
+    args, kw = appels[0]
+    assert args[:2] == ("https://exemple.org/a/b.git", "dev")
+    assert "ghp_secret" in args or kw.get("jeton") == "ghp_secret"
+    assert source_git(bd)["branche"] == "dev"
+
+
+def test_modifier_changement_d_hote_ne_verifie_pas_avec_l_ancien_jeton(gc, bd, appels):
+    ajouter_par_ui(gc, jeton="ghp_secret")
+    appels.clear()
+    r = modifier_par_ui(gc, emplacement="https://autre.example/a/b.git")
+    assert r.status_code == 200
+    (args, kw), = appels
+    assert "ghp_secret" not in args and kw.get("jeton", "") != "ghp_secret"
+    assert source_git(bd)["jeton_chiffre"] is None
+
+
+def test_modifier_depot_injoignable_ne_change_rien(gc, bd, appels, monkeypatch):
+    ajouter_par_ui(gc)
+
+    def refuse(*a, **k):
+        raise ErreurSource("branche introuvable : dev")
+    monkeypatch.setattr("rag.ui.verifier_depot", refuse)
+    r = modifier_par_ui(gc, branche="dev")
+    assert r.status_code == 400 and "branche introuvable" in r.text
+    assert source_git(bd)["branche"] == "main"
+
+
+def test_retirer_le_jeton(gc, bd, appels):
+    ajouter_par_ui(gc, jeton="ghp_secret")
+    r = modifier_par_ui(gc, retirer_jeton="on")
+    assert r.status_code == 200 and source_git(bd)["jeton_chiffre"] is None
+
+
+def test_modifier_source_inconnue_ou_du_coffre(gc, bd, index, appels):
+    assert gc.get("/ui/sources-git/nulle-part/modifier").status_code == 404
+    assert gc.get("/ui/sources-git/coffre-maison/modifier").status_code == 404
+    assert modifier_par_ui(gc).status_code == 404
+
+
+def test_supprimer_affiche_le_bilan_puis_efface(gc, bd, index_code):
+    r = gc.get("/ui/sources-git/depot-test/supprimer")
+    assert r.status_code == 200 and "Supprimer définitivement" in r.text
+    n = bd.execute("SELECT count(*) AS n FROM documents d JOIN sources s ON s.id = d.source_id"
+                   " WHERE s.nom = 'depot-test'").fetchone()["n"]
+    assert n > 0 and f"{n} document" in r.text
+    r = gc.post("/ui/sources-git/depot-test/supprimer", headers=HX)
+    assert r.status_code == 200 and r.headers["hx-redirect"] == "/ui/"
+    assert source_git(bd, "depot-test") is None
+    assert gc.post("/ui/sources-git/depot-test/supprimer", headers=HX).status_code == 404
+
+
+def test_coffre_sans_actions(gc, bd, index):
+    page = gc.get("/ui/").text
+    assert "/sources-git/coffre-maison" not in page and "(config)" in page
+    assert gc.get("/ui/sources-git/coffre-maison/supprimer").status_code == 404
+    assert gc.post("/ui/sources-git/coffre-maison/supprimer", headers=HX).status_code == 404
+
+
+def test_boutons_selon_le_role(gc, client_pub, bd, index_code):
+    page = gc.get("/ui/").text
+    assert "Ajouter une source git" in page and "Exporter" in page and "Importer" in page
+    assert "/ui/sources-git/depot-test/modifier" in page
+    assert "/ui/sources-git/depot-test/supprimer" in page
+    page = client_pub.get("/ui/").text
+    assert "Ajouter une source git" not in page and "sources-git" not in page
+
+
+def test_ecriture_refusee_au_jeton_public(client_pub, bd, index_code):
+    for url in ("/ui/sources-git/nouvelle", "/ui/sources-git/depot-test/modifier",
+                "/ui/sources-git/depot-test/supprimer", "/ui/sources-git/export"):
+        assert client_pub.get(url).status_code == 403
+    for url in ("/ui/sources-git", "/ui/sources-git/depot-test/modifier",
+                "/ui/sources-git/depot-test/supprimer"):
+        assert client_pub.post(url, headers=HX, data=FORM_GIT).status_code == 403
+    r = client_pub.post("/ui/sources-git/import", headers=HX,
+                        files={"fichier": ("s.yaml", b"[]", "text/yaml")})
+    assert r.status_code == 403
+    assert source_git(bd, "depot-test") is not None
+
+
+def test_ecriture_refusee_sans_hx_ou_origine_etrangere(gc, bd, index_code, appels):
+    assert gc.post("/ui/sources-git", data=FORM_GIT).status_code == 403
+    assert gc.post("/ui/sources-git", data=FORM_GIT,
+                   headers=HX | {"Origin": "http://ailleurs.exemple"}).status_code == 403
+    assert gc.post("/ui/sources-git/depot-test/supprimer").status_code == 403
+    assert source_git(bd) is None and source_git(bd, "depot-test") is not None
+
+
+def test_formulaire_nouvelle_pour_l_ecrivain(gc):
+    r = gc.get("/ui/sources-git/nouvelle")
+    assert r.status_code == 200 and 'name="emplacement"' in r.text and 'name="jeton"' in r.text
+    assert 'type="password"' in r.text
+
+
+def test_jeton_de_source_absent_des_journaux(gc, bd, monkeypatch, caplog):
+    def refuse(*a, **k):
+        raise ErreurSource("git ls-remote : refusé")
+    monkeypatch.setattr("rag.ui.verifier_depot", refuse)
+    with caplog.at_level(logging.DEBUG):
+        ajouter_par_ui(gc, jeton="ghp_secret")
+        monkeypatch.setattr("rag.ui.verifier_depot", lambda *a, **k: None)
+        ajouter_par_ui(gc, jeton="ghp_secret")
+        modifier_par_ui(gc, jeton="ghp_autre")
+        gc.post("/ui/sources-git/mon-depot/supprimer", headers=HX)
+    assert "source git ajoutée : mon-depot" in caplog.text
+    assert "source git modifiée : mon-depot" in caplog.text
+    assert "source git supprimée : mon-depot" in caplog.text
+    assert "ghp_" not in caplog.text and "exemple.org" not in caplog.text
+
+
+def test_export_sources_reserve_a_l_ecrivain(gc, client_pub, bd, appels):
+    ajouter_par_ui(gc, jeton="ghp_secret")
+    r = gc.get("/ui/sources-git/export")
+    assert r.status_code == 200 and "ghp_secret" not in r.text
+    assert r.headers["content-disposition"] == 'attachment; filename="sources-rag.yaml"'
+    assert r.headers["content-type"].startswith("text/yaml")
+    assert r.headers["cache-control"] == "no-store"
+    assert yaml.safe_load(r.text)[0]["nom"] == "mon-depot"
+    assert client_pub.get("/ui/sources-git/export").status_code == 403
+
+
+def test_import_sources_par_l_interface(gc, bd, appels):
+    ajouter_par_ui(gc)
+    export = gc.get("/ui/sources-git/export").content
+    r = gc.post("/ui/sources-git/import", headers=HX,
+                files={"fichier": ("sources-rag.yaml", export, "text/yaml")})
+    assert r.status_code == 200 and "0 ajoutée" in r.text and "1 inchangée" in r.text
+    neuf = yaml.safe_dump([{"nom": "autre", "emplacement": "https://exemple.org/x.git"}])
+    r = gc.post("/ui/sources-git/import", headers=HX,
+                files={"fichier": ("s.yaml", neuf.encode(), "text/yaml")})
+    assert r.status_code == 200 and "1 ajoutée" in r.text and source_git(bd, "autre")
+
+
+def test_import_sources_refuse(gc, bd):
+    r = gc.post("/ui/sources-git/import", headers=HX,
+                files={"fichier": ("s.yaml", b"- {nom: coffre-maison, emplacement: 'https://a.b/c'}\n",
+                                   "text/yaml")})
+    assert r.status_code == 400 and "nom réservé" in r.text
+    r = gc.post("/ui/sources-git/import", headers=HX,
+                files={"fichier": ("s.yaml", b"x" * (1024 * 1024 + 1), "text/yaml")})
+    assert r.status_code == 413
+    r = gc.post("/ui/sources-git/import", headers=HX, data={"autre": "x"})
+    assert r.status_code == 400

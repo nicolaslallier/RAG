@@ -67,7 +67,7 @@ def _base():
 @pytest.fixture
 def bd(_base):
     conn = connexion(_base)
-    conn.execute("TRUNCATE sources, index_versions, passes, exclusions_manuelles CASCADE")
+    conn.execute("TRUNCATE sources, index_versions, passes, exclusions_manuelles, instance CASCADE")
     conn.commit()
     yield conn
     conn.rollback()
@@ -185,6 +185,15 @@ def depot(tmp_path):
     return d
 
 
+def inscrire_source(bd, nom, visibilite="public-maison", emplacement="x"):
+    """Source de code gérée en base (ce que `indexer_source` suppose depuis la gestion par l'interface)."""
+    bd.execute(
+        "INSERT INTO sources (nom, type, emplacement, visibilite, branche, geree)"
+        " VALUES (%s, 'code', %s, %s, 'main', true) ON CONFLICT (nom) DO NOTHING",
+        (nom, emplacement, visibilite))
+    bd.commit()
+
+
 @pytest.fixture
 def index_code(bd, depot, tmp_path, faux_modeles):
     """Le dépôt de test indexé comme source de code « depot-test »."""
@@ -196,6 +205,7 @@ def index_code(bd, depot, tmp_path, faux_modeles):
 
     src = SourceConf(visibilite="public-maison", nom="depot-test", type="code", emplacement="x")
     lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    inscrire_source(bd, "depot-test")
     indexer_source(bd, src, lec, charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
     return lec
 
@@ -246,6 +256,7 @@ def indexer_depot(bd, tmp_path, faux_modeles, nom: str, fichiers: dict, visibili
     for chemin, texte in fichiers.items():
         commit(d, chemin, texte)
     src = SourceConf(visibilite=visibilite, nom=nom, type="code", emplacement="x")
+    inscrire_source(bd, nom, visibilite)
     indexer_source(bd, src, LecteurGit(str(d), tmp_path / "clones" / nom),
                    charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
 

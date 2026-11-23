@@ -64,8 +64,6 @@ def test_reglages_acceptes():
 
 @pytest.mark.parametrize("source,vide,nom", [
     ({"emplacement": "s3", "type": "obsidian"}, "s3_secret_key", "RAG_S3_SECRET_KEY"),
-    ({"emplacement": "https://github.com/x/y.git", "type": "code"}, "github_jeton",
-     "RAG_GITHUB_JETON"),
 ])
 def test_travailleur_exige_ses_secrets(tmp_path, source, vide, nom):
     d = yaml.safe_load(Path("config/rag.yaml").read_text())
@@ -76,6 +74,30 @@ def test_travailleur_exige_ses_secrets(tmp_path, source, vide, nom):
     with pytest.raises(ErreurConfig, match=nom):
         verifier_reglages(reglages(config=f, **{vide: ""}), "travailleur")
     verifier_reglages(reglages(config=f), "travailleur")
+
+
+def _yaml_code(tmp_path):
+    d = yaml.safe_load(Path("config/rag.yaml").read_text())
+    d["sources"] = [{"nom": "x", "visibilite": "public-maison", "type": "code",
+                     "emplacement": "https://github.com/x/y.git"}]
+    f = tmp_path / "rag.yaml"
+    f.write_text(yaml.safe_dump(d))
+    return f
+
+
+def test_jeton_github_facultatif(tmp_path):
+    verifier_reglages(reglages(config=_yaml_code(tmp_path), github_jeton=""), "travailleur")
+
+
+@pytest.mark.parametrize("role", ["api", "travailleur"])
+def test_cle_secrets_invalide_arrete_le_demarrage(role):
+    with pytest.raises(ErreurConfig, match="RAG_CLE_SECRETS invalide"):
+        verifier_reglages(reglages(cle_secrets="pas-une-cle"), role)
+
+
+def test_source_code_dans_le_yaml_avertit(tmp_path, capsys):
+    verifier_reglages(reglages(config=_yaml_code(tmp_path)), "travailleur")
+    assert "sources de code" in capsys.readouterr().err
 
 
 def test_attendre_base_reessaie_sans_sortir():

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from rag.sources import ErreurSource, LecteurGit
+from rag.sources import ErreurSource, LecteurGit, lecteur_pour, verifier_depot
 from tests.conftest import commit, git
 
 
@@ -60,7 +60,7 @@ def test_le_jeton_ne_fuit_pas(tmp_path):
 
 def test_le_jeton_est_masque_dans_l_erreur(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tmp_path))  # « git » factice qui répète son environnement
-    lec = LecteurGit("x", tmp_path / "clones" / "c", jeton="ghp_secret123")
+    lec = LecteurGit("https://h.example/x.git", tmp_path / "clones" / "c", jeton="ghp_secret123")
     (tmp_path / "git").write_text("#!/bin/sh\necho \"$GIT_CONFIG_VALUE_0 ghp_secret123\" >&2\n"
                                   "exit 1\n")
     (tmp_path / "git").chmod(0o755)
@@ -97,9 +97,59 @@ def test_destination_relative(depot, tmp_path, monkeypatch):
     assert (tmp_path / "donnees/clones/x/a.py").exists()
 
 
-def test_jeton_limite_a_github(tmp_path):
-    lec = LecteurGit("x", tmp_path / "clones" / "c", jeton="j")
-    assert lec._env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+def test_jeton_pour_l_hote_de_l_url(tmp_path):
+    lec = LecteurGit("https://gitea.maison/a/b.git", tmp_path / "clones" / "c", jeton="j",
+                     utilisateur="nico")
+    assert lec._env["GIT_CONFIG_KEY_0"] == "http.https://gitea.maison/.extraheader"
+    assert base64.b64encode(b"nico:j").decode() in lec._env["GIT_CONFIG_VALUE_0"]
+
+
+def test_url_changee_reclone(depot, tmp_path):
+    LecteurGit(str(depot), tmp_path / "clones" / "c").synchroniser()
+    depot2 = tmp_path / "autre"
+    depot2.mkdir()
+    git(depot2, "init", "-q", "-b", "main")
+    git(depot2, "config", "user.email", "t@t")
+    git(depot2, "config", "user.name", "t")
+    commit(depot2, "seul.py", "x = 1")
+    lec = LecteurGit(str(depot2), tmp_path / "clones" / "c")
+    lec.synchroniser()
+    assert [e.chemin for e in lec.lister()] == ["seul.py"]
+    assert lec.lire("seul.py") == b"x = 1"
+
+
+def test_protocole_https_seul(depot, tmp_path):
+    with pytest.raises(ErreurSource):
+        LecteurGit(str(depot), tmp_path / "clones" / "c", protocoles="https").synchroniser()
+
+
+def test_verifier_depot_branche_absente(depot):
+    with pytest.raises(ErreurSource, match="nexiste"):
+        verifier_depot(str(depot), "nexiste", protocoles=None)
+
+
+def test_verifier_depot_ok(depot):
+    verifier_depot(str(depot), "main", protocoles=None)
+
+
+def test_verifier_depot_refuse_un_chemin_local_par_defaut(depot):
+    with pytest.raises(ErreurSource):
+        verifier_depot(str(depot), "main")
+
+
+def test_lecteur_pour_jeton_github_seulement(tmp_path):
+    from rag.config import SourceConf
+
+    class R:
+        donnees_dir, github_jeton = tmp_path, "jg"
+    def conf(u):
+        return SourceConf(visibilite="public-maison", nom="x", type="code", emplacement=u)
+    assert "GIT_CONFIG_KEY_0" not in lecteur_pour(conf("https://gitea.maison/a/b.git"), R)._env
+    gh = lecteur_pour(conf("https://github.com/a/b.git"), R)
+    assert gh._env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+    propre = lecteur_pour(conf("https://gitea.maison/a/b.git"), R, "jp", "nico")
+    assert base64.b64encode(b"nico:jp").decode() in propre._env["GIT_CONFIG_VALUE_0"]
+    assert propre._env["GIT_ALLOW_PROTOCOL"] == "https"
 
 
 def test_un_nom_non_normalise_est_ignore_seul(depot, tmp_path):
@@ -130,3 +180,12 @@ def test_jamais_de_suppression_hors_du_dossier_des_clones(tmp_path):
     with pytest.raises(ErreurSource):
         LecteurGit("x", tmp_path / "precieux").synchroniser()
     assert (tmp_path / "precieux" / "f").exists()
+
+
+def test_verifier_depot_ne_confond_pas_suffixe_ni_motif(depot):
+    git(depot, "branch", "feature/main")
+    git(depot, "branch", "-m", "main", "autre")
+    for faux in ("main", "ma*", "*", "eature/main"):
+        with pytest.raises(ErreurSource, match="introuvable"):
+            verifier_depot(str(depot), faux, protocoles=None)
+    verifier_depot(str(depot), "feature/main", protocoles=None)

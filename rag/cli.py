@@ -1,4 +1,4 @@
-"""CLI `rag` : migrer, indexer, chercher, servir, exclusions."""
+"""CLI `rag` : migrer, indexer, chercher, servir, exclusions, sources."""
 
 import argparse
 import sys
@@ -10,11 +10,12 @@ from rag.banc.execution import ajouter_cli_banc, commande_banc
 from rag.config import PUBLIC, TOUT, Reglages, charger_config, empreinte_indexation
 from rag.db import connexion, migrer
 from rag.graphe import maj_graphe
-from rag.indexeur import CoffrePartielError, indexer_source
+from rag.indexeur import CoffrePartielError, SourceSupprimee, indexer_source
 from rag.modeles import modeles_depuis
 from rag.recherche import Filtres, chercher
 from rag.rerank import reranker_depuis
 from rag.sources import ErreurSource, lecteur_pour
+from rag.sources_gerees import coffret_depuis, sources_actives
 
 
 def _indexer(conn, reglages, config, modeles, noms=None, complet=False, forcer=False) -> int:
@@ -34,17 +35,23 @@ def _indexer(conn, reglages, config, modeles, noms=None, complet=False, forcer=F
 
 def _indexer_verrouille(conn, reglages, config, modeles, noms, complet, forcer) -> int:
     code = 0
-    for src in config.sources:
+    actives = sources_actives(conn, config, coffret_depuis(reglages))
+    conn.commit()
+    for active in actives:
+        src = active.conf
         if noms and src.nom not in noms:
             continue
         debut = time.monotonic()
-        lecteur = lecteur_pour(src, reglages)
+        lecteur = lecteur_pour(src, reglages, active.jeton, active.utilisateur)
         try:
             b = indexer_source(conn, src, lecteur, config.indexation, modeles,
                                forcer=forcer, sans_repos=complet)
         except CoffrePartielError as e:
             print(f"ERREUR {e}", file=sys.stderr)
             return 2
+        except SourceSupprimee:
+            print(f"{src.nom} : source supprimée, ignorée", file=sys.stderr)
+            continue
         except ErreurSource as e:  # un dépôt injoignable n'arrête pas les autres
             print(f"ERREUR {src.nom} : {e}", file=sys.stderr)
             code = 1
@@ -183,6 +190,35 @@ def _exclusions_cli(conn, a) -> int:
     return 0
 
 
+def _sources_cli(conn, a, config) -> int:
+    from rag.sources_gerees import SourceInvalide, exporter, importer
+    if a.action == "exporter":
+        print(exporter(conn), end="")
+        return 0
+    if a.action == "lister":
+        for r in conn.execute("SELECT * FROM sources WHERE geree ORDER BY nom"):
+            jeton = "jeton" if r["jeton_chiffre"] is not None else "—"
+            print(f"{r['nom']}\t{r['emplacement']}\t{r['branche'] or 'main'}\t"
+                  f"{r['visibilite']}\t{jeton}")
+        return 0
+    try:
+        texte = Path(a.fichier).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        print("fichier illisible, rien d'importé : UTF-8 attendu", file=sys.stderr)
+        return 1
+    except OSError as e:
+        print(f"fichier illisible, rien d'importé : {e.strerror or e}", file=sys.stderr)
+        return 1
+    try:
+        r = importer(conn, texte, noms_reserves={s.nom for s in config.sources})
+    except SourceInvalide as e:
+        print(f"fichier invalide, rien d'importé : {e}", file=sys.stderr)
+        return 1
+    print(f"{r['ajoutees']} ajoutée(s), {r['modifiees']} modifiée(s), "
+          f"{r['inchangees']} inchangée(s)", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="rag")
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -223,6 +259,10 @@ def main(argv: list[str] | None = None) -> int:
     pexc = sp.add_parser("exclusions").add_subparsers(dest="action", required=True)
     pexc.add_parser("exporter")
     pexc.add_parser("importer").add_argument("fichier")
+    psrc = sp.add_parser("sources").add_subparsers(dest="action", required=True)
+    psrc.add_parser("lister")
+    psrc.add_parser("exporter")
+    psrc.add_parser("importer").add_argument("fichier")
     sp.add_parser("travailleur")
     for nom in ("question", "lister", "repondre"):
         pq = sp.add_parser(nom)
@@ -273,9 +313,14 @@ def main(argv: list[str] | None = None) -> int:
     with ouvrir as conn:
         if a.cmd == "migrer":
             print("\n".join(migrer(conn)) or "rien à migrer")
+            if reglages.sources_amorce:
+                from rag.sources_gerees import amorcer
+                print(f"{amorcer(conn, reglages.sources_amorce)} source(s) git amorcée(s)")
             return 0
         if a.cmd == "exclusions":
             return _exclusions_cli(conn, a)
+        if a.cmd == "sources":
+            return _sources_cli(conn, a, config)
         modeles = modeles_depuis(reglages)
         if a.cmd == "indexer":
             return _indexer(conn, reglages, config, modeles, a.source, a.complet, a.forcer)
@@ -284,11 +329,13 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd in ("chemin", "expliquer"):
             return _graphe_cli(conn, a)
         if a.cmd == "graphe":
-            for src in config.sources:
+            for active in sources_actives(conn, config, coffret_depuis(reglages)):
+                src = active.conf
                 if not a.source or src.nom in a.source:
                     print(f"{src.nom} : "
-                          + maj_graphe(conn, src, lecteur_pour(src, reglages), reglages,
-                                       forcer=True))
+                          + maj_graphe(conn, src, lecteur_pour(src, reglages, active.jeton,
+                                                               active.utilisateur),
+                                       reglages, forcer=True))
                     if src.type == "obsidian":
                         from rag.graphe import charger_wikiliens
                         for chemin, cible in getattr(charger_wikiliens, "non_resolues", []):

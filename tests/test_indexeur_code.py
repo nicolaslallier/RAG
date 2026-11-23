@@ -1,15 +1,24 @@
 from pathlib import Path
 
+import pytest
+
 from rag.config import PUBLIC, SourceConf, charger_config
 from rag.exclusions import motif_exclusion
 from rag.indexeur import indexer_source, version_courante
 from rag.recherche import Filtres, chercher
 from rag.sources import LecteurGit, lecteur_pour
-from tests.conftest import commit, git
+from tests.conftest import commit, git, inscrire_source
 
 CONFIG = charger_config(Path("config/rag.yaml"))
 CONF = CONFIG.indexation
 SRC_CODE = SourceConf(visibilite="public-maison", nom="depot-test", type="code", emplacement="x")
+
+
+@pytest.fixture(autouse=True)
+def source_en_base(request, bd):
+    """Les sources code sont gérées en base : `indexer_source` ne les crée plus."""
+    if request.node.name != "test_source_supprimee_n_est_pas_recreee":
+        inscrire_source(bd, "depot-test")
 
 
 def chemins(bd):
@@ -78,10 +87,19 @@ def test_lecteur_pour_le_code(tmp_path):
     assert lec.branche == "dev"
 
 
+def test_source_supprimee_n_est_pas_recreee(bd, depot, tmp_path, faux_modeles):
+    from rag.indexeur import SourceSupprimee
+    with pytest.raises(SourceSupprimee):
+        indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)
+    assert bd.execute("SELECT count(*) n FROM sources").fetchone()["n"] == 0
+
+
 def test_la_config_de_prod_exclut_le_banc_du_depot_rag():
-    for f in ("config/rag.yaml", "config/dev.yaml"):
-        rag = next(s for s in charger_config(Path(f)).sources if s.nom == "RAG")
-        assert motif_exclusion("banc/etalon.yaml", b"- id: x", rag.exclure) == "config"
+    from rag.sources_gerees import lire_export
+    rag = next(e for e in lire_export(Path("config/sources-maison.yaml").read_text())
+               if e["nom"] == "RAG")
+    assert motif_exclusion("banc/etalon.yaml", b"- id: x", rag["exclure"]) == "config"
 
 
 def test_le_coffre_git_n_est_pas_une_source():
@@ -127,3 +145,18 @@ def test_exclus_disparu_du_listage_est_oublie(bd, depot, tmp_path, faux_modeles)
     indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
                    faux_modeles)
     assert bd.execute("SELECT count(*) n FROM exclus WHERE chemin = 'uv.lock'").fetchone()["n"] == 0
+
+
+def test_source_changee_pendant_la_passe_n_ecrit_rien(bd, depot, tmp_path, faux_modeles):
+    from rag.indexeur import SourceSupprimee
+    inscrire_source(bd, "depot-test", emplacement="https://x/nouveau.git")
+    ancienne = SRC_CODE.model_copy(update={"emplacement": "https://x/ancien.git"})
+    with pytest.raises(SourceSupprimee, match="changée ou supprimée"):
+        indexer_source(bd, ancienne, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)
+    assert bd.execute("SELECT count(*) n FROM documents").fetchone()["n"] == 0
+    autre_branche = SRC_CODE.model_copy(update={"emplacement": "https://x/nouveau.git",
+                                                "branche": "dev"})
+    with pytest.raises(SourceSupprimee):
+        indexer_source(bd, autre_branche, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)

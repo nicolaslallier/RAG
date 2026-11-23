@@ -38,6 +38,8 @@ class Reglages(BaseSettings):
     jeton_prive: str = ""
     jeton_reindexer: str = ""
     github_jeton: str = ""
+    cle_secrets: str = ""   # clé Fernet : chiffre les jetons des sources gérées
+    sources_amorce: Path | None = None   # YAML d'amorçage des sources git en base
     graphify_commande: str = "graphify"   # en dev : spike/graphify/en-conteneur.sh (sans réseau)
     donnees_dir: Path = Path("donnees")
     config: Path = Path("config/rag.yaml")

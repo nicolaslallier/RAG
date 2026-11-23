@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 
 STACK=rag
 COMPOSE_FILE=deploy/portainer-stack.yml
-REQUIRED="RAG_DB_PASSWORD RAG_LITELLM_CLE RAG_JETON RAG_JETON_REINDEXER RAG_GITHUB_JETON RAG_S3_SECRET_KEY IMAGE_TAG"
+REQUIRED="RAG_DB_PASSWORD RAG_LITELLM_CLE RAG_JETON RAG_JETON_REINDEXER RAG_S3_SECRET_KEY IMAGE_TAG"
 
 die() { echo "::error::portainer-stack.sh : $*" >&2; exit 1; }
 [ "${1:-}" = up ] || die "usage : scripts/portainer-stack.sh up"

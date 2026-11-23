@@ -72,7 +72,8 @@ def test_document_supprime_garde_le_noeud_sans_lien_mort(bd, index_code):
                       ).fetchone()["document_id"] is None
 
 
-REGLAGES = SimpleNamespace(donnees_dir=Path("/tmp/inutilise"), graphify_commande="graphify")
+REGLAGES = SimpleNamespace(donnees_dir=Path("/tmp/inutilise"), graphify_commande="graphify",
+                      cle_secrets="")
 
 
 def test_echec_de_l_extracteur_garde_l_ancien_graphe(bd, index_code, monkeypatch):
@@ -133,11 +134,12 @@ def test_rag_indexer_continue_apres_un_echec_de_graphe(bd, depot, tmp_path, monk
                                                        faux_modeles, capsys):
     from rag.config import charger_config
     from rag.sources import LecteurGit
-
-    config = charger_config(Path("config/rag.yaml")).model_copy(update={"sources": [
-        SRC_CODE, SRC_CODE.model_copy(update={"nom": "depot-2"})]})
-    monkeypatch.setattr(cli, "lecteur_pour", lambda s, r: LecteurGit(str(depot),
-                                                                      tmp_path / "clones" / s.nom))
+    from tests.conftest import inscrire_source
+    config = charger_config(Path("config/rag.yaml")).model_copy(update={"sources": []})
+    inscrire_source(bd, SRC_CODE.nom)
+    inscrire_source(bd, "depot-2")
+    monkeypatch.setattr(cli, "lecteur_pour", lambda s, *a: LecteurGit(str(depot),
+                                                                       tmp_path / "clones" / s.nom))
     vus = []
 
     def extr(clone, *a, **k):

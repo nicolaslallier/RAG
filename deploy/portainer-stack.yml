@@ -11,7 +11,8 @@ x-rag: &rag
     RAG_JETON: ${RAG_JETON:?}
     RAG_JETON_PRIVE: ${RAG_JETON_PRIVE:-}
     RAG_JETON_REINDEXER: ${RAG_JETON_REINDEXER:?}
-    RAG_GITHUB_JETON: ${RAG_GITHUB_JETON:?}
+    RAG_GITHUB_JETON: ${RAG_GITHUB_JETON:-}
+    RAG_CLE_SECRETS: ${RAG_CLE_SECRETS:-}
     RAG_S3_ENDPOINT: https://s3.infra.famillelallier.net
     AWS_CA_BUNDLE: /etc/rag/infra-ca.crt
     RAG_S3_ACCESS_KEY: rag
@@ -20,6 +21,7 @@ x-rag: &rag
     RAG_COFFRE_PREFIXE: ${RAG_COFFRE_PREFIXE:-}
     RAG_DONNEES_DIR: /donnees
     RAG_CONFIG: /app/config/rag.yaml
+    RAG_SOURCES_AMORCE: /app/config/sources-maison.yaml
   volumes: [rag-donnees:/donnees]
   depends_on:
     rag-postgres: {condition: service_healthy}
