@@ -51,7 +51,7 @@ body {
 .marque { font-weight: 600; color: var(--texte); text-decoration: none; }
 nav form { margin: 0; }
 
-main { max-width: 72rem; margin: 0 auto; padding: 1rem; }
+main { padding: 1rem; }
 h1 { font-size: 1.4rem; margin: .5rem 0 1rem; }
 
 a { color: var(--accent); }

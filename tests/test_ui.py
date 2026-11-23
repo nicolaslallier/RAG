@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from pathlib import Path
 from urllib.parse import quote
 
@@ -818,3 +819,10 @@ def test_import_sources_refuse(gc, bd):
     assert r.status_code == 413
     r = gc.post("/ui/sources-git/import", headers=HX, data={"autre": "x"})
     assert r.status_code == 400
+
+
+def test_main_occupe_toute_la_largeur():
+    css = Path("rag/ui/statique/rag.css").read_text()
+    regle_main = re.search(r"^main\s*\{([^}]*)\}", css, re.MULTILINE).group(1)
+    assert "max-width" not in regle_main
+    assert re.search(r"^\.connexion\s*\{[^}]*max-width:\s*26rem", css, re.MULTILINE)
