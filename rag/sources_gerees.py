@@ -10,7 +10,7 @@ import yaml
 from cryptography.fernet import Fernet, InvalidToken
 from pydantic import ValidationError
 
-from rag.config import Config, ErreurConfig, Reglages, SourceConf
+from rag.config import TOUT, Config, ErreurConfig, Reglages, SourceConf
 from rag.gestion import (
     MotifInvalide,
     SourceInconnue,
@@ -117,6 +117,8 @@ def valider(nom: str, emplacement: str, branche: str, visibilite: str, exclure: 
         raise SourceInvalide("branche invalide")
     if not isinstance(utilisateur, str) or not _UTILISATEUR.match(utilisateur):
         raise SourceInvalide("nom d'utilisateur invalide")
+    if not isinstance(visibilite, str) or visibilite not in TOUT:
+        raise SourceInvalide("la visibilité est obligatoire : public-maison, prive ou travail")
     try:
         motifs = [valider_motif(m) for m in exclure]
     except MotifInvalide as e:
@@ -269,7 +271,7 @@ def supprimer(conn, nom: str) -> None:
 # --- export / import YAML ---
 
 _CLES_EXPORT = ("nom", "emplacement", "branche", "visibilite", "exclure", "utilisateur")
-_DEFAUTS = {"branche": "main", "visibilite": "public-maison", "exclure": [],
+_DEFAUTS = {"branche": "main", "exclure": [],
             "utilisateur": "x-access-token"}
 
 
@@ -302,7 +304,7 @@ def lire_export(texte: str, *, noms_reserves: set[str] = frozenset()) -> list[di
             if inconnues:
                 raise SourceInvalide("clé(s) inconnue(s) : "
                                      + ", ".join(sorted(map(str, inconnues))))
-            for k in ("nom", "emplacement"):
+            for k in ("nom", "emplacement", "visibilite"):
                 if k not in e:
                     raise SourceInvalide(f"« {k} » est obligatoire")
             d = {**_DEFAUTS, **e}
@@ -327,10 +329,12 @@ def lire_export(texte: str, *, noms_reserves: set[str] = frozenset()) -> list[di
 def importer(conn, texte: str, *, noms_reserves: set[str]) -> dict:
     """Ajoute ou met à jour les sources du YAML en une transaction ; rien n'est supprimé.
 
-    Jamais de jeton : celui d'une source connue est gardé (sauf changement d'hôte).
+    Chaque entrée nomme sa visibilité ; `bilan["niveaux"]` liste les changements de niveau
+    ({nom, de, vers}). Jamais de jeton : celui d'une source connue est gardé (sauf
+    changement d'hôte).
     """
     entrees = lire_export(texte, noms_reserves=noms_reserves)
-    bilan = {"ajoutees": 0, "modifiees": 0, "inchangees": 0}
+    bilan = {"ajoutees": 0, "modifiees": 0, "inchangees": 0, "niveaux": []}
     try:
         a_reindexer: list[str] = []
         for e in entrees:
@@ -338,14 +342,18 @@ def importer(conn, texte: str, *, noms_reserves: set[str]) -> dict:
                               branche=e["branche"], exclure=e["exclure"],
                               visibilite=e["visibilite"])
             verrouiller_source(conn, conf.nom)
-            if conn.execute("SELECT 1 FROM sources WHERE nom = %s AND geree",
-                            (conf.nom,)).fetchone():
+            r = conn.execute("SELECT visibilite FROM sources WHERE nom = %s AND geree",
+                             (conf.nom,)).fetchone()
+            if r:
                 changes = _appliquer_modification(conn, conf.nom, conf, e["utilisateur"],
                                                   None, False)
                 if not changes:
                     bilan["inchangees"] += 1
                     continue
                 bilan["modifiees"] += 1
+                if "visibilite" in changes:
+                    bilan["niveaux"].append({"nom": conf.nom, "de": r["visibilite"],
+                                             "vers": conf.visibilite})
                 if changes != {"visibilite"}:
                     a_reindexer.append(conf.nom)
             else:
@@ -365,14 +373,17 @@ def importer(conn, texte: str, *, noms_reserves: set[str]) -> dict:
 _VERROU_AMORCE = 7242   # à côté de VERROU_MIGRATION (7240) et du travailleur (7241)
 
 
-def amorcer(conn, chemin: Path) -> int:
+def amorcer(conn, chemin: Path, *, noms_reserves: set[str] = frozenset()) -> int:
     """Amorçage unique : verse les sources du fichier en base, sans réindexer.
+
+    `noms_reserves` (sources du YAML principal) : refusés, sinon l'upsert ferait du coffre une
+    source de code gérée.
 
     Upsert par nom (une ligne déjà indexée garde id, révision et documents), `geree = true`,
     ni `demande_le` ni `sans_garde` touchés. Le marqueur `instance.sources_amorcees` est posé
     dans la même transaction : un second appel rend 0. Rend le nombre de sources versées.
     """
-    entrees = lire_export(Path(chemin).read_text(encoding="utf-8"))
+    entrees = lire_export(Path(chemin).read_text(encoding="utf-8"), noms_reserves=noms_reserves)
     try:
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_VERROU_AMORCE,))
         if conn.execute("SELECT 1 FROM instance WHERE cle = 'sources_amorcees'").fetchone():
@@ -380,6 +391,11 @@ def amorcer(conn, chemin: Path) -> int:
             return 0
         for e in entrees:
             verrouiller_source(conn, e["nom"])
+            r = conn.execute("SELECT visibilite FROM sources WHERE nom = %s",
+                             (e["nom"],)).fetchone()
+            if r is not None and r["visibilite"] != e["visibilite"]:
+                log.warning("amorçage des sources git : %s passe de %s à %s",
+                            e["nom"], r["visibilite"], e["visibilite"])
             conn.execute(
                 """INSERT INTO sources (nom, type, emplacement, branche, visibilite, exclure,
                                         utilisateur, geree)

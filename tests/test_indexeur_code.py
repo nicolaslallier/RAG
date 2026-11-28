@@ -160,3 +160,102 @@ def test_source_changee_pendant_la_passe_n_ecrit_rien(bd, depot, tmp_path, faux_
     with pytest.raises(SourceSupprimee):
         indexer_source(bd, autre_branche, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
                        faux_modeles)
+
+
+def _changer_emplacement():
+    from rag.db import connexion
+    from tests.conftest import URL
+    with connexion(URL) as autre:
+        autre.execute("UPDATE sources SET emplacement = 'https://x/nouveau.git'"
+                      " WHERE nom = 'depot-test'")
+        autre.commit()
+
+
+def test_source_changee_entre_listage_et_ecriture(bd, depot, tmp_path, faux_modeles):
+    from rag.indexeur import SourceSupprimee
+
+    class ModelesQuiChangentLaSource(type(faux_modeles)):
+        def embed_documents(self, textes, modele):
+            if not self.appels:
+                _changer_emplacement()
+            return super().embed_documents(textes, modele)
+
+    with pytest.raises(SourceSupprimee):
+        indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       ModelesQuiChangentLaSource())
+    assert bd.execute("SELECT count(*) AS n FROM documents").fetchone()["n"] == 0
+    assert bd.execute("SELECT revision FROM sources WHERE nom = 'depot-test'"
+                      ).fetchone()["revision"] is None
+
+
+def test_source_changee_pendant_le_listage(bd, depot, tmp_path, faux_modeles):
+    from rag.indexeur import SourceSupprimee
+    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                   faux_modeles)
+    avant = bd.execute("SELECT revision, indexe_le FROM sources WHERE nom = 'depot-test'"
+                       ).fetchone()
+    bd.commit()
+    commit(depot, "b.py", "def b():\n    return 2\n")
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    lister = lec.lister
+
+    def lister_puis_changer():
+        r = lister()
+        _changer_emplacement()
+        return r
+    lec.lister = lister_puis_changer
+    with pytest.raises(SourceSupprimee):
+        indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles)
+    apres = bd.execute("SELECT revision, indexe_le FROM sources WHERE nom = 'depot-test'"
+                       ).fetchone()
+    assert dict(apres) == dict(avant)
+    assert "b.py" not in chemins(bd)
+
+
+def test_nul_apres_8_ko_indexe_sans_nul(bd, depot, tmp_path, faux_modeles):
+    commit(depot, "gros_nul.py", "x = 1\n" * 2000 + "\x00" + "y = 2\n")
+    b = indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)
+    assert b.echecs == 0 and "gros_nul.py" in chemins(bd)
+    textes = [r["texte"] for r in bd.execute(
+        "SELECT m.texte FROM morceaux m JOIN documents d ON d.id = m.document_id"
+        " WHERE d.chemin = 'gros_nul.py'")]
+    assert textes and not any("\x00" in t for t in textes)
+
+
+# Contrôle post-déploiement du README (motifs de contenu ajoutés sans changer VERSION_ANALYSEUR)
+_JETONS_SQL = "(glpat-[A-Za-z0-9_-]{20,}|xox[abeposr]-([0-9]-|[A-Za-z0-9]{8,}-)|xapp-[0-9]-)"
+_SUSPECTS = f"""SELECT d.id FROM documents d LEFT JOIN morceaux m ON m.document_id = d.id
+                 WHERE m.texte ~ '{_JETONS_SQL}' OR d.frontmatter::text ~ '{_JETONS_SQL}'"""
+
+
+def test_controle_sql_post_deploiement_relit_et_exclut(bd, depot, tmp_path, faux_modeles,
+                                                         monkeypatch):
+    import re
+
+    import rag.exclusions
+    jeton = "glpat-" + "a" * 20
+    faux = "xoxb-" + "1" * 8 + "-court"  # vu par la requête, pas par l'analyseur
+    commit(depot, "ci.md", f"# CI\n\njeton: {jeton}\n")
+    commit(depot, "doc.md", f"# Doc\n\nexemple : {faux}\n")
+    rotation = "xoxe.xoxp-1-" + "A1b2" * 10
+    commit(depot, "rot.md", f"# Rotation\n\njeton: {rotation}\n")
+    ancien = re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY")  # analyseur d'avant le lot
+    with monkeypatch.context() as m:
+        m.setattr(rag.exclusions, "_CONTENU_SECRET", ancien)
+        indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)
+    assert {"ci.md", "doc.md", "rot.md"} <= chemins(bd)
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    assert indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles).exclus == 3  # signature égale
+    assert "ci.md" in chemins(bd)
+    n = bd.execute(f"SELECT count(*) AS n FROM ({_SUSPECTS}) s").fetchone()["n"]
+    assert n == 3
+    bd.execute(f"UPDATE documents SET signature = '' WHERE id IN ({_SUSPECTS})")
+    bd.commit()
+    appels = faux_modeles.appels
+    b = indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles)
+    assert not {"ci.md", "rot.md"} & chemins(bd) and "doc.md" in chemins(bd)
+    assert b.exclus == 5 and faux_modeles.appels == appels  # rien de réembarqué
+    assert bd.execute("SELECT raison FROM exclus WHERE chemin = 'ci.md'").fetchone()["raison"] \
+        == "secret"

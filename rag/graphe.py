@@ -13,7 +13,7 @@ from pathlib import Path
 import psycopg
 
 from rag.exclusions import motif_exclusion
-from rag.gestion import correspond, motifs_manuels, verrouiller_source
+from rag.gestion import SourceSupprimee, correspond, motifs_manuels, verrouiller_source
 from rag.recherche import lien_source, normaliser
 from rag.sources import nfc
 
@@ -60,14 +60,19 @@ def depuis_graphify(graphe: dict) -> dict:
     return {"noeuds": noeuds, "liens": liens}
 
 
-def _copier_sans_exclus(clone: Path, dest: Path, exclure: list[str]) -> None:
-    """Copie de travail pour graphify : sans .git, sans secrets ni fichiers générés."""
+def _copier_sans_exclus(clone: Path, dest: Path, exclure: list[str],
+                        taille_max: int | None = None) -> None:
+    """Copie de travail pour graphify : sans .git, sans secrets ni fichiers générés, sans
+    fichier de plus de `taille_max` octets (jamais lu)."""
     for p in sorted(clone.rglob("*")):
         rel = p.relative_to(clone)
         if rel.parts[0] == ".git" or p.is_symlink() or not p.is_file():
             continue
         chemin = nfc(rel.as_posix())  # les chemins indexés et les motifs sont en NFC
         if correspond(chemin, exclure):
+            continue
+        if taille_max is not None and (taille := p.stat().st_size) > taille_max:
+            log.warning("copie graphify : %r écarté (trop gros, %d octets)", chemin, taille)
             continue
         contenu = p.read_bytes()
         if motif_exclusion(chemin, contenu, exclure) is None:
@@ -76,11 +81,12 @@ def _copier_sans_exclus(clone: Path, dest: Path, exclure: list[str]) -> None:
 
 
 def extraire_structure(clone: Path, travail: Path, delai_s: int = 600, *,
-                       commande: str = "graphify", exclure: list[str] = ()) -> dict:
+                       commande: str = "graphify", exclure: list[str] = (),
+                       taille_max: int | None = None) -> dict:
     copie = Path(travail) / "src"
     shutil.rmtree(copie, ignore_errors=True)
     copie.mkdir(parents=True)
-    _copier_sans_exclus(Path(clone), copie, list(exclure))
+    _copier_sans_exclus(Path(clone), copie, list(exclure), taille_max)
     # Liste blanche : aucune clé (infonuagique ou RAG_*) ne peut atteindre graphify.
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG")}
     try:
@@ -102,16 +108,22 @@ def extraire_structure(clone: Path, travail: Path, delai_s: int = 600, *,
         raise ErreurGraphe(f"graphify : graph.json illisible ({type(e).__name__})") from None
 
 
-def charger_graphe(conn, source_nom: str, graphe: dict, origine: str = "structure"
-                   ) -> tuple[int, int]:
+def charger_graphe(conn, source_nom: str, graphe: dict, origine: str = "structure", *,
+                   identite: tuple[str, str] | None = None) -> tuple[int, int]:
     """Remplace les liens de `origine` partant de la source. Un lien peut viser un nœud d'une
     autre source par `vers_id`. Sous le verrou de la source ; les nœuds d'un fichier exclu à la
-    main entre-temps (graphify a pu tourner avant) sont écartés, avec leurs liens."""
+    main entre-temps (graphify a pu tourner avant) sont écartés, avec leurs liens.
+
+    `identite` (emplacement, branche) : `SourceSupprimee` si la source n'est plus celle-là
+    (modifiée pendant graphify) ; de même si elle a disparu."""
     with conn.transaction():
         verrouiller_source(conn, source_nom)
+        r = conn.execute("SELECT id, emplacement, COALESCE(branche, 'main') AS branche "
+                         "FROM sources WHERE nom = %s", (source_nom,)).fetchone()
+        if r is None or (identite is not None and (r["emplacement"], r["branche"]) != identite):
+            raise SourceSupprimee(f"{source_nom} : source changée ou supprimée")
+        sid = r["id"]
         motifs = motifs_manuels(conn, source_nom)
-        sid = conn.execute("SELECT id FROM sources WHERE nom = %s", (source_nom,)
-                           ).fetchone()["id"]
         conn.execute("""DELETE FROM liens l USING noeuds n
                          WHERE l.de = n.id AND n.source_id = %s AND l.origine = %s""",
                      (sid, origine))
@@ -202,14 +214,15 @@ def _charger_wikiliens(conn, source_nom: str) -> tuple[int, int, int]:
                               "confiance": "EXTRAIT"})
     n, l = charger_graphe(conn, source_nom, {"noeuds": noeuds, "liens": liens}, "wikilien")
     for chemin, cible in non_resolues:
-        log.info("%s : [[%s]] non résolu dans %s", source_nom, cible, chemin)
+        log.info("%s : [[%r]] non résolu dans %r", source_nom, cible, chemin)
     charger_wikiliens.non_resolues = non_resolues
     return n, l, len(non_resolues)
 
 
 # --- Mise à jour après indexation -----------------------------------------------------------
 
-def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
+def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False,
+               taille_max: int | None = None) -> str:
     try:
         if source.type == "obsidian":
             n, l, non = charger_wikiliens(conn, source.nom)
@@ -225,8 +238,9 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
             return "graphe : à jour"
         travail = Path(reglages.donnees_dir) / "graphe" / source.nom
         g = extraire_structure(lecteur.dest, travail, commande=reglages.graphify_commande,
-                               exclure=[*source.exclure, *motifs])
-        n, l = charger_graphe(conn, source.nom, g)
+                               exclure=[*source.exclure, *motifs], taille_max=taille_max)
+        n, l = charger_graphe(conn, source.nom, g,
+                              identite=(source.emplacement, source.branche or "main"))
         conn.execute("UPDATE sources SET graphe_revision = revision WHERE nom = %s",
                      (source.nom,))
         conn.commit()
@@ -235,6 +249,9 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
         conn.rollback()
         log.error("%s : graphe en échec : %s", source.nom, e)
         return f"graphe : ÉCHEC {e}"
+    except SourceSupprimee:
+        conn.rollback()
+        return "graphe : source changée ou supprimée, ignoré"
 
 
 # --- Lecture : trouver, chemin, expliquer ---------------------------------------------------

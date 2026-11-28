@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import psycopg.errors
 from psycopg.types.json import Jsonb
 
+from rag.config import plafond_lecture
 from rag.db import connexion
 from rag.graphe import maj_graphe
 from rag.indexeur import SourceSupprimee, indexer_source
@@ -75,7 +76,8 @@ def passe(conn, genre: str, config, reglages, modeles, sources: list[str] | None
                 b = indexer_source(conn, src, lecteur, config.indexation, modeles,
                                    forcer=src.nom in sans_garde,
                                    sans_repos=genre != "incrementale")
-                graphe = maj_graphe(conn, src, lecteur, reglages)
+                graphe = maj_graphe(conn, src, lecteur, reglages,
+                                    taille_max=plafond_lecture(config.indexation))
                 if "ÉCHEC" in graphe:  # le message d'erreur reste au journal (maj_graphe)
                     bilan[src.nom] = asdict(b) | {"erreur": "echec"}
                 else:
@@ -102,7 +104,11 @@ def passe(conn, genre: str, config, reglages, modeles, sources: list[str] | None
         return bilan
     finally:
         conn.rollback()
-        ok = not any(isinstance(v, dict) and "erreur" in v for v in bilan.values())
+        # une passe partielle (documents en échec dans une source) n'est pas ok, sans être une
+        # erreur de source ; les échecs de la passe sémantique (notes isolées) ne comptent pas
+        ok = not any(isinstance(v, dict) and ("erreur" in v
+                                              or (k != "semantique" and v.get("echecs")))
+                     for k, v in bilan.items())
         if "pid" in locals():
             conn.execute("UPDATE passes SET fin = now(), ok = %s, bilan = %s WHERE id = %s",
                          (ok, Jsonb(bilan), pid))

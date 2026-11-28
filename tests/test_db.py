@@ -32,6 +32,12 @@ def test_visibilite_travail_acceptee_inconnue_refusee(bd):
     bd.rollback()
 
 
+def test_visibilite_sans_defaut(bd):
+    with pytest.raises(psycopg.errors.NotNullViolation):
+        bd.execute("INSERT INTO sources (nom, type, emplacement) VALUES ('x','code','x')")
+    bd.rollback()
+
+
 def test_role_monitoring_rejouable_et_sans_superuser(bd):
     # Rôle d'essai : la fonction valide sa transaction, `monitoring` survivrait dans la base de dev.
     try:

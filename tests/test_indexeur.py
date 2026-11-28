@@ -3,13 +3,14 @@ import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 
+import psycopg
 import pytest
 
 from rag.config import SourceConf, charger_config
 from rag.indexeur import CoffrePartielError, indexer_source
 from rag.modeles import ErreurModele
 from rag.sources import Entree, LecteurDossier
-from tests.conftest import FauxModeles
+from tests.conftest import FauxModeles, inscrire_source
 
 CONF = charger_config(Path("config/rag.yaml")).indexation
 SRC = SourceConf(visibilite="public-maison", nom="coffre-test", type="obsidian", emplacement="/tmp/x",
@@ -44,7 +45,7 @@ class FauxModelesQuiTombe(FauxModeles):
 
     def embed_documents(self, textes, modele):
         if self.appels >= self.apres:
-            raise ErreurModele("panne")
+            raise ErreurModele("LiteLLM /v1/embeddings : ConnectError")
         return super().embed_documents(textes, modele)
 
 
@@ -239,3 +240,153 @@ def test_secret_journalise_et_pas_relu(bd, coffre, faux_modeles, caplog, monkeyp
     (coffre / "e.md").write_text("plus de secret")
     b = indexer_source(bd, SRC, lec, CONF, faux_modeles)
     assert b.nouveaux == 1 and "e.md" in chemins(bd)
+
+
+class LecteurQuiEchoue(LecteurDossier):
+    """`lire` lève `exc` pour les chemins de `en_echec` (tous si None)."""
+
+    def __init__(self, racine, en_echec=None, exc=None):
+        super().__init__(racine)
+        self.en_echec, self.exc = en_echec, exc or RuntimeError("illisible")
+
+    def lire(self, chemin):
+        if self.en_echec is None or chemin in self.en_echec:
+            raise self.exc
+        return super().lire(chemin)
+
+
+def test_un_document_en_echec_n_arrete_pas_les_suivants(bd, coffre, faux_modeles):
+    b = indexer_source(bd, SRC, LecteurQuiEchoue(coffre, {"b.md"}), CONF, faux_modeles)
+    assert b.echecs == 1 and b.nouveaux == 3
+    assert chemins(bd) == {"a.md", "c.md", "d.md"}
+    assert bd.execute("SELECT indexe_le FROM sources WHERE nom = %s",
+                      (SRC.nom,)).fetchone()["indexe_le"] is not None
+    b = indexer_source(bd, SRC, LecteurDossier(coffre), CONF, faux_modeles)
+    assert b.nouveaux == 1 and b.echecs == 0
+
+
+def test_echec_d_un_document_ne_bloque_pas_les_suppressions(bd, coffre, faux_modeles):
+    indexer_source(bd, SRC, LecteurDossier(coffre), CONF, faux_modeles)
+    (coffre / "c.md").unlink()
+    (coffre / "b.md").write_text("# Bêta\n\nNouveau contenu.")
+    b = indexer_source(bd, SRC, LecteurQuiEchoue(coffre, {"b.md"}), CONF, faux_modeles)
+    assert b.supprimes == 1 and b.echecs == 1
+    assert "b.md" in chemins(bd) and "c.md" not in chemins(bd)
+
+
+class FauxModelesQuiRefusent(FauxModeles):
+    def embed_documents(self, textes, modele):
+        if any("zèbre" in t for t in textes):
+            raise ErreurModele("LiteLLM /v1/embeddings : HTTP 400")
+        return super().embed_documents(textes, modele)
+
+
+def test_refus_du_modele_pour_un_document_isole(bd, coffre):
+    b = indexer_source(bd, SRC, LecteurDossier(coffre), CONF, FauxModelesQuiRefusent())
+    assert b.echecs == 1 and chemins(bd) == {"a.md", "c.md", "d.md"}
+
+
+def test_erreur_de_connexion_postgres_arrete_la_passe(bd, coffre, faux_modeles):
+    with pytest.raises(psycopg.OperationalError):
+        indexer_source(bd, SRC, LecteurQuiEchoue(coffre, {"b.md"}, psycopg.OperationalError("perdue")),
+                       CONF, faux_modeles)
+
+
+def test_trop_d_echecs_arrete_la_passe(bd, coffre, faux_modeles, monkeypatch):
+    import rag.indexeur
+    monkeypatch.setattr(rag.indexeur, "ECHECS_MAX", 2)
+    lec = LecteurQuiEchoue(coffre, exc=psycopg.errors.UntranslatableCharacter(
+        "DETAIL: contenu SECRET_DU_DOCUMENT"))
+    lus = []
+    lire = lec.lire
+    lec.lire = lambda c: lus.append(c) or lire(c)
+    with pytest.raises(RuntimeError, match="trop de documents en échec") as e:
+        indexer_source(bd, SRC, lec, CONF, faux_modeles)
+    assert "SECRET" not in str(e.value)
+    assert e.value.__cause__ is None and e.value.__suppress_context__
+    assert len(lus) == 2  # arrêt au ECHECS_MAX-ième échec
+
+
+def test_frontmatter_avec_nul_indexe(bd, tmp_path, faux_modeles):
+    d = tmp_path / "nul"
+    d.mkdir()
+    (d / "n.md").write_text("---\ntitre: \"a\\u0000b\"\ntags: [\"x\\0y\"]\n---\n# T\n\ncorps\n")
+    b = indexer_source(bd, SRC, LecteurDossier(d), CONF, faux_modeles)
+    assert b.echecs == 0
+    r = bd.execute("SELECT frontmatter->>'titre' AS t, tags FROM documents").fetchone()
+    assert r["t"] == "ab" and r["tags"] == ["xy"]
+
+
+def test_source_vide_n_est_pas_un_echec(bd, tmp_path, faux_modeles):
+    d = tmp_path / "vide"
+    d.mkdir()
+    b = indexer_source(bd, SRC, LecteurDossier(d), CONF, faux_modeles)
+    assert b == type(b)()
+    assert bd.execute("SELECT indexe_le FROM sources WHERE nom = %s",
+                      (SRC.nom,)).fetchone()["indexe_le"] is not None
+
+
+class LecteurUnExclu(LecteurFixe):
+    def lister(self):
+        return [Entree("uv.lock", "s1", datetime(2026, 1, 1, tzinfo=UTC), 5)]
+
+
+def test_source_sans_fichier_indexable_n_est_pas_un_echec(bd, faux_modeles):
+    src = SourceConf(visibilite="public-maison", nom="depot-vide", type="code", emplacement="x")
+    inscrire_source(bd, "depot-vide")
+    b = indexer_source(bd, src, LecteurUnExclu("uv.lock"), CONF, faux_modeles)
+    assert b.exclus == 1 and b.nouveaux == 0
+
+
+@pytest.mark.parametrize("exc", [psycopg.errors.UndefinedColumn("x"),
+                                 psycopg.errors.InsufficientPrivilege("x"),
+                                 psycopg.errors.UniqueViolation("x"),
+                                 psycopg.errors.ForeignKeyViolation("x"),
+                                 psycopg.errors.QueryCanceled("x")])
+def test_erreur_postgres_hors_liste_blanche_arrete_la_passe(bd, coffre, faux_modeles, exc):
+    with pytest.raises(type(exc)):
+        indexer_source(bd, SRC, LecteurQuiEchoue(coffre, {"b.md"}, exc), CONF, faux_modeles)
+
+
+def test_erreur_de_donnees_postgres_isolee(bd, coffre, faux_modeles):
+    exc = psycopg.errors.UntranslatableCharacter("x")  # DataError : propre au document
+    b = indexer_source(bd, SRC, LecteurQuiEchoue(coffre, {"b.md"}, exc), CONF, faux_modeles)
+    assert b.echecs == 1 and chemins(bd) == {"a.md", "c.md", "d.md"}
+
+
+# --- Contrat avec rag.modeles : un vrai client sur un transport simulé -----------------------
+# N'utilise que Modeles(url, cle, client=…) et embed_documents, communs à main et au lot
+# « réponse » (reprises sur 502/503/504, message « LiteLLM <route> : HTTP <code> » gardé).
+
+def _modeles_simules(monkeypatch, statut_si_zebre: int, statut_sinon: int = 200):
+    import json
+    import time
+
+    import httpx
+
+    from rag.modeles import DIMENSIONS, Modeles
+    monkeypatch.setattr(time, "sleep", lambda s: None)  # reprises du client, sans attendre
+
+    def repondre(requete: httpx.Request) -> httpx.Response:
+        textes = json.loads(requete.content)["input"]
+        statut = statut_si_zebre if any("zèbre" in t for t in textes) else statut_sinon
+        if statut != 200:
+            return httpx.Response(statut, json={"error": "refusé"})
+        return httpx.Response(200, json={"data": [
+            {"index": i, "embedding": [1.0] + [0.0] * (DIMENSIONS - 1)}
+            for i in range(len(textes))]})
+    return Modeles("http://litellm.test", "cle",
+                   client=httpx.Client(transport=httpx.MockTransport(repondre)))
+
+
+def test_contrat_modeles_http_400_isole_le_document(bd, coffre, monkeypatch):
+    b = indexer_source(bd, SRC, LecteurDossier(coffre), CONF, _modeles_simules(monkeypatch, 400))
+    assert b.echecs == 1 and chemins(bd) == {"a.md", "c.md", "d.md"}
+
+
+@pytest.mark.parametrize("statut", [503, 429])
+def test_contrat_modeles_indisponible_arrete_la_passe(bd, coffre, monkeypatch, statut):
+    with pytest.raises(ErreurModele, match=f"HTTP {statut}$"):
+        indexer_source(bd, SRC, LecteurDossier(coffre), CONF,
+                       _modeles_simules(monkeypatch, statut, statut))
+    assert chemins(bd) == set()

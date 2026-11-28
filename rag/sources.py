@@ -105,13 +105,19 @@ def _env_git(url: str, jeton: str, utilisateur: str,
     if protocoles is not None:
         env["GIT_ALLOW_PROTOCOL"] = protocoles
     parts = urlsplit(url)
+    reglages: list[tuple[str, str]] = []
     if jeton and parts.scheme in ("http", "https") and parts.hostname:
         b64 = base64.b64encode(f"{utilisateur}:{jeton}".encode()).decode()
         secrets = [jeton, b64]
         hote = parts.hostname + (f":{parts.port}" if parts.port else "")
-        env |= {"GIT_CONFIG_COUNT": "1",
-                "GIT_CONFIG_KEY_0": f"http.{parts.scheme}://{hote}/.extraheader",
-                "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {b64}"}
+        reglages.append((f"http.{parts.scheme}://{hote}/.extraheader",
+                         f"AUTHORIZATION: basic {b64}"))
+    # une redirection (dépôt renommé, hôte compromis) n'emporte jamais l'en-tête ailleurs
+    reglages.append(("http.followRedirects", "false"))
+    env["GIT_CONFIG_COUNT"] = str(len(reglages))
+    for i, (cle, valeur) in enumerate(reglages):
+        env[f"GIT_CONFIG_KEY_{i}"] = cle
+        env[f"GIT_CONFIG_VALUE_{i}"] = valeur
     return env, secrets
 
 
@@ -167,8 +173,9 @@ class LecteurGit:
             raise ErreurSource(f"destination refusée : {self.dest}")
         shutil.rmtree(self.dest, ignore_errors=True)
         self.dest.parent.mkdir(parents=True, exist_ok=True)
-        self._git("clone", "--single-branch", "--branch", self.branche, self.url,
-                  str(self.dest), cwd=self.dest.parent)
+        # superficiel : seuls l'arbre de HEAD et son sha servent (ls-tree, cat-file, rev-parse)
+        self._git("clone", "--depth", "1", "--no-tags", "--single-branch", "--branch",
+                  self.branche, self.url, str(self.dest), cwd=self.dest.parent)
 
     def synchroniser(self) -> str:
         if not (self.dest / ".git").exists():
@@ -178,7 +185,8 @@ class LecteurGit:
             try:
                 if self._git("remote", "get-url", "origin").strip() != self.url:
                     raise ErreurSource("URL d'origine changée")
-                self._git("fetch", "origin", f"+{b}:refs/remotes/origin/{b}")
+                self._git("fetch", "--depth", "1", "--no-tags", "origin",
+                          f"+{b}:refs/remotes/origin/{b}")
                 self._git("reset", "--hard", f"origin/{b}")
             except ErreurSource as e:  # clone abîmé : on repart de zéro (il appartient au service)
                 log.warning("%s : clone recréé (%s)", self.dest.name, e)
@@ -208,14 +216,14 @@ class LecteurGit:
         if not self._sha:
             self.synchroniser()
         if chemin.startswith("/") or ".." in chemin.split("/"):
-            raise ErreurSource(f"chemin refusé : {chemin}")
+            raise ErreurSource(f"chemin refusé : {chemin!r}")
         try:
             r = subprocess.run(["git", "cat-file", "blob", f"{self._sha}:{chemin}"], check=False,
                                cwd=self.dest, env=self._env, capture_output=True, timeout=120)
         except subprocess.TimeoutExpired:
             raise ErreurSource("git cat-file : délai dépassé") from None
         if r.returncode:
-            raise ErreurSource(f"git cat-file : {chemin} illisible")
+            raise ErreurSource(f"git cat-file : {chemin!r} illisible")
         return r.stdout
 
     def revision(self) -> str:

@@ -82,7 +82,8 @@ def test_cli_exclusions_importer_fichier_illisible(env_cli, capsys, tmp_path):
 
 def test_cli_sources_exporter_lister_importer(env_cli, capsys, tmp_path):
     f = tmp_path / "sources.yaml"
-    f.write_text("- {nom: depot, emplacement: https://github.com/a/b.git}\n")
+    f.write_text("- {nom: depot, emplacement: https://github.com/a/b.git,"
+                 " visibilite: public-maison}\n")
     assert cli.main(["sources", "importer", str(f)]) == 0
     assert "1 ajoutée(s), 0 modifiée(s), 0 inchangée(s)" in capsys.readouterr().err
     assert cli.main(["sources", "lister"]) == 0
@@ -96,7 +97,8 @@ def test_cli_sources_exporter_lister_importer(env_cli, capsys, tmp_path):
 
 def test_cli_sources_importer_nom_reserve(env_cli, capsys, tmp_path):
     f = tmp_path / "sources.yaml"
-    f.write_text("- {nom: coffre-maison, emplacement: https://github.com/a/b.git}\n")
+    f.write_text("- {nom: coffre-maison, emplacement: https://github.com/a/b.git,"
+                 " visibilite: prive}\n")
     assert cli.main(["sources", "importer", str(f)]) == 1
     assert "entrée 1" in capsys.readouterr().err
 
@@ -104,3 +106,31 @@ def test_cli_sources_importer_nom_reserve(env_cli, capsys, tmp_path):
 def test_cli_sources_importer_fichier_illisible(env_cli, capsys, tmp_path):
     assert cli.main(["sources", "importer", str(tmp_path / "absent.yaml")]) == 1
     assert "illisible" in capsys.readouterr().err
+
+
+def test_migrer_role_monitoring_puis_amorcage(env_cli, tmp_path, monkeypatch, bd, capsys):
+    """`rag migrer` : migrations (008 comprise), rôle monitoring, puis amorçage (noms réservés)."""
+    import rag.db
+    import rag.sources_gerees
+    ordre = []
+    # le vrai rôle est global au serveur Postgres partagé : seul l'ordre des appels est vérifié ici
+    monkeypatch.setattr(rag.db, "assurer_role_monitoring",
+                        lambda conn, mdp, **k: ordre.append(("monitoring", mdp)))
+    amorcer = rag.sources_gerees.amorcer
+    monkeypatch.setattr(rag.sources_gerees, "amorcer",
+                        lambda *a, **k: ordre.append(("amorcer", k["noms_reserves"]))
+                        or amorcer(*a, **k))
+    f = tmp_path / "amorce.yaml"
+    f.write_text('- {nom: depot, emplacement: "https://x/d.git", visibilite: prive}\n')
+    monkeypatch.setenv("RAG_MONITORING_DB_PASSWORD", "Essai123")
+    monkeypatch.setenv("RAG_SOURCES_AMORCE", str(f))
+    assert cli.main(["migrer"]) == 0
+    assert ordre == [("monitoring", "Essai123"), ("amorcer", {"coffre-maison"})]
+    sortie = capsys.readouterr().out
+    assert "rôle monitoring à jour" in sortie and "1 source(s) git amorcée(s)" in sortie
+    assert "Essai123" not in sortie
+    assert bd.execute("SELECT column_default FROM information_schema.columns WHERE"
+                      " table_name = 'sources' AND column_name = 'visibilite'"
+                      ).fetchone()["column_default"] is None
+    assert bd.execute("SELECT visibilite FROM sources WHERE nom = 'depot'"
+                      ).fetchone()["visibilite"] == "prive"

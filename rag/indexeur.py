@@ -3,17 +3,21 @@
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from rag.config import IndexationConf, SourceConf, empreinte_indexation
+import psycopg
+
+from rag.config import IndexationConf, SourceConf, empreinte_indexation, plafond_lecture
 from rag.decoupage import Morceau, decouper_note
 from rag.decoupage_code import decouper_code, langage
 from rag.exclusions import motif_exclusion
-from rag.gestion import correspond, motifs_manuels, verrouiller_source
+from rag.gestion import SourceSupprimee, correspond, motifs_manuels, verrouiller_source
+from rag.modeles import ErreurModele
 from rag.notes import Note, analyser_note
 from rag.recherche import normaliser, vecteur_sql
-from rag.sources import nfc
+from rag.sources import ErreurSource, nfc
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +35,34 @@ class Bilan:
     reportes: int = 0
     exclus: int = 0
     morceaux: int = 0
+    echecs: int = 0  # documents en échec, retentés à la passe suivante
+
+
+ECHECS_MAX = 20  # au 20e échec, la panne est celle de la source, pas d'un document
+_REFUS_DU_DOCUMENT = re.compile(r"HTTP (400|413|422)$")
+
+
+def _arret_global(exc: Exception) -> bool:
+    """Pannes qui ne tiennent pas au document : base, modèle injoignable, source disparue.
+
+    Postgres en liste blanche : seule une `DataError` (valeur refusée, caractère intraduisible…)
+    tient au document ; toute autre erreur de la base arrête la passe."""
+    if isinstance(exc, SourceSupprimee):
+        return True
+    if isinstance(exc, psycopg.Error):
+        return not isinstance(exc, psycopg.DataError)
+    if isinstance(exc, ErreurModele):  # un 400/413/422 vise l'entrée ; le reste est une panne
+        return not _REFUS_DU_DOCUMENT.search(str(exc))
+    return False
+
+
+def _resume(exc: Exception) -> str:
+    """Pour le journal : jamais le message d'une erreur Postgres (il peut citer le contenu)."""
+    if isinstance(exc, psycopg.Error):
+        return f"{type(exc).__name__} {exc.sqlstate or ''}".strip()
+    if isinstance(exc, (ErreurModele, ErreurSource)):
+        return f"{type(exc).__name__} : {exc}"
+    return type(exc).__name__
 
 
 def version_courante(conn, conf: IndexationConf) -> int:
@@ -43,7 +75,7 @@ def version_courante(conn, conf: IndexationConf) -> int:
 
 
 def _morceaux(source: SourceConf, chemin: str, contenu: bytes, conf: IndexationConf):
-    texte = contenu.decode("utf-8", errors="replace")
+    texte = contenu.decode("utf-8", errors="replace").replace("\x00", "")
     if source.type == "code":
         note = Note(chemin, [], [], langage(chemin), None, None, {}, texte, [])
         if len(contenu) > conf.taille_max_octets:
@@ -104,8 +136,19 @@ def _ecrire(conn, source_id, chemin, e, sha, note, ms, v, vec_de, existant) -> i
     return len(ms)
 
 
-class SourceSupprimee(Exception):
-    """La source code n'existe plus en base : rien à indexer."""
+def _verrouiller_identite(conn, source: SourceConf, source_id: int) -> None:
+    """Verrou de la source, puis identité relue : une source code modifiée (URL, branche)
+    ou supprimée depuis le début de la passe n'est plus écrite."""
+    verrouiller_source(conn, source.nom)
+    if source.type != "code":
+        return
+    if conn.execute(
+            """SELECT 1 FROM sources WHERE id = %s AND nom = %s AND type = 'code'
+                  AND emplacement = %s AND COALESCE(branche, 'main') = %s""",
+            (source_id, source.nom, source.emplacement, source.branche or "main")
+            ).fetchone() is None:
+        conn.rollback()
+        raise SourceSupprimee(f"{source.nom} : source changée ou supprimée")
 
 
 def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, modeles, *,
@@ -144,9 +187,9 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         raison = motif_exclusion(chemin, b"", source.exclure)
         if raison is None and correspond(chemin, motifs):
             raison = "manuelle"
-        if raison is None and e.taille > 10 * conf.taille_max_octets:
+        if raison is None and e.taille > plafond_lecture(conf):
             raison = "trop_gros"  # jamais lu : un blob géant ne passe pas en mémoire
-            log.warning("%s : %s exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
+            log.warning("%s : %r exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
         if raison is None:
             entrees[chemin] = e
             continue
@@ -168,12 +211,18 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     # exclus à la main : voulus, ils ne trahissent pas un listage partiel
     manuels = {c for c, (_, raison) in exclus_listage.items() if raison == "manuelle"}
     manquants = absents - manuels
-    if not forcer and ((not entrees and not manuels) or len(manquants) > len(existants) / 2):
+    # rien d'indexé encore : un listage vide n'efface rien, ce n'est pas un échec
+    if not forcer and existants and ((not entrees and not manuels)
+                                     or len(manquants) > len(existants) / 2):
         conn.rollback()
         raise CoffrePartielError(
             f"{source.nom} : listage de {len(entrees)} entrées, {len(manquants)} documents "
             f"sur {len(existants)} absents ; relancer avec forcer pour confirmer")
+    if not entrees and not existants:
+        log.warning("%s : aucun fichier indexable", source.nom)
 
+    # le listage (clone ou fetch) est la fenêtre la plus longue : identité relue avant d'écrire
+    _verrouiller_identite(conn, source, source_id)
     for chemin, (e, raison) in exclus_listage.items():
         conn.execute(
             """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
@@ -190,6 +239,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         """Relit les motifs manuels ; si le chemin vient d'être exclu, le retire et valide."""
         if not correspond(chemin, motifs_manuels(conn, source.nom)):
             return False
+        _verrouiller_identite(conn, source, source_id)
         if ex:
             conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
         conn.execute(
@@ -219,7 +269,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 continue
             contenu = lecteur.lire(chemin)
             if raison := motif_exclusion(chemin, contenu, source.exclure):
-                log.warning("%s : %s exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
+                log.warning("%s : %r exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
+                _verrouiller_identite(conn, source, source_id)
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
                 conn.execute(
@@ -243,7 +294,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             # relu après les embeddings (longs), dans la transaction de l'écriture, sous le
             # verrou de la source : une exclusion validée entre-temps est vue, une exclusion
             # qui arrive attend le commit puis retire le document écrit
-            verrouiller_source(conn, source.nom)
+            _verrouiller_identite(conn, source, source_id)
             if exclu_en_passe(chemin, e, ex):
                 continue
             conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
@@ -254,12 +305,23 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 bilan.modifies += 1
             else:
                 bilan.nouveaux += 1
-        except BaseException:
+        except Exception as exc:
+            conn.rollback()
+            if _arret_global(exc):
+                raise
+            bilan.echecs += 1
+            log.error("%s : %r en échec (%s)", source.nom, chemin, _resume(exc))
+            if bilan.echecs >= ECHECS_MAX:  # sans l'erreur d'origine : elle peut citer le contenu
+                raise RuntimeError(f"{source.nom} : trop de documents en échec "
+                                   f"({bilan.echecs})") from None
+        except BaseException:  # KeyboardInterrupt, SystemExit : arrêt net
             conn.rollback()
             raise
 
     # oublie les fichiers disparus du listage, et les exclusions sur le nom levées depuis ; garde
-    # les exclusions manuelles posées pendant la passe (motif encore en base)
+    # les exclusions manuelles posées pendant la passe (motif encore en base) ; jamais la
+    # révision d'un ancien dépôt sur une source modifiée entre-temps
+    _verrouiller_identite(conn, source, source_id)
     motifs = motifs_manuels(conn, source.nom)
     manuelles = [r["chemin"] for r in conn.execute(
         "SELECT chemin FROM exclus WHERE source_id = %s AND raison = 'manuelle'", (source_id,))

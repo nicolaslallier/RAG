@@ -95,7 +95,7 @@ def _valider(nom="x", url=URL_OK, branche="main", visi="public-maison", exclure=
     return valider(nom, url, branche, visi, list(exclure), utilisateur, noms_reserves=RESERVES)
 
 
-@pytest.mark.parametrize("nom", ["", ".", "..", "a/b", "coffre-maison", "a b"])
+@pytest.mark.parametrize("nom", ["", ".", "..", "a/b", "coffre-maison", "a b", "a" * 101])
 def test_nom_refuse(nom):
     with pytest.raises(SourceInvalide):
         _valider(nom=nom)
@@ -369,8 +369,11 @@ def test_export_ignore_les_sources_du_yaml(bd):
 @pytest.mark.parametrize("texte", [
     "- {nom: a, emplacement: https://h/a.git, jeton: x}",
     "- {nom: a, emplacement: file:///etc}",
-    "- {nom: a, emplacement: https://h/a.git}\n- {nom: '..', emplacement: https://h/b.git}",
-    "- {nom: a, emplacement: https://h/a.git}\n- {nom: coffre-maison, emplacement: https://h/b.git}",
+    ("- {nom: a, emplacement: https://h/a.git, visibilite: prive}\n"
+     "- {nom: '..', emplacement: https://h/b.git, visibilite: prive}"),
+    ("- {nom: a, emplacement: https://h/a.git, visibilite: prive}\n"
+     "- {nom: coffre-maison, emplacement: https://h/b.git, visibilite: prive}"),
+    "- {nom: a, emplacement: https://h/a.git}",
     "- {nom: a}",
     "- {emplacement: https://h/a.git}",
     "- pas un dictionnaire",
@@ -385,7 +388,7 @@ def test_import_refuse_tout_ou_rien(bd, texte):
 
 def test_import_nomme_l_entree(bd):
     with pytest.raises(SourceInvalide, match="entrée 2"):
-        importer(bd, "- {nom: a, emplacement: https://h/a.git}\n- {nom: b}",
+        importer(bd, "- {nom: a, emplacement: https://h/a.git, visibilite: prive}\n- {nom: b}",
                  noms_reserves=RESERVES)
 
 
@@ -393,10 +396,12 @@ def test_import_ajoute_et_modifie(bd):
     ajouter(bd, _valider(nom="vieux"), utilisateur="x-access-token", jeton=None, coffret=None)
     bd.execute("UPDATE sources SET demande_le = NULL")
     bd.commit()
-    bilan = importer(bd, "- {nom: vieux, emplacement: https://github.com/a/b.git, branche: dev}\n"
-                         "- {nom: neuf, emplacement: https://github.com/a/c.git}",
+    bilan = importer(bd, "- {nom: vieux, emplacement: https://github.com/a/b.git, branche: dev,"
+                         " visibilite: public-maison}\n"
+                         "- {nom: neuf, emplacement: https://github.com/a/c.git,"
+                         " visibilite: public-maison}",
                      noms_reserves=RESERVES)
-    assert bilan == {"ajoutees": 1, "modifiees": 1, "inchangees": 0}
+    assert bilan == {"ajoutees": 1, "modifiees": 1, "inchangees": 0, "niveaux": []}
     assert _ligne(bd, "vieux")["branche"] == "dev" and _ligne(bd, "vieux")["demande_le"]
     assert _ligne(bd, "neuf")["geree"] and _ligne(bd, "neuf")["demande_le"]
 
@@ -404,13 +409,14 @@ def test_import_ajoute_et_modifie(bd):
 def test_import_inchangees(bd):
     ajouter(bd, _valider(nom="a"), utilisateur="x-access-token", jeton=None, coffret=None)
     bilan = importer(bd, exporter(bd), noms_reserves=RESERVES)
-    assert bilan == {"ajoutees": 0, "modifiees": 0, "inchangees": 1}
+    assert bilan == {"ajoutees": 0, "modifiees": 0, "inchangees": 1, "niveaux": []}
 
 
 def test_import_garde_le_jeton(bd):
     c = _coffret()
     ajouter(bd, _valider(nom="a"), utilisateur="x-access-token", jeton="ghp_x", coffret=c)
-    importer(bd, "- {nom: a, emplacement: https://github.com/a/b.git, branche: dev}",
+    importer(bd, "- {nom: a, emplacement: https://github.com/a/b.git, branche: dev,"
+                 " visibilite: public-maison}",
              noms_reserves=RESERVES)
     assert c.dechiffrer(_ligne(bd, "a")["jeton_chiffre"]) == "ghp_x"
 
@@ -418,7 +424,8 @@ def test_import_garde_le_jeton(bd):
 def test_import_changement_d_hote_retire_le_jeton(bd):
     ajouter(bd, _valider(nom="a"), utilisateur="x-access-token", jeton="ghp_x",
             coffret=_coffret())
-    importer(bd, "- {nom: a, emplacement: https://autre.example/a/b.git}", noms_reserves=RESERVES)
+    importer(bd, "- {nom: a, emplacement: https://autre.example/a/b.git, visibilite: prive}",
+             noms_reserves=RESERVES)
     assert _ligne(bd, "a")["jeton_chiffre"] is None
 
 
@@ -434,15 +441,49 @@ def test_import_echec_en_cours_annule_tout(bd, monkeypatch):
         return reel(*a, **k)
     monkeypatch.setattr(sources_gerees, "_inserer_source", casse)
     with pytest.raises(RuntimeError):
-        importer(bd, "- {nom: a, emplacement: https://h/a.git}\n"
-                     "- {nom: b, emplacement: https://h/b.git}", noms_reserves=RESERVES)
+        importer(bd, "- {nom: a, emplacement: https://h/a.git, visibilite: prive}\n"
+                     "- {nom: b, emplacement: https://h/b.git, visibilite: prive}",
+                 noms_reserves=RESERVES)
     assert _nb(bd) == 0
 
 
 def test_import_nom_non_gere_refuse(bd):
     _inserer(bd, "yaml", False)
     with pytest.raises(SourceInvalide, match="déjà pris"):
-        importer(bd, "- {nom: yaml, emplacement: https://h/a.git}", noms_reserves=RESERVES)
+        importer(bd, "- {nom: yaml, emplacement: https://h/a.git, visibilite: prive}",
+                 noms_reserves=RESERVES)
+
+
+def test_import_sans_visibilite_refuse(bd):
+    with pytest.raises(SourceInvalide, match="visibilite"):
+        importer(bd, "- {nom: a, emplacement: https://h/a.git}", noms_reserves=RESERVES)
+    assert _nb(bd) == 0
+
+
+def test_import_sur_source_travail_sans_le_champ_refuse(bd):
+    ajouter(bd, _valider(nom="a", visi="travail"), utilisateur="x-access-token", jeton=None,
+            coffret=None)
+    with pytest.raises(SourceInvalide, match="visibilite"):
+        importer(bd, "- {nom: a, emplacement: https://github.com/a/b.git}",
+                 noms_reserves=RESERVES)
+    assert _ligne(bd, "a")["visibilite"] == "travail"
+
+
+def test_import_nomme_les_changements_de_niveau(bd):
+    ajouter(bd, _valider(nom="a", visi="travail"), utilisateur="x-access-token", jeton=None,
+            coffret=None)
+    avant = _ligne(bd, "a")["demande_le"]
+    bilan = importer(bd, "- {nom: a, emplacement: https://github.com/a/b.git,"
+                         " visibilite: public-maison}", noms_reserves=RESERVES)
+    assert bilan["niveaux"] == [{"nom": "a", "de": "travail", "vers": "public-maison"}]
+    assert bilan["modifiees"] == 1
+    assert _ligne(bd, "a")["demande_le"] == avant
+
+
+@pytest.mark.parametrize("visi", ["", None])
+def test_valider_sans_visibilite(visi):
+    with pytest.raises(SourceInvalide, match="visibilité"):
+        _valider(visi=visi)
 
 
 # --- amorçage unique -------------------------------------------------------------------
@@ -455,7 +496,8 @@ def test_amorcer_garde_les_lignes(bd, index_code, tmp_path):
     docs = bd.execute("SELECT count(*) AS n FROM documents").fetchone()["n"]
     assert docs > 0
     f = tmp_path / "amorce.yaml"
-    f.write_text('- {nom: depot-test, emplacement: "https://x/d.git", exclure: ["banc/**"]}\n')
+    f.write_text('- {nom: depot-test, emplacement: "https://x/d.git", exclure: ["banc/**"],'
+                 ' visibilite: public-maison}\n')
     assert amorcer(bd, f) == 1
     apres = bd.execute("SELECT * FROM sources WHERE nom='depot-test'").fetchone()
     assert (apres["id"], apres["revision"]) == (avant["id"], avant["revision"])
@@ -478,7 +520,8 @@ def test_amorcer_instance_neuve(bd, tmp_path):
 def test_amorcer_insere_une_source_neuve_sans_reindexation(bd, tmp_path):
     from rag.sources_gerees import amorcer
     f = tmp_path / "a.yaml"
-    f.write_text('- {nom: neuve, emplacement: "https://x/n.git", branche: master}\n')
+    f.write_text('- {nom: neuve, emplacement: "https://x/n.git", branche: master,'
+                 ' visibilite: prive}\n')
     assert amorcer(bd, f) == 1
     r = bd.execute("SELECT * FROM sources WHERE nom='neuve'").fetchone()
     assert r["geree"] and r["type"] == "code" and r["branche"] == "master"
@@ -537,3 +580,29 @@ def test_import_export_garde_travail(bd):
              noms_reserves=RESERVES)
     assert _ligne(bd, "a")["visibilite"] == "travail"
     assert "visibilite: travail" in exporter(bd)
+
+
+def test_amorcer_refuse_un_nom_reserve(bd, tmp_path):
+    from rag.sources_gerees import amorcer
+    f = tmp_path / "a.yaml"
+    f.write_text('- {nom: coffre-maison, emplacement: "https://x/c.git", visibilite: public-maison}\n')
+    with pytest.raises(SourceInvalide, match="nom réservé"):
+        amorcer(bd, f, noms_reserves=RESERVES)
+    assert _nb(bd) == 0
+    assert bd.execute("SELECT 1 FROM instance WHERE cle = 'sources_amorcees'").fetchone() is None
+
+
+def test_amorcer_journalise_les_changements_de_niveau(bd, tmp_path, caplog):
+    from rag.sources_gerees import amorcer
+    from tests.conftest import inscrire_source
+    inscrire_source(bd, "depot-travail", visibilite="travail")
+    inscrire_source(bd, "depot-stable", visibilite="prive")
+    f = tmp_path / "a.yaml"
+    f.write_text('- {nom: depot-travail, emplacement: "https://x/t.git", visibilite: public-maison}\n'
+                 '- {nom: depot-stable, emplacement: "https://x/s.git", visibilite: prive}\n'
+                 '- {nom: depot-neuf, emplacement: "https://x/n.git", visibilite: prive}\n')
+    with caplog.at_level("WARNING"):
+        assert amorcer(bd, f) == 3
+    niveaux = [r.getMessage() for r in caplog.records if "passe de" in r.getMessage()]
+    assert niveaux == ["amorçage des sources git : depot-travail passe de travail à public-maison"]
+    assert _ligne(bd, "depot-travail")["visibilite"] == "public-maison"

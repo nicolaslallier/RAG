@@ -81,6 +81,10 @@ dans un cookie `rag_session` (`HttpOnly`, `SameSite=Strict`, limité à `/ui`).
 - Un motif d'exclusion suit `fnmatch` (le `*` traverse les `/`), 1 à 1000 caractères ; la raison est
   facultative (500 caractères au plus). Le contenu d'un fichier exclu n'est jamais lu ni affiché.
 
+**Le coffre Obsidian est indexé en `public-maison`, par choix** (`config/rag.yaml`). Toute note du
+coffre est donc visible avec `RAG_JETON`, c'est-à-dire par LiteLLM et Jarvis via le MCP. Une note qui
+ne doit pas l'être se retire par une exclusion (écran Exclusions ou `exclure:`), pas par un niveau.
+
 ### Sources git gérées dans l'interface
 
 Les sources de code ne sont plus dans `config/rag.yaml` : elles vivent dans la base et se gèrent
@@ -109,6 +113,21 @@ depuis l'écran Sources (`RAG_JETON_PRIVE` requis) : « Ajouter une source git �
   recommencer, même si des sources sont supprimées ensuite. `RAG_SOURCES_AMORCE` est posé par le
   fichier de pile lui-même (`deploy/portainer-stack.yml`), pas fourni par l'Infra. Une fois la prod
   amorcée, on peut le retirer de la pile.
+  Chaque entrée de `sources-maison.yaml` doit porter `visibilite`, et les noms des sources du YAML
+  principal (`coffre-maison`) y sont refusés : un fichier invalide arrête `rag migrer`.
+- **Visibilité obligatoire** : le formulaire n'a pas de valeur présélectionnée à la création, et
+  chaque entrée d'un fichier d'import doit porter `visibilite` ; sans elle, l'import est refusé en
+  entier. Le bilan nomme chaque source dont le niveau change (« travail → public-maison »).
+- **Nom** : 100 caractères au plus (lettres, chiffres, `_`, `.`, `-`).
+- **Clones superficiels** (`--depth 1`, sans étiquettes) : seul le dernier commit de la branche est
+  récupéré. Une URL qui **redirige** (dépôt renommé ou transféré) est **refusée** : la vérification
+  et la passe échouent ; corriger l'URL dans l'écran Sources.
+- **Passe partielle** : un document en échec (illisible, refusé par le modèle) est compté
+  (`echecs` dans le bilan de `/etat`), la passe est `ok=false`, le reste de la source est indexé et
+  le document est retenté à la passe suivante. Au 20e échec dans une source, ou sur une panne de
+  la base ou du modèle, la source s'arrête comme avant (« trop de documents en échec »).
+- **Source sans fichier indexable** (dépôt vide, tout exclu) : bilan à zéro et avertissement au
+  journal, pas une erreur.
 
 ## Étapes manuelles avant le premier déploiement
 
@@ -144,6 +163,37 @@ Aucune n'est faite par un agent.
 - Tourner `RAG_DB_PASSWORD` : `POSTGRES_PASSWORD` n'est lu qu'à la création du volume `rag-pgdata`.
   D'abord `docker --context colima exec -it rag-rag-postgres-1 psql -U rag -c "ALTER ROLE rag PASSWORD '…'"`,
   puis changer `infra/rag` et redéployer (ou supprimer le volume et réindexer).
+- **Après le déploiement du lot « sources » (migration 008)** : les nouveaux motifs de secrets
+  sur les **noms** (`.npmrc`, `*.tfstate`, `kubeconfig`…) s'appliquent dès la passe suivante. Ceux
+  sur le **contenu** (jetons GitLab `glpat-…`, Slack `xox?-…` et `xapp-…`) ne s'appliquent qu'aux fichiers
+  relus : `VERSION_ANALYSEUR` n'a pas changé, pour éviter une réindexation complète. Contrôle
+  ciblé, à faire une fois :
+
+      docker --context colima exec -it rag-rag-postgres-1 psql -U rag -d rag
+
+  ```sql
+  -- 1. documents suspects (morceaux ou frontmatter)
+  SELECT s.nom, d.chemin FROM documents d JOIN sources s ON s.id = d.source_id
+   WHERE d.id IN (SELECT d.id FROM documents d LEFT JOIN morceaux m ON m.document_id = d.id
+                   WHERE m.texte ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abeposr]-([0-9]-|[A-Za-z0-9]{8,}-)|xapp-[0-9]-)'
+                      OR d.frontmatter::text ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abeposr]-([0-9]-|[A-Za-z0-9]{8,}-)|xapp-[0-9]-)');
+  -- 2. les faire relire à la prochaine passe
+  UPDATE documents SET signature = ''
+   WHERE id IN (SELECT d.id FROM documents d LEFT JOIN morceaux m ON m.document_id = d.id
+                 WHERE m.texte ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abeposr]-([0-9]-|[A-Za-z0-9]{8,}-)|xapp-[0-9]-)'
+                    OR d.frontmatter::text ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abeposr]-([0-9]-|[A-Za-z0-9]{8,}-)|xapp-[0-9]-)');
+  ```
+
+  Une signature vide force la relecture du fichier : l'analyseur l'exclut (`secret`) s'il contient
+  un vrai jeton ; sinon (faux positif de la requête, plus large), le contenu est inchangé et seule
+  la signature est remise à jour, **sans nouvel embedding**. Ne pas vider `sha256` : un faux positif
+  serait réembarqué pour rien. Puis `POST /reindexer` (ou attendre la passe) et relancer la
+  requête 1 : elle doit être vide. Limite : seuls les 2000 premiers caractères d'un fichier de plus
+  de `taille_max_octets` sont en base ; pour tout revérifier sans réembarquer,
+  `UPDATE documents SET signature = ''` sur toutes les lignes (tout est relu, rien n'est
+  réembarqué). **Avant** le déploiement, vérifier aussi qu'aucun nom de source ne dépasse
+  100 caractères (sinon les passes s'arrêtent) : `SELECT nom FROM sources WHERE length(nom) > 100;`
+  doit être vide.
 - Tourner `RAG_MONITORING_DB_PASSWORD` : changer la valeur dans `infra/rag`, relancer `deploy` ;
   `rag migrer` (au démarrage de `rag` et de `rag-indexeur`) applique le nouveau mot de passe au rôle
   `monitoring`, l'exporter le reçoit dans son environnement. Le journal de `rag` ou de `rag-indexeur`

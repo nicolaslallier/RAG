@@ -563,8 +563,9 @@ def test_import_ne_retire_rien_d_une_source_apparue_sans_verrou(bd, index, monke
     def verrouiller_puis_creer(conn, s):
         verrouiller(conn, s)
         with connexion(URL) as autre:  # la source « neuve » apparaît pendant l'import
-            autre.execute("INSERT INTO sources (nom, type, emplacement) "
-                          "VALUES ('neuve', 'obsidian', 'x') ON CONFLICT DO NOTHING")
+            autre.execute("INSERT INTO sources (nom, type, emplacement, visibilite) "
+                          "VALUES ('neuve', 'obsidian', 'x', 'public-maison')"
+                          " ON CONFLICT DO NOTHING")
             autre.commit()
     monkeypatch.setattr(rag.gestion, "verrouiller_source", verrouiller_puis_creer)
     t = "- {source: coffre-maison, motif: Accueil.md}\n- {source: neuve, motif: '*'}\n"
