@@ -590,3 +590,19 @@ def test_amorcer_refuse_un_nom_reserve(bd, tmp_path):
         amorcer(bd, f, noms_reserves=RESERVES)
     assert _nb(bd) == 0
     assert bd.execute("SELECT 1 FROM instance WHERE cle = 'sources_amorcees'").fetchone() is None
+
+
+def test_amorcer_journalise_les_changements_de_niveau(bd, tmp_path, caplog):
+    from rag.sources_gerees import amorcer
+    from tests.conftest import inscrire_source
+    inscrire_source(bd, "depot-travail", visibilite="travail")
+    inscrire_source(bd, "depot-stable", visibilite="prive")
+    f = tmp_path / "a.yaml"
+    f.write_text('- {nom: depot-travail, emplacement: "https://x/t.git", visibilite: public-maison}\n'
+                 '- {nom: depot-stable, emplacement: "https://x/s.git", visibilite: prive}\n'
+                 '- {nom: depot-neuf, emplacement: "https://x/n.git", visibilite: prive}\n')
+    with caplog.at_level("WARNING"):
+        assert amorcer(bd, f) == 3
+    niveaux = [r.getMessage() for r in caplog.records if "passe de" in r.getMessage()]
+    assert niveaux == ["amorçage des sources git : depot-travail passe de travail à public-maison"]
+    assert _ligne(bd, "depot-travail")["visibilite"] == "public-maison"

@@ -391,6 +391,11 @@ def amorcer(conn, chemin: Path, *, noms_reserves: set[str] = frozenset()) -> int
             return 0
         for e in entrees:
             verrouiller_source(conn, e["nom"])
+            r = conn.execute("SELECT visibilite FROM sources WHERE nom = %s",
+                             (e["nom"],)).fetchone()
+            if r is not None and r["visibilite"] != e["visibilite"]:
+                log.warning("amorçage des sources git : %s passe de %s à %s",
+                            e["nom"], r["visibilite"], e["visibilite"])
             conn.execute(
                 """INSERT INTO sources (nom, type, emplacement, branche, visibilite, exclure,
                                         utilisateur, geree)
