@@ -145,6 +145,15 @@ def test_nocturne_lance_la_semantique(bd, coffre, reglages, faux_modeles, monkey
     assert appels == [1] and b["semantique"] == {"notes": 0}
 
 
+def test_echecs_de_la_semantique_ne_rendent_pas_la_passe_partielle(bd, coffre, reglages,
+                                                                    faux_modeles, monkeypatch):
+    monkeypatch.setattr(travailleur, "passe_semantique",
+                        lambda *a, **k: {"traites": 3, "liens": 1, "echecs": 1})
+    conf = config_pour(("coffre-maison", coffre))
+    passe(bd, "nocturne", conf, reglages, faux_modeles)
+    assert bd.execute("SELECT ok FROM passes ORDER BY id DESC LIMIT 1").fetchone()["ok"] is True
+
+
 # --- API --------------------------------------------------------------------------------------
 
 auth = {"Authorization": "Bearer pub"}

@@ -104,9 +104,11 @@ def passe(conn, genre: str, config, reglages, modeles, sources: list[str] | None
         return bilan
     finally:
         conn.rollback()
-        # une passe partielle (documents en échec) n'est pas ok, sans être une erreur de source
-        ok = not any(isinstance(v, dict) and ("erreur" in v or v.get("echecs"))
-                     for v in bilan.values())
+        # une passe partielle (documents en échec dans une source) n'est pas ok, sans être une
+        # erreur de source ; les échecs de la passe sémantique (notes isolées) ne comptent pas
+        ok = not any(isinstance(v, dict) and ("erreur" in v
+                                              or (k != "semantique" and v.get("echecs")))
+                     for k, v in bilan.items())
         if "pid" in locals():
             conn.execute("UPDATE passes SET fin = now(), ok = %s, bilan = %s WHERE id = %s",
                          (ok, Jsonb(bilan), pid))
