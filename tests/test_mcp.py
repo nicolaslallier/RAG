@@ -121,8 +121,8 @@ def test_entrees_trop_longues_refusees(client, nom, args):
 def test_rag_repondre_applique_le_bonus_de_source(client, monkeypatch):
     from rag import api
     vu = []
-    vrai = api.repondre
-    monkeypatch.setattr(api, "repondre", lambda *a, **k: vu.append(k["bonus_sources"])
+    vrai = api.passages_pour
+    monkeypatch.setattr(api, "passages_pour", lambda *a, **k: vu.append(k["bonus_sources"])
                         or vrai(*a, **k))
     outil(client, "rag_repondre", {"question": "poulet au cidre dans coffre-maison"})
     assert vu == [["coffre-maison"]]

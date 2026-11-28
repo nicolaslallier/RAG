@@ -132,12 +132,12 @@ def test_rerank_indisponible_l_api_demarre_quand_meme(cfg, faux_modeles):
 def test_repondre_applique_le_bonus_de_source(cfg, faux_modeles, monkeypatch):
     from rag import api
     vu = []
-    vrai = api.repondre
+    vrai = api.passages_pour
 
     def espion(*a, **k):
         vu.append(k.get("bonus_sources"))
         return vrai(*a, **k)
-    monkeypatch.setattr(api, "repondre", espion)
+    monkeypatch.setattr(api, "passages_pour", espion)
     c = faire(cfg, Generation(faux_modeles))
     c.post("/repondre", json={"question": "poulet au cidre dans coffre-maison"}, headers=auth)
     assert vu == [["coffre-maison"]]
@@ -184,3 +184,32 @@ def test_contenu_nul_du_modele_donne_503(cfg, faux_modeles):
     vrais.embed_requete = faux_modeles.embed_requete
     r = faire(cfg, vrais).post("/repondre", json={"question": "poulet au cidre"}, headers=auth)
     assert r.status_code == 503 and r.json() == {"detail": "modèle indisponible"}
+
+
+def test_connexion_rendue_avant_la_generation(cfg, faux_modeles, monkeypatch):
+    from rag import api
+    ouvertes, etats = [], []
+    vraie = api.connexion
+
+    def espionne(url):
+        ouvertes.append(vraie(url))
+        return ouvertes[-1]
+    monkeypatch.setattr(api, "connexion", espionne)
+
+    class Espion(Generation):
+        def generer(self, modele, messages, temperature, json_mode=False, delai=None):
+            if not json_mode:
+                etats.append([c.closed for c in ouvertes])
+            return super().generer(modele, messages, temperature, json_mode, delai)
+
+        def generer_flux(self, modele, messages, temperature):
+            etats.append([c.closed for c in ouvertes])
+            yield from super().generer_flux(modele, messages, temperature)
+
+    c = faire(cfg, Espion(faux_modeles))
+    assert _evenements(c)[-1]["type"] == "fin"
+    assert c.post("/repondre", json={"question": "poulet au cidre"},
+                  headers=auth).json()["refus"] is False
+    assert _evenements(c, "/question", "Quelle est la recette du poulet au cidre ?")[-1][
+        "type"] == "fin"
+    assert len(etats) == 3 and all(e and all(e) for e in etats)

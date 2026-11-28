@@ -251,3 +251,15 @@ def test_source_privee_jamais_dans_les_passages(bd, index, faux_modeles):
     g = AvecGeneration(faux_modeles, [])
     r = repondre(bd, Q, CONFIG, g, index.version, niveaux=PUBLIC)
     assert r.raison == "aucun_passage" and g.generations == 0
+
+
+def test_rediger_et_diffuser_sans_connexion(bd, index, faux_modeles):
+    from rag.reponse import diffuser, passages_pour, rediger
+    passages, raison = passages_pour(bd, Q, CONFIG, faux_modeles, index.version, niveaux=PUBLIC)
+    assert passages and raison == ""
+    r = rediger(Q, CONFIG, AvecGeneration(faux_modeles, ["Du cidre [1]."]), passages, raison)
+    assert not r.refus and r.citations == [1]
+    ev = list(diffuser(Q, CONFIG, AvecGeneration(faux_modeles, flux=["Du cidre [1]."]),
+                       passages, raison))
+    assert ev[0]["type"] == "sources" and ev[-1]["citations_valides"] is True
+    assert rediger(Q, CONFIG, AvecGeneration(faux_modeles), [], "seuil").raison == "seuil"

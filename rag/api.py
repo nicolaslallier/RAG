@@ -36,7 +36,7 @@ from rag.lister import lister, taxonomie
 from rag.mcp_serveur import creer_mcp
 from rag.modeles import ErreurModele, modeles_depuis
 from rag.recherche import Filtres, chercher
-from rag.reponse import repondre, repondre_flux
+from rag.reponse import diffuser, passages_pour, rediger
 from rag.rerank import reranker_depuis
 from rag.sources_gerees import coffret_depuis
 from rag.ui import STATIQUE, routeur_ui, validation_sans_cache
@@ -176,9 +176,8 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
 
     def _repondre_simple(question, niveaux):
         with connexion(reglages.database_url) as conn:
-            v = version_id(conn, empreinte) or 0
-            return repondre(conn, question, config, modeles, v, niveaux=niveaux,
-                            reranker=reranker, bonus_sources=_bonus(conn, question, niveaux))
+            bonus = _bonus(conn, question, niveaux)
+        return rediger(question, config, modeles, *_passages(question, None, niveaux, bonus))
 
     def _bonus(conn, question, niveaux):  # source nommée : bonus de score (config mesurée)
         return sources_citees(question, taxonomie(conn, niveaux=niveaux))
@@ -282,16 +281,20 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                     "tronque": False}
         return lister(conn, question, f, config, modeles, v, niveaux=niveaux, reranker=reranker)
 
+    def _passages(question: str, f, niveaux, bonus):
+        """Lit les passages puis rend la connexion : rien n'est tenu pendant la génération."""
+        with connexion(reglages.database_url) as conn:
+            v = version_id(conn, empreinte) or 0
+            return passages_pour(conn, question, config, modeles, v, niveaux=niveaux,
+                                 filtres=f, reranker=reranker, bonus_sources=bonus)
+
     def _repondre(question: str, f: Filtres, niveaux, flux: bool, avant=(), bonus=None):
         if flux:
             def evenements():
                 yield from avant
                 try:
-                    with connexion(reglages.database_url) as conn:
-                        v = version_id(conn, empreinte) or 0
-                        yield from repondre_flux(conn, question, config, modeles, v,
-                                                 niveaux=niveaux, filtres=f, reranker=reranker,
-                                                 bonus_sources=bonus)
+                    passages, raison = _passages(question, f, niveaux, bonus)
+                    yield from diffuser(question, config, modeles, passages, raison)
                 except ErreurModele as e:  # en plein flux : plus de code HTTP possible
                     log.warning("flux de réponse : %s", e)
                     yield {"type": "erreur", "detail": "modèle indisponible"}
@@ -299,10 +302,8 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                     log.exception("flux de réponse en échec")
                     yield {"type": "erreur", "detail": "erreur interne"}
             return StreamingResponse(_sse(evenements()), media_type="text/event-stream")
-        with connexion(reglages.database_url) as conn:
-            v = version_id(conn, empreinte) or 0
-            return asdict(repondre(conn, question, config, modeles, v, niveaux=niveaux,
-                                   filtres=f, reranker=reranker, bonus_sources=bonus))
+        return asdict(rediger(question, config, modeles,
+                              *_passages(question, f, niveaux, bonus)))
 
     @app.post("/lister")
     def route_lister(d: DemandeLister, niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
