@@ -44,6 +44,12 @@ def test_empreinte_suit_la_version_d_analyseur(monkeypatch):
     assert empreinte_indexation(c) != avant
 
 
+def test_plafond_lecture():
+    from rag.config import plafond_lecture
+    conf = charger_config(Path("config/rag.yaml")).indexation
+    assert plafond_lecture(conf) == 10 * conf.taille_max_octets
+
+
 def test_une_source_sans_visibilite_est_refusee(tmp_path):
     import pytest
     import yaml
@@ -77,9 +83,3 @@ def test_tout_contient_travail():
     assert TOUT == frozenset({"public-maison", "prive", "travail"})
     assert "travail" not in PUBLIC
     SourceConf(nom="a", type="code", emplacement="https://h/a.git", visibilite="travail")
-
-
-def test_plafond_lecture():
-    from rag.config import plafond_lecture
-    conf = charger_config(Path("config/rag.yaml")).indexation
-    assert plafond_lecture(conf) == 10 * conf.taille_max_octets
