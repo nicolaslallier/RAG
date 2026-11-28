@@ -67,8 +67,9 @@ def _copier_sans_exclus(clone: Path, dest: Path, exclure: list[str],
                         levees: dict[str, Levee] | None = None) -> None:
     """Copie de travail pour graphify : sans .git, sans secrets ni fichiers générés, sans
     fichier de plus de `taille_max` octets (jamais lu). `levees` : chemin -> acceptation de la
-    quarantaine, pour les fichiers acceptés et indexés ; `contenu_secret` n'y est levé que si
-    le contenu copié est celui qui a été accepté."""
+    quarantaine, pour les fichiers acceptés et indexés ; aucune règle n'y est levée si le
+    contenu copié n'est pas celui du document indexé (`indexe_sha256`), et `contenu_secret`
+    seulement si c'est aussi celui qui a été accepté."""
     levees = levees or {}
     for p in sorted(clone.rglob("*")):
         rel = p.relative_to(clone)
@@ -81,8 +82,10 @@ def _copier_sans_exclus(clone: Path, dest: Path, exclure: list[str],
             log.warning("copie graphify : %r écarté (trop gros, %d octets)", chemin, taille)
             continue
         contenu = p.read_bytes()
-        lv = levees.get(chemin)
-        leve = lv.pour(sha256=hashlib.sha256(contenu).hexdigest()) if lv else frozenset()
+        lv, sha = levees.get(chemin), hashlib.sha256(contenu).hexdigest()
+        # rien n'est levé si le fichier copié n'est pas celui qui a été indexé (`rag graphe`
+        # lancé seul, sans passe d'indexation : le clone a pu avancer)
+        leve = lv.pour(sha256=sha) if lv and lv.indexe_sha256 == sha else frozenset()
         raison, _ = affiner(motif_exclusion(chemin, contenu, exclure), chemin, contenu, exclure,
                             leve)
         if raison is None:

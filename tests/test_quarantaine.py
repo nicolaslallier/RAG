@@ -1,4 +1,5 @@
 import hashlib
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -432,14 +433,18 @@ def test_copie_graphify_inclut_un_fichier_aux_regles_levees(depot, tmp_path):
     sans, avec, autre = tmp_path / "sans", tmp_path / "avec", tmp_path / "autre"
     _copier_sans_exclus(depot, sans, [])
     _copier_sans_exclus(depot, avec, [], levees={
-        PLAN: Levee("s", frozenset({"contenu_secret"}), sha),
-        "uv.lock": Levee("s", frozenset({"nom_secret"}))})
+        PLAN: Levee("s", frozenset({"contenu_secret"}), sha, sha),
+        "uv.lock": Levee("s", frozenset({"nom_secret"}), indexe_sha256=sha)})
     assert not (sans / PLAN).exists() and (avec / PLAN).exists()
     assert not (avec / "uv.lock").exists() and not (avec / ".env.example").exists()
     # contenu différent de celui qui a été accepté : pas copié
     _copier_sans_exclus(depot, autre, [], levees={
-        PLAN: Levee("s", frozenset({"contenu_secret"}), "0" * 64)})
+        PLAN: Levee("s", frozenset({"contenu_secret"}), "0" * 64, sha)})
     assert not (autre / PLAN).exists()
+    # sans le sha du document indexé, rien n'est levé
+    _copier_sans_exclus(depot, tmp_path / "sans_sha", [], levees={
+        PLAN: Levee("s", frozenset({"contenu_secret"}), sha)})
+    assert not (tmp_path / "sans_sha" / PLAN).exists()
 
 
 def test_maj_graphe_passe_les_fichiers_acceptes_et_indexes(bd, q, depot, tmp_path, monkeypatch):
@@ -453,10 +458,29 @@ def test_maj_graphe_passe_les_fichiers_acceptes_et_indexes(bd, q, depot, tmp_pat
     maj_graphe(bd, SRC, lecteur, reglages, forcer=True)   # accepté, pas encore indexé
     q()
     maj_graphe(bd, SRC, lecteur, reglages, forcer=True)
-    attendu = {PLAN: levees(bd, "depot-test")[PLAN]}
+    indexe = bd.execute("SELECT sha256 FROM documents WHERE chemin = %s", (PLAN,)
+                        ).fetchone()["sha256"]
+    attendu = {PLAN: replace(levees(bd, "depot-test")[PLAN], indexe_sha256=indexe)}
     assert vus == [{}, attendu]
     assert levees_indexees(bd, "depot-test") == attendu
     assert attendu[PLAN].regles == {"contenu_secret"}
+
+
+def test_copie_graphify_n_accepte_que_le_contenu_indexe(bd, q, depot, tmp_path):
+    """`rag graphe` seul : le clone a avancé sans passe d'indexation ; un fichier accepté par
+    son nom mais changé depuis n'entre pas dans la copie."""
+    accepter(bd, "depot-test", ".env.example")
+    q()
+    assert ".env.example" in chemins(bd)
+    lv = levees_indexees(bd, "depot-test")
+    assert lv[".env.example"].regles == {"nom_secret"}
+    copie = tmp_path / "copie"
+    _copier_sans_exclus(depot, copie, [], levees=lv)
+    assert (copie / ".env.example").exists()
+    (depot / ".env.example").write_text("CLE=changee\n")  # pas de passe d'indexation
+    copie2 = tmp_path / "copie2"
+    _copier_sans_exclus(depot, copie2, [], levees=lv)
+    assert not (copie2 / ".env.example").exists()
 
 
 # --- export, import ---

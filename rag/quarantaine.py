@@ -31,6 +31,7 @@ class Levee:
     signature: str
     regles: frozenset[str]
     contenu_sha256: str | None = None
+    indexe_sha256: str | None = None  # levees_indexees : sha256 du document indexé grâce à elle
 
     def pour(self, signature: str | None = None, sha256: str | None = None) -> frozenset[str]:
         """Règles levées pour le fichier vu : aucune si sa signature a changé ; `contenu_secret`
@@ -43,7 +44,8 @@ class Levee:
 
 
 def _levee(r) -> Levee:
-    return Levee(r["signature"], frozenset(r["regles"]), r["contenu_sha256"])
+    return Levee(r["signature"], frozenset(r["regles"]), r["contenu_sha256"],
+                 r.get("indexe_sha256"))
 
 
 def levees(conn, source: str) -> dict[str, Levee]:
@@ -54,9 +56,11 @@ def levees(conn, source: str) -> dict[str, Levee]:
 
 
 def levees_indexees(conn, source: str) -> dict[str, Levee]:
-    """Acceptations des fichiers indexés sous la signature acceptée (pour graphify)."""
+    """Acceptations des fichiers indexés sous la signature acceptée (pour graphify), avec le
+    sha256 du document indexé : la copie n'en lève les règles que pour ce contenu-là."""
     return {r["chemin"]: _levee(r) for r in conn.execute(
-        """SELECT q.chemin, q.signature, q.regles, q.contenu_sha256 FROM quarantaine_decisions q
+        """SELECT q.chemin, q.signature, q.regles, q.contenu_sha256, d.sha256 AS indexe_sha256
+             FROM quarantaine_decisions q
              JOIN sources s ON s.nom = q.source
              JOIN documents d ON d.source_id = s.id AND d.chemin = q.chemin
                              AND d.signature = q.signature
