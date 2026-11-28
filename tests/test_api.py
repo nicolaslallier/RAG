@@ -98,6 +98,26 @@ def test_bornes(client):
                        headers=auth).status_code == 422
 
 
+@pytest.mark.parametrize("filtres", [
+    {"sources": ["s"] * 101},
+    {"sources": ["s" * 501]},
+    {"tags": ["t"] * 21},
+    {"tags": ["t" * 501]},
+    {"type": "t" * 501},
+    {"dossier": "d" * 1001},
+])
+def test_bornes_des_filtres(client, filtres):
+    r = client.post("/chercher", json={"question": "x", "filtres": filtres}, headers=auth)
+    assert r.status_code == 422
+
+
+def test_filtres_aux_bornes_exactes(client):
+    filtres = {"sources": ["s" * 500] * 100, "tags": ["t" * 500] * 20, "type": "t" * 500,
+               "dossier": "d" * 1000}
+    r = client.post("/chercher", json={"question": "x", "filtres": filtres}, headers=auth)
+    assert r.status_code == 200, r.text
+
+
 def test_refuse_de_demarrer_sans_jeton():
     with pytest.raises(RuntimeError):
         create_app(Reglages(database_url=URL, litellm_url="http://x", jeton=""))

@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date
 from types import SimpleNamespace
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -31,6 +31,7 @@ from rag.config import (
 )
 from rag.db import connexion
 from rag.entretien import doublons, liens_entrants, orphelines
+from rag.garde import LimiteCorps
 from rag.graphe import chemin, expliquer
 from rag.lister import lister, taxonomie
 from rag.mcp_serveur import creer_mcp
@@ -39,17 +40,27 @@ from rag.recherche import Filtres, chercher
 from rag.reponse import repondre, repondre_flux
 from rag.rerank import reranker_depuis
 from rag.sources_gerees import coffret_depuis
-from rag.ui import STATIQUE, routeur_ui, validation_sans_cache
+from rag.ui import (
+    CHEMINS_IMPORT,
+    IMPORT_MARGE,
+    IMPORT_MAX,
+    STATIQUE,
+    routeur_ui,
+    validation_sans_cache,
+)
 
 log = logging.getLogger("rag.api")
 
 
+_Nom = Annotated[str, Field(max_length=NOM_MAX)]
+
+
 class FiltresEntree(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    sources: list[str] | None = None
-    dossier: str | None = None
-    tags: list[str] | None = None
-    type: str | None = None
+    sources: list[_Nom] | None = Field(None, max_length=100)  # la maison en compte une cinquantaine
+    dossier: str | None = Field(None, max_length=1000)        # un chemin, comme `cle` de /liens-entrants
+    tags: list[_Nom] | None = Field(None, max_length=20)      # comme le MCP
+    type: _Nom | None = None
     depuis: date | None = None
     jusqua: date | None = None
 
@@ -162,6 +173,8 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
 
     app = FastAPI(title="RAG maître", lifespan=cycle, docs_url=None, redoc_url=None,
                   openapi_url=None)
+    app.add_middleware(LimiteCorps,
+                       exceptions={c: IMPORT_MAX + IMPORT_MARGE for c in CHEMINS_IMPORT})
 
     class RouteMcp:  # application ASGI (une instance, pas une fonction) : 401 avant le MCP
         async def __call__(self, scope, receive, send):

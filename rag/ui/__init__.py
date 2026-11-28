@@ -69,6 +69,7 @@ GROS_APERCU = 100  # au-delà, seconde confirmation (case à cocher)
 ORIGINE_FICHIERS = "fichiers"  # aperçu lancé depuis l'écran des fichiers
 IMPORT_MAX = 1024 * 1024  # octets du fichier importé
 IMPORT_MARGE = 16 * 1024  # enveloppe multipart tolérée au-delà, pour refuser tôt sur Content-Length
+CHEMINS_IMPORT = ("/ui/exclusions/import", "/ui/sources-git/import")  # plafond propre (rag.garde)
 
 
 def _sans_cache[R: Response](reponse: R) -> R:
