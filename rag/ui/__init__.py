@@ -372,7 +372,7 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
     @routeur.get("/sources-git/nouvelle", response_class=HTMLResponse,
                  dependencies=[Depends(ecrivain_visible)])
     def formulaire_nouvelle(request: Request):
-        source = {"nom": "", "emplacement": "", "branche": "main", "visibilite": "public-maison",
+        source = {"nom": "", "emplacement": "", "branche": "main", "visibilite": "",
                   "exclure": [], "utilisateur": "x-access-token", "jeton_chiffre": None}
         return page_ui(request, "source_git.html", source=source, creation=True,
                        coffret=coffret is not None)
@@ -387,7 +387,7 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
     @routeur.post("/sources-git", response_class=HTMLResponse, dependencies=[Depends(ecrivain)])
     def creer_source(request: Request, nom: Annotated[str, Form()],
                      emplacement: Annotated[str, Form()], branche: Annotated[str, Form()] = "main",
-                     visibilite: Annotated[str, Form()] = "public-maison",
+                     visibilite: Annotated[str, Form()] = "",
                      exclure: Annotated[str, Form()] = "", utilisateur: Annotated[str, Form()] = "",
                      jeton: Annotated[str, Form()] = ""):
         utilisateur = utilisateur.strip() or "x-access-token"
@@ -416,7 +416,7 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
                   dependencies=[Depends(ecrivain)])
     def modifier_source(request: Request, nom: str, emplacement: Annotated[str, Form()],
                         branche: Annotated[str, Form()] = "main",
-                        visibilite: Annotated[str, Form()] = "public-maison",
+                        visibilite: Annotated[str, Form()] = "",
                         exclure: Annotated[str, Form()] = "",
                         utilisateur: Annotated[str, Form()] = "",
                         jeton: Annotated[str, Form()] = "",
@@ -504,9 +504,14 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
             return message(request, f"Import refusé : {e}.", 400, erreur=True)
         log.info("import de sources git : %d ajoutées, %d modifiées, %d inchangées",
                  bilan["ajoutees"], bilan["modifiees"], bilan["inchangees"])
+        for n in bilan["niveaux"]:
+            log.warning("import de sources git : %s passe de %s à %s",
+                        n["nom"], n["de"], n["vers"])
         a, m, i = bilan["ajoutees"], bilan["modifiees"], bilan["inchangees"]
+        niveaux = "".join(f" Niveau changé : {n['nom']} ({n['de']} → {n['vers']})."
+                          for n in bilan["niveaux"])
         return message(request, f"{a} ajoutée{'s' if a > 1 else ''}, "
-                       f"{m} modifiée{'s' if m > 1 else ''}, {i} inchangée{'s' if i > 1 else ''}. "
-                       "Rechargez la page pour voir la liste.")
+                       f"{m} modifiée{'s' if m > 1 else ''}, {i} inchangée{'s' if i > 1 else ''}."
+                       f"{niveaux} Rechargez la page pour voir la liste.")
 
     return routeur

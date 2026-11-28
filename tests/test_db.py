@@ -29,3 +29,9 @@ def test_visibilite_travail_acceptee_inconnue_refusee(bd):
     with pytest.raises(psycopg.errors.CheckViolation):
         bd.execute("UPDATE sources SET visibilite = 'pro'")
     bd.rollback()
+
+
+def test_visibilite_sans_defaut(bd):
+    with pytest.raises(psycopg.errors.NotNullViolation):
+        bd.execute("INSERT INTO sources (nom, type, emplacement) VALUES ('x','code','x')")
+    bd.rollback()

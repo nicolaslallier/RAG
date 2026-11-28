@@ -821,16 +821,17 @@ def test_import_sources_par_l_interface(gc, bd, appels):
     r = gc.post("/ui/sources-git/import", headers=HX,
                 files={"fichier": ("sources-rag.yaml", export, "text/yaml")})
     assert r.status_code == 200 and "0 ajoutée" in r.text and "1 inchangée" in r.text
-    neuf = yaml.safe_dump([{"nom": "autre", "emplacement": "https://exemple.org/x.git"}])
+    neuf = yaml.safe_dump([{"nom": "autre", "emplacement": "https://exemple.org/x.git",
+                            "visibilite": "prive"}])
     r = gc.post("/ui/sources-git/import", headers=HX,
                 files={"fichier": ("s.yaml", neuf.encode(), "text/yaml")})
     assert r.status_code == 200 and "1 ajoutée" in r.text and source_git(bd, "autre")
 
 
 def test_import_sources_refuse(gc, bd):
+    reserve = b"- {nom: coffre-maison, emplacement: 'https://a.b/c', visibilite: prive}\n"
     r = gc.post("/ui/sources-git/import", headers=HX,
-                files={"fichier": ("s.yaml", b"- {nom: coffre-maison, emplacement: 'https://a.b/c'}\n",
-                                   "text/yaml")})
+                files={"fichier": ("s.yaml", reserve, "text/yaml")})
     assert r.status_code == 400 and "nom réservé" in r.text
     r = gc.post("/ui/sources-git/import", headers=HX,
                 files={"fichier": ("s.yaml", b"x" * (1024 * 1024 + 1), "text/yaml")})
@@ -866,3 +867,34 @@ def test_visibilite_inconnue_refusee(gc, bd, appels):
     r = modifier_par_ui(gc, visibilite="pro")
     assert "hx-redirect" not in r.headers
     assert source_git(bd)["visibilite"] == "public-maison"
+
+
+def test_formulaire_nouvelle_sans_niveau_preselectionne(gc):
+    page = gc.get("/ui/sources-git/nouvelle").text
+    assert '<option value="" disabled selected' in page
+    assert 'value="public-maison" selected' not in page
+
+
+def test_creer_sans_visibilite_refuse(gc, bd, appels):
+    r = gc.post("/ui/sources-git", headers=HX,
+                data={k: v for k, v in FORM_GIT.items() if k != "visibilite"})
+    assert r.status_code == 400 and "visibilité" in r.text
+    assert source_git(bd) is None
+
+
+def test_modifier_sans_visibilite_refuse(gc, bd, appels):
+    ajouter_par_ui(gc, visibilite="travail")
+    r = gc.post("/ui/sources-git/mon-depot/modifier", headers=HX,
+                data={k: v for k, v in FORM_GIT.items() if k not in ("nom", "visibilite")})
+    assert r.status_code == 400 and "visibilité" in r.text
+    assert source_git(bd)["visibilite"] == "travail"
+
+
+def test_import_nomme_le_changement_de_niveau(gc, bd, appels):
+    ajouter_par_ui(gc, visibilite="travail")
+    t = yaml.safe_dump([{"nom": "mon-depot", "emplacement": FORM_GIT["emplacement"],
+                         "exclure": ["docs/**", "*.lock"], "visibilite": "public-maison"}])
+    r = gc.post("/ui/sources-git/import", headers=HX,
+                files={"fichier": ("s.yaml", t.encode(), "text/yaml")})
+    assert r.status_code == 200 and "mon-depot" in r.text
+    assert "travail → public-maison" in r.text

@@ -216,6 +216,8 @@ def _sources_cli(conn, a, config) -> int:
         return 1
     print(f"{r['ajoutees']} ajoutée(s), {r['modifiees']} modifiée(s), "
           f"{r['inchangees']} inchangée(s)", file=sys.stderr)
+    for n in r["niveaux"]:
+        print(f"niveau changé : {n['nom']} ({n['de']} → {n['vers']})", file=sys.stderr)
     return 0
 
 

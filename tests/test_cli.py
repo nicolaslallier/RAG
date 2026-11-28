@@ -82,7 +82,8 @@ def test_cli_exclusions_importer_fichier_illisible(env_cli, capsys, tmp_path):
 
 def test_cli_sources_exporter_lister_importer(env_cli, capsys, tmp_path):
     f = tmp_path / "sources.yaml"
-    f.write_text("- {nom: depot, emplacement: https://github.com/a/b.git}\n")
+    f.write_text("- {nom: depot, emplacement: https://github.com/a/b.git,"
+                 " visibilite: public-maison}\n")
     assert cli.main(["sources", "importer", str(f)]) == 0
     assert "1 ajoutée(s), 0 modifiée(s), 0 inchangée(s)" in capsys.readouterr().err
     assert cli.main(["sources", "lister"]) == 0
@@ -96,7 +97,8 @@ def test_cli_sources_exporter_lister_importer(env_cli, capsys, tmp_path):
 
 def test_cli_sources_importer_nom_reserve(env_cli, capsys, tmp_path):
     f = tmp_path / "sources.yaml"
-    f.write_text("- {nom: coffre-maison, emplacement: https://github.com/a/b.git}\n")
+    f.write_text("- {nom: coffre-maison, emplacement: https://github.com/a/b.git,"
+                 " visibilite: prive}\n")
     assert cli.main(["sources", "importer", str(f)]) == 1
     assert "entrée 1" in capsys.readouterr().err
 
