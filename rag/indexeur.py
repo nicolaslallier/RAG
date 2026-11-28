@@ -185,7 +185,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             raison = "manuelle"
         if raison is None and e.taille > plafond_lecture(conf):
             raison = "trop_gros"  # jamais lu : un blob géant ne passe pas en mémoire
-            log.warning("%s : %s exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
+            log.warning("%s : %r exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
         if raison is None:
             entrees[chemin] = e
             continue
@@ -265,7 +265,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 continue
             contenu = lecteur.lire(chemin)
             if raison := motif_exclusion(chemin, contenu, source.exclure):
-                log.warning("%s : %s exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
+                log.warning("%s : %r exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
                 _verrouiller_identite(conn, source, source_id)
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))

@@ -214,7 +214,7 @@ def _charger_wikiliens(conn, source_nom: str) -> tuple[int, int, int]:
                               "confiance": "EXTRAIT"})
     n, l = charger_graphe(conn, source_nom, {"noeuds": noeuds, "liens": liens}, "wikilien")
     for chemin, cible in non_resolues:
-        log.info("%s : [[%s]] non résolu dans %s", source_nom, cible, chemin)
+        log.info("%s : [[%r]] non résolu dans %r", source_nom, cible, chemin)
     charger_wikiliens.non_resolues = non_resolues
     return n, l, len(non_resolues)
 

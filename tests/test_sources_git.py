@@ -144,7 +144,8 @@ def test_lecteur_pour_jeton_github_seulement(tmp_path):
         donnees_dir, github_jeton = tmp_path, "jg"
     def conf(u):
         return SourceConf(visibilite="public-maison", nom="x", type="code", emplacement=u)
-    assert "GIT_CONFIG_KEY_0" not in lecteur_pour(conf("https://gitea.maison/a/b.git"), R)._env
+    sans = lecteur_pour(conf("https://gitea.maison/a/b.git"), R)._env
+    assert "extraheader" not in " ".join(v for k, v in sans.items() if k.startswith("GIT_CONFIG"))
     gh = lecteur_pour(conf("https://github.com/a/b.git"), R)
     assert gh._env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
     propre = lecteur_pour(conf("https://gitea.maison/a/b.git"), R, "jp", "nico")
@@ -189,3 +190,37 @@ def test_verifier_depot_ne_confond_pas_suffixe_ni_motif(depot):
         with pytest.raises(ErreurSource, match="introuvable"):
             verifier_depot(str(depot), faux, protocoles=None)
     verifier_depot(str(depot), "feature/main", protocoles=None)
+
+
+def test_clone_et_fetch_superficiels(depot, tmp_path):
+    commit(depot, "b.py", "def b(): pass")
+    clone = tmp_path / "clones" / "c"
+    LecteurGit(f"file://{depot}", clone).synchroniser()
+    assert git(clone, "rev-list", "--count", "HEAD") == "1"
+    commit(depot, "c.py", "def c(): pass")
+    lec = LecteurGit(f"file://{depot}", clone)
+    assert lec.synchroniser() == git(depot, "rev-parse", "HEAD")
+    assert git(clone, "rev-list", "--count", "HEAD") == "1"
+
+
+def test_pas_d_etiquettes(depot, tmp_path):
+    git(depot, "tag", "v1")
+    clone = tmp_path / "clones" / "c"
+    LecteurGit(f"file://{depot}", clone).synchroniser()
+    assert git(clone, "tag") == ""
+    commit(depot, "b.py", "def b(): pass")
+    git(depot, "tag", "v2")
+    LecteurGit(f"file://{depot}", clone).synchroniser()
+    assert git(clone, "tag") == ""
+
+
+def test_redirections_refusees(tmp_path):
+    lec = LecteurGit("https://h.example/x.git", tmp_path / "clones" / "c")
+    assert lec._env["GIT_CONFIG_COUNT"] == "1"
+    assert lec._env["GIT_CONFIG_KEY_0"] == "http.followRedirects"
+    assert lec._env["GIT_CONFIG_VALUE_0"] == "false"
+    lec = LecteurGit("https://h.example/x.git", tmp_path / "clones" / "c", jeton="j")
+    assert lec._env["GIT_CONFIG_COUNT"] == "2"
+    assert lec._env["GIT_CONFIG_KEY_0"] == "http.https://h.example/.extraheader"
+    assert lec._env["GIT_CONFIG_KEY_1"] == "http.followRedirects"
+    assert lec._env["GIT_CONFIG_VALUE_1"] == "false"
