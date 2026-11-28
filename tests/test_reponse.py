@@ -4,7 +4,14 @@ import pytest
 
 from rag.config import PUBLIC, charger_config
 from rag.indexeur import version_courante
-from rag.reponse import REFUS, citations, construire_messages, repondre, repondre_flux
+from rag.reponse import (
+    REFUS,
+    _valides,
+    citations,
+    construire_messages,
+    repondre,
+    repondre_flux,
+)
 from tests.conftest import indexer_coffre
 
 BASE = charger_config(Path("config/rag.yaml"))
@@ -102,6 +109,52 @@ def test_temperature_de_la_config(bd, index, faux_modeles):
 
 def test_citations():
     assert citations("a [1], b [3][1] et [2, 4]") == [1, 3, 2, 4] and citations("aucune") == []
+
+
+@pytest.mark.parametrize("texte, attendu", [
+    ("a [1], b [3][1] et [2, 4]", [1, 3, 2, 4]),
+    ("Selon [1, 2].", [1, 2]),
+    ("v[0] vaut 3 [1].", [1]),
+    ("En [2024], args[0] [2].", [2]),
+    ("x[10] déborde [1].", [1]),
+    ("liste[1] sans vraie citation", []),
+    ("f(x)[0] et m[1][2] puis [3]", [3]),
+    ("```python\nx = [3]\nv[0]\n```\nVoir [2].", [2]),
+    ("`a [5]` puis [1]", [1]),
+    ("```\nbloc non fermé [4]", []),
+    ("Voir [0].", [0]),
+    ("[1] et [42]", [1, 42]),
+])
+def test_citations_hors_code_et_hors_indices(texte, attendu):
+    assert citations(texte) == attendu
+
+
+def test_indices_de_code_ni_citation_ni_invalidite():
+    assert _valides(citations("x[10] vaut 3, v[0] aussi [1]."), 8)
+    assert not _valides(citations("liste[1] contient le cidre."), 8)
+    assert _valides(citations("Du cidre [1, 2]."), 8)
+
+
+def test_reponse_avec_code_n_est_pas_refusee(bd, index, faux_modeles):
+    g = AvecGeneration(faux_modeles, ["On lit v[0] puis args[0] en [2024] : du cidre [1]."])
+    r = repondre(bd, Q, CONFIG, g, index.version, niveaux=PUBLIC)
+    assert (r.refus, r.citations, g.generations) == (False, [1], 1)
+
+
+def test_indice_seul_ne_vaut_pas_citation(bd, index, faux_modeles):
+    g = AvecGeneration(faux_modeles, ["liste[1] contient le cidre."] * 2)
+    r = repondre(bd, Q, CONFIG, g, index.version, niveaux=PUBLIC)
+    assert r.refus and r.raison == "citations_invalides"
+
+
+def test_refus_avec_apostrophe_typographique(bd, index, faux_modeles):
+    typo = REFUS.replace("'", "’")
+    g = AvecGeneration(faux_modeles, [typo])
+    r = repondre(bd, Q, CONFIG, g, index.version, niveaux=PUBLIC)
+    assert (r.refus, r.raison, r.texte, g.generations) == (True, "modele_refuse", REFUS, 1)
+    g = AvecGeneration(faux_modeles, flux=[typo])
+    fin = list(repondre_flux(bd, Q, CONFIG, g, index.version, niveaux=PUBLIC))[-1]
+    assert fin["refus"] and fin["raison"] == "modele_refuse"
 
 
 def test_messages():

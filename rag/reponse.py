@@ -24,9 +24,16 @@ def construire_messages(question: str, passages: list[Resultat]) -> list[dict]:
                                         f"Question : {question}"}]
 
 
+_BLOC_CODE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
+_CODE_EN_LIGNE = re.compile(r"`[^`\n]*`")
+# Série de crochets accolés ([2][3]) qui ne suit ni un caractère de mot, ni « ] », ni « ) » :
+# v[0], args[0], f(x)[0], m[1][2] sont des indices. Un ou deux chiffres : [2024] est une année.
+_SERIE = re.compile(r"(?<![\w\])])(?:\[\d{1,2}(?:\s*,\s*\d{1,2})*\])+")
+
+
 def citations(texte: str) -> list[int]:
-    nums = (int(n) for g in re.findall(r"\[(\d+(?:\s*,\s*\d+)*)\]", texte)
-            for n in g.split(","))
+    nu = _CODE_EN_LIGNE.sub(" ", _BLOC_CODE.sub(" ", texte))
+    nums = (int(n) for serie in _SERIE.findall(nu) for n in re.findall(r"\d+", serie))
     return list(dict.fromkeys(nums))
 
 
@@ -63,7 +70,7 @@ def _passages(conn, question, config: Config, modeles, version_id, niveaux, filt
 
 
 def _est_refus(texte: str) -> bool:
-    return texte.strip().rstrip(".") == REFUS.rstrip(".")
+    return texte.replace("’", "'").strip().rstrip(".").rstrip() == REFUS.rstrip(".")
 
 
 def repondre(conn, question: str, config: Config, modeles, version_id: int, *,
