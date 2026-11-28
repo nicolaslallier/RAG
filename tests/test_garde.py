@@ -178,3 +178,78 @@ def test_les_chemins_d_exception_existent(client):
         r = client.post(chemin, follow_redirects=False)
         assert (r.status_code, r.headers.get("location")) == (303, "/ui/connexion"), chemin
     assert client.post("/ui/inexistant/import", follow_redirects=False).status_code == 404
+
+
+# --- En-têtes de sécurité ---------------------------------------------------------------------
+
+SECURITE = ("x-frame-options", "content-security-policy", "x-content-type-options",
+            "referrer-policy")
+
+
+def test_entetes_de_securite_sur_l_interface(client):
+    h = client.get("/ui/connexion").headers
+    assert h["x-frame-options"] == "DENY" and h["x-content-type-options"] == "nosniff"
+    assert h["referrer-policy"] == "same-origin" and h["cache-control"] == "no-store"
+    csp = h["content-security-policy"]
+    assert "default-src 'self'" in csp and "frame-ancestors 'none'" in csp
+    assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
+
+
+@pytest.mark.parametrize("requete", [
+    ("GET", "/sante", {}, None),
+    ("GET", "/", {}, None),
+    ("GET", "/ui/", {}, None),
+    ("GET", "/ui/statique/htmx.min.js", {}, None),
+    ("POST", "/chercher", JSON, b'{"question": "x"}'),
+    ("POST", "/mcp", MCP, b'{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'),
+    ("GET", "/inexistant", {}, None),
+    ("POST", "/chercher", JSON, gros_json()),
+    ("FRAGMENT", "/ui/sources/coffre-maison", HX, None),
+], ids=["sante", "racine", "ui-sans-cookie", "statique", "401", "mcp-401", "404", "413",
+        "fragment"])
+def test_entetes_sur_toutes_les_reponses(client, requete):
+    methode, chemin, entetes, corps = requete
+    if methode == "FRAGMENT":
+        client.post("/ui/connexion", data={"jeton": "pub"}, follow_redirects=False)
+        methode = "GET"
+    r = client.request(methode, chemin, headers=entetes, content=corps, follow_redirects=False)
+    assert all(n in r.headers for n in SECURITE), (r.status_code, dict(r.headers))
+    if requete[0] == "FRAGMENT":
+        assert r.status_code == 200
+
+
+def test_en_tete_deja_pose_non_ecrase():
+    from rag.garde import EntetesSecurite
+
+    class Appli:
+        async def __call__(self, scope, receive, send):
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": [(b"x-frame-options", b"SAMEORIGIN")]})
+            await send({"type": "http.response.body", "body": b""})
+
+    envoyes, _ = appeler(EntetesSecurite(Appli()))
+    entetes = envoyes[0]["headers"]
+    assert [v for n, v in entetes if n == b"x-frame-options"] == [b"SAMEORIGIN"]
+    assert {n for n, _ in entetes} >= {n.encode() for n in SECURITE}
+
+
+def test_gabarits_sans_script_ni_style_en_ligne():
+    import re
+
+    interdits = re.compile(r"<style|\sstyle=|<script(?![^>]*\ssrc=)|\son\w+=|hx-on|hx-vars|"
+                           r"javascript:|js:", re.IGNORECASE)
+    for f in Path("rag/ui/gabarits").glob("*.html"):
+        texte = re.sub(r"\{#.*?#\}", "", f.read_text(), flags=re.DOTALL)  # commentaires Jinja
+        assert not interdits.search(texte), (f.name, interdits.search(texte))
+
+
+def test_htmx_configure_pour_la_csp(client):
+    import html
+    import json
+    import re
+
+    page = client.get("/ui/connexion").text
+    brut = re.search(r"""<meta name="htmx-config" content='([^']*)'>""", page).group(1)
+    conf = json.loads(html.unescape(brut))
+    assert conf["includeIndicatorStyles"] is False and conf["allowEval"] is False
+    assert len(conf["responseHandling"]) == 4

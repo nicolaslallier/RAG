@@ -139,6 +139,9 @@ Aucune n'est faite par un agent.
   Il répond toujours `202 {"ok": true}`, que la source existe ou non ; suivre l'effet par `/etat`.
 - Un corps de requête de plus de 64 Ko est refusé (413) avant toute lecture, donc avant le jeton,
   sauf les imports de l'interface (1 Mo). Les filtres sont bornés (100 sources, 20 tags).
+- Toute réponse porte `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: same-origin` et une CSP stricte (`default-src 'self'`, sans script ni style en
+  ligne) : un gabarit de l'interface ne doit contenir ni `<script>` en ligne, ni `style=`, ni `hx-on`.
 - Journaux : Portainer (environnement Mac-book) ou `docker --context colima logs rag-rag-1` sur le Mac ;
   **pas dans Loki** (Alloy ne lit que l'hôte `192.168.2.10`).
 - Tourner un jeton : changer la valeur dans `infra/rag`, relancer le workflow `deploy`

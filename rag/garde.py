@@ -1,4 +1,4 @@
-"""Gardes HTTP posées devant toute l'application : plafond du corps de requête."""
+"""Gardes HTTP posées devant toute l'application : plafond du corps, en-têtes de sécurité."""
 
 from starlette.responses import JSONResponse
 
@@ -60,3 +60,34 @@ class LimiteCorps:
         except Exception:
             if not refuse:  # après un refus, l'application échoue sur la déconnexion simulée
                 raise
+
+
+ENTETES_SECURITE = (
+    (b"x-frame-options", b"DENY"),
+    (b"content-security-policy", (b"default-src 'self'; frame-ancestors 'none'; "
+                                  b"base-uri 'none'; form-action 'self'; object-src 'none'")),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"same-origin"),
+)
+
+
+class EntetesSecurite:
+    """Pose les en-têtes de sécurité sur toute réponse HTTP, sans écraser un en-tête déjà là."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def envoyer(message):
+            if message["type"] == "http.response.start":
+                entetes = list(message.get("headers", []))
+                presents = {nom.lower() for nom, _ in entetes}
+                entetes += [(n, v) for n, v in ENTETES_SECURITE if n not in presents]
+                message = {**message, "headers": entetes}
+            await send(message)
+
+        await self.app(scope, receive, envoyer)

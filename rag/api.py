@@ -31,7 +31,7 @@ from rag.config import (
 )
 from rag.db import connexion
 from rag.entretien import doublons, liens_entrants, orphelines
-from rag.garde import LimiteCorps
+from rag.garde import EntetesSecurite, LimiteCorps
 from rag.graphe import chemin, expliquer
 from rag.lister import lister, taxonomie
 from rag.mcp_serveur import creer_mcp
@@ -175,6 +175,7 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                   openapi_url=None)
     app.add_middleware(LimiteCorps,
                        exceptions={c: IMPORT_MAX + IMPORT_MARGE for c in CHEMINS_IMPORT})
+    app.add_middleware(EntetesSecurite)  # ajouté en dernier = le plus externe : couvre aussi les 413
 
     class RouteMcp:  # application ASGI (une instance, pas une fonction) : 401 avant le MCP
         async def __call__(self, scope, receive, send):

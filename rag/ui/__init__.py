@@ -2,6 +2,7 @@
 
 Le cookie `rag_session` contient le jeton lui-même ; il n'est jamais affiché ni journalisé.
 Les écritures exigent le jeton privé, l'en-tête `HX-Request` et une `Origin` absente ou locale.
+Toute réponse porte une CSP stricte (rag.garde) : aucun script ni style en ligne dans les gabarits.
 """
 
 import json
