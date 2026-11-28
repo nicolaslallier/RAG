@@ -88,8 +88,9 @@ def test_verdict_plafonne_a_vingt_correspondances():
 
 
 def test_verdict_montre_l_entete_pem_entier():
-    d = verdict("k.asc", b"x\n-----BEGIN RSA PRIVATE KEY-----\nabc", EX).detail
-    assert d["correspondances"] == [{"ligne": 2, "extrait": "-----BEGIN RSA PRIVATE KEY-----"}]
+    entete = "-----BEGIN RSA " + "PRIVATE KEY-----"  # construit, comme les faux jetons
+    d = verdict("k.asc", f"x\n{entete}\nabc".encode(), EX).detail
+    assert d["correspondances"] == [{"ligne": 2, "extrait": entete}]
 
 
 def test_regle_levee_ne_leve_qu_elle():
