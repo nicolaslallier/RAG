@@ -344,3 +344,41 @@ def test_erreur_de_donnees_postgres_isolee(bd, coffre, faux_modeles):
     exc = psycopg.errors.UntranslatableCharacter("x")  # DataError : propre au document
     b = indexer_source(bd, SRC, LecteurQuiEchoue(coffre, {"b.md"}, exc), CONF, faux_modeles)
     assert b.echecs == 1 and chemins(bd) == {"a.md", "c.md", "d.md"}
+
+
+# --- Contrat avec rag.modeles : un vrai client sur un transport simulé -----------------------
+# N'utilise que Modeles(url, cle, client=…) et embed_documents, communs à main et au lot
+# « réponse » (reprises sur 502/503/504, message « LiteLLM <route> : HTTP <code> » gardé).
+
+def _modeles_simules(monkeypatch, statut_si_zebre: int, statut_sinon: int = 200):
+    import json
+    import time
+
+    import httpx
+
+    from rag.modeles import DIMENSIONS, Modeles
+    monkeypatch.setattr(time, "sleep", lambda s: None)  # reprises du client, sans attendre
+
+    def repondre(requete: httpx.Request) -> httpx.Response:
+        textes = json.loads(requete.content)["input"]
+        statut = statut_si_zebre if any("zèbre" in t for t in textes) else statut_sinon
+        if statut != 200:
+            return httpx.Response(statut, json={"error": "refusé"})
+        return httpx.Response(200, json={"data": [
+            {"index": i, "embedding": [1.0] + [0.0] * (DIMENSIONS - 1)}
+            for i in range(len(textes))]})
+    return Modeles("http://litellm.test", "cle",
+                   client=httpx.Client(transport=httpx.MockTransport(repondre)))
+
+
+def test_contrat_modeles_http_400_isole_le_document(bd, coffre, monkeypatch):
+    b = indexer_source(bd, SRC, LecteurDossier(coffre), CONF, _modeles_simules(monkeypatch, 400))
+    assert b.echecs == 1 and chemins(bd) == {"a.md", "c.md", "d.md"}
+
+
+@pytest.mark.parametrize("statut", [503, 429])
+def test_contrat_modeles_indisponible_arrete_la_passe(bd, coffre, monkeypatch, statut):
+    with pytest.raises(ErreurModele, match=f"HTTP {statut}$"):
+        indexer_source(bd, SRC, LecteurDossier(coffre), CONF,
+                       _modeles_simules(monkeypatch, statut, statut))
+    assert chemins(bd) == set()
