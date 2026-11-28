@@ -61,3 +61,16 @@ def test_role_monitoring_rejouable_et_sans_superuser(bd):
         bd.execute("DROP OWNED BY monitoring_essai")   # retire le GRANT CONNECT
         bd.execute("DROP ROLE monitoring_essai")
         bd.commit()
+
+
+def test_quarantaine_decisions_contraintes(bd):
+    ins = ("INSERT INTO quarantaine_decisions (source, chemin, decision, signature, regles) "
+           "VALUES ('s', %s, %s, 'sig', %s)")
+    bd.execute(ins, ("a", "accepte", ["contenu_secret"]))
+    bd.execute(ins, ("b", "refuse", []))
+    bd.commit()
+    for chemin, decision, regles in (("c", "accepte", []), ("d", "peut-etre", ["genere"]),
+                                     ("e", "accepte", ["binaire"]), ("a", "refuse", [])):
+        with pytest.raises((psycopg.errors.CheckViolation, psycopg.errors.UniqueViolation)):
+            bd.execute(ins, (chemin, decision, regles))
+        bd.rollback()

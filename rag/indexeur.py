@@ -8,11 +8,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from rag.config import IndexationConf, SourceConf, empreinte_indexation, plafond_lecture
 from rag.decoupage import Morceau, decouper_note
 from rag.decoupage_code import decouper_code, langage
-from rag.exclusions import motif_exclusion
+from rag.exclusions import affiner, motif_exclusion
 from rag.gestion import SourceSupprimee, correspond, motifs_manuels, verrouiller_source
 from rag.modeles import ErreurModele
 from rag.notes import Note, analyser_note
@@ -179,12 +180,13 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     conn.commit()
 
     entrees = {}
-    exclus_listage = {}  # chemin -> (entrée, raison) : écartés sur le nom, jamais lus
+    exclus_listage = {}  # chemin -> (entrée, raison, détail) : écartés sur le nom, jamais lus
     for e in lecteur.lister():
         chemin = nfc(e.chemin)
         if source.type == "obsidian" and not chemin.endswith(".md"):
             continue  # pièces jointes, .gitignore, .DS_Store : hors coffre de notes
-        raison = motif_exclusion(chemin, b"", source.exclure)
+        raison, detail = affiner(motif_exclusion(chemin, b"", source.exclure), chemin, b"",
+                                 source.exclure)
         if raison is None and correspond(chemin, motifs):
             raison = "manuelle"
         if raison is None and e.taille > plafond_lecture(conf):
@@ -193,7 +195,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         if raison is None:
             entrees[chemin] = e
             continue
-        exclus_listage[chemin] = (e, raison)
+        exclus_listage[chemin] = (e, raison, detail)
         if raison not in ("config", "manuelle"):
             bilan.exclus += 1  # secret, verrou, généré : exclus sur le nom, jamais lus
     existants = {
@@ -209,7 +211,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         (source_id, emp))}
     absents = existants.keys() - entrees.keys()
     # exclus à la main : voulus, ils ne trahissent pas un listage partiel
-    manuels = {c for c, (_, raison) in exclus_listage.items() if raison == "manuelle"}
+    manuels = {c for c, (_, raison, _) in exclus_listage.items() if raison == "manuelle"}
     manquants = absents - manuels
     # rien d'indexé encore : un listage vide n'efface rien, ce n'est pas un échec
     if not forcer and existants and ((not entrees and not manuels)
@@ -223,13 +225,13 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
 
     # le listage (clone ou fetch) est la fenêtre la plus longue : identité relue avant d'écrire
     _verrouiller_identite(conn, source, source_id)
-    for chemin, (e, raison) in exclus_listage.items():
+    for chemin, (e, raison, detail) in exclus_listage.items():
         conn.execute(
-            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
-               VALUES (%s, %s, %s, %s, %s, false) ON CONFLICT (source_id, chemin) DO UPDATE
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail)
+               VALUES (%s, %s, %s, %s, %s, false, %s) ON CONFLICT (source_id, chemin) DO UPDATE
                SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                   raison = EXCLUDED.raison, lu = false""",
-            (source_id, chemin, e.signature, emp, raison))
+                   raison = EXCLUDED.raison, lu = false, detail = EXCLUDED.detail""",
+            (source_id, chemin, e.signature, emp, raison, Jsonb(detail) if detail else None))
     conn.commit()  # pas de verrou de ligne sur `exclus` pendant le travail lent qui suit
 
     repos = timedelta(minutes=source.repos_minutes)
@@ -243,11 +245,11 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         if ex:
             conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
         conn.execute(
-            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
-               VALUES (%s, %s, %s, %s, 'manuelle', false)
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail)
+               VALUES (%s, %s, %s, %s, 'manuelle', false, NULL)
                ON CONFLICT (source_id, chemin) DO UPDATE
                SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                   raison = EXCLUDED.raison, lu = false""",
+                   raison = EXCLUDED.raison, lu = false, detail = NULL""",
             (source_id, chemin, e.signature, emp))
         conn.commit()
         exclus_en_passe.add(chemin)
@@ -268,17 +270,21 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             if exclu_en_passe(chemin, e, ex):  # exclu depuis le listage : jamais lu
                 continue
             contenu = lecteur.lire(chemin)
-            if raison := motif_exclusion(chemin, contenu, source.exclure):
+            raison, detail = affiner(motif_exclusion(chemin, contenu, source.exclure), chemin,
+                                     contenu, source.exclure)
+            if raison:
                 log.warning("%s : %r exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
                 _verrouiller_identite(conn, source, source_id)
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
                 conn.execute(
-                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
-                       VALUES (%s, %s, %s, %s, %s, true) ON CONFLICT (source_id, chemin) DO UPDATE
-                       SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                           raison = EXCLUDED.raison, lu = true""",
-                    (source_id, chemin, e.signature, emp, raison))
+                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu,
+                                          detail)
+                       VALUES (%s, %s, %s, %s, %s, true, %s) ON CONFLICT (source_id, chemin)
+                       DO UPDATE SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                           raison = EXCLUDED.raison, lu = true, detail = EXCLUDED.detail""",
+                    (source_id, chemin, e.signature, emp, raison,
+                     Jsonb(detail) if detail else None))
                 conn.commit()
                 bilan.exclus += 1
                 continue

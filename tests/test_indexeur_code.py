@@ -259,3 +259,27 @@ def test_controle_sql_post_deploiement_relit_et_exclut(bd, depot, tmp_path, faux
     assert b.exclus == 5 and faux_modeles.appels == appels  # rien de réembarqué
     assert bd.execute("SELECT raison FROM exclus WHERE chemin = 'ci.md'").fetchone()["raison"] \
         == "secret"
+
+
+JETON = "sk-" + "a" * 24  # faux jeton construit
+
+
+def test_exclus_garde_le_detail_du_verdict(bd, depot, tmp_path, faux_modeles):
+    commit(depot, "docs/plan.md", f"# Plan\n\nexemple : {JETON}\n")
+    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF, faux_modeles)
+    lignes = bd.execute("SELECT chemin, raison, lu, detail FROM exclus").fetchall()
+    details = {r["chemin"]: r["detail"] for r in lignes}
+    assert details == {
+        ".env.example": {"regle": "nom_secret", "motif": ".env.*"},
+        "uv.lock": {"regle": "genere", "motif": "uv.lock"},
+        "logo.png": None,
+        "docs/plan.md": {"regle": "contenu_secret", "tronque": False, "correspondances": [
+            {"ligne": 3, "extrait": "sk-aaa… (27 caractères)"}]}}
+    assert JETON not in str(lignes)
+
+
+def test_detail_n_est_pas_journalise(bd, depot, tmp_path, faux_modeles, caplog):
+    commit(depot, "docs/plan.md", f"# Plan\n\nexemple : {JETON}\n")
+    with caplog.at_level("DEBUG"):
+        indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF, faux_modeles)
+    assert "docs/plan.md" in caplog.text and "sk-aaa" not in caplog.text
