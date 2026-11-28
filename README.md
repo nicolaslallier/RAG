@@ -30,7 +30,17 @@ au premier démarrage sous `/donnees/modeles`).
 `sources`, puis des `texte` (`delta`), puis `fin`. En flux, la réponse n'est vérifiée qu'à la
 fin et il n'y a pas de seconde tentative : **un client doit traiter `fin.citations_valides:
 false` comme un refus** (masquer le texte reçu, afficher « Je n'ai pas trouvé cela dans vos
-notes. »). Un événement `erreur` signale une panne du modèle en cours de flux.
+notes. »). `fin.tronque: true` signale que le modèle s'est arrêté sur sa limite de longueur :
+le texte reçu est incomplet, à signaler à l'utilisateur. Un événement `erreur` termine le flux
+à la place de `fin` : `detail` vaut « modèle indisponible » (panne, erreur ou coupure du
+modèle en cours de flux) ou « erreur interne » (consignée au journal). Le texte déjà reçu est
+alors à écarter.
+
+Un `[n]` ne compte comme citation que hors code (blocs ``` et `code en ligne`), sur un ou deux
+chiffres, et s'il ne suit ni une lettre, ni un chiffre, ni `]`, ni `)` : `v[0]`, `args[0]` et
+`[2024]` ne sont ni des citations ni des erreurs. Les passages envoyés au modèle sont bornés
+par `reponse.budget_passages_caracteres` (24 000 par défaut) et encadrés par une balise
+aléatoire à chaque requête.
 
 ## Banc
 
@@ -208,6 +218,13 @@ Aucune n'est faite par un agent.
 - Les journaux de `rag-postgres` et de l'exporter ne sont pas dans Loki non plus (Portainer).
 - Rotation de la CA de l'Infra : copier le nouveau `certs/infra-ca.crt` de l'Infra dans
   `deploy/infra-ca.crt` et commiter (elle est dans l'image, en `/etc/rag/infra-ca.crt`).
+- Taille des morceaux : un morceau cherchable ne dépasse pas ~2 × `plafond_tokens` (un mot géant
+  ou une ligne minifiée est coupé par caractères, un bloc de code au-delà de cette borne est
+  coupé par lignes). Cette borne n'a **pas** changé l'empreinte d'index : pas de réindexation ;
+  les morceaux plus gros déjà en base restent jusqu'à la prochaine modification de leur
+  document. Pour les rattraper sans réindexation complète :
+  `UPDATE documents SET signature = '', sha256 = '' WHERE id IN (SELECT document_id FROM
+  morceaux WHERE embedding IS NOT NULL AND length(texte) > 5800)`, puis une passe.
 
 ## Sauvegarde
 

@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-from rag.modeles import ErreurModele
+from rag.modeles import DELAI_COURT, ErreurModele
 from rag.recherche import Filtres, normaliser
 
 _REPONDRE = ["quel est", "quelle est", "comment", "pourquoi", "explique", "resume", "decris",
@@ -51,7 +51,8 @@ def _mode_par_modele(question: str, modeles, modele: str) -> str | None:
             'Réponds uniquement en JSON : {"mode": "lister"} ou {"mode": "repondre"}.'},
         {"role": "user", "content": question}]
     try:
-        mode = json.loads(modeles.generer(modele, messages, temperature=0, json_mode=True))["mode"]
+        mode = json.loads(modeles.generer(modele, messages, temperature=0, json_mode=True,
+                                          delai=DELAI_COURT))["mode"]
     except (ErreurModele, ValueError, KeyError, TypeError):
         return None
     return mode if mode in ("lister", "repondre") else None

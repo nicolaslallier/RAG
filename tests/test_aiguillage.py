@@ -11,10 +11,11 @@ TAXO = {"types": {"recette": 3, "projet": 14, "ressource": 24},
 
 class FauxGenerateur:
     def __init__(self, reponses):
-        self.reponses, self.appels = list(reponses), []
+        self.reponses, self.appels, self.delais = list(reponses), [], []
 
-    def generer(self, modele, messages, temperature, json_mode=False):
+    def generer(self, modele, messages, temperature, json_mode=False, delai=None):
         self.appels.append((modele, temperature, json_mode))
+        self.delais.append(delai)
         if not self.reponses:
             raise AssertionError("le modèle ne devait pas être appelé")
         return self.reponses.pop(0)
@@ -108,3 +109,9 @@ def test_en_mode_repondre_la_source_est_un_bonus_pas_un_filtre():
     assert d.filtres.sources is None and d.bonus_sources == ["AI"]
     d = aiguiller("Liste les fichiers Dockerfile dans Infra", TAXO, JAMAIS, "g")
     assert d.filtres.sources == ["Infra"] and d.bonus_sources is None
+
+
+def test_aiguillage_par_modele_avec_delai_court():
+    g = FauxGenerateur(['{"mode": "lister"}'])
+    d = aiguiller("Mes dashboards Grafana", TAXO, g, "g")   # aucune règle ne tranche
+    assert (d.mode, d.par) == ("lister", "modele") and g.delais == [15]

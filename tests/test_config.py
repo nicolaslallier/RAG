@@ -83,3 +83,15 @@ def test_tout_contient_travail():
     assert TOUT == frozenset({"public-maison", "prive", "travail"})
     assert "travail" not in PUBLIC
     SourceConf(nom="a", type="code", emplacement="https://h/a.git", visibilite="travail")
+
+
+def test_budget_de_passages_par_defaut_et_borne(tmp_path):
+    d = yaml.safe_load(Path("config/rag.yaml").read_text())
+    del d["reponse"]["budget_passages_caracteres"]
+    f = tmp_path / "c.yaml"
+    f.write_text(yaml.safe_dump(d))
+    assert charger_config(f).reponse.budget_passages_caracteres == 24000
+    d["reponse"]["budget_passages_caracteres"] = 10
+    f.write_text(yaml.safe_dump(d))
+    with pytest.raises(pydantic.ValidationError):
+        charger_config(f)

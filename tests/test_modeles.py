@@ -134,3 +134,181 @@ def test_generer_flux_erreur_http():
     with pytest.raises(ErreurModele) as e:
         list(m.generer_flux("g", [], 0))
     assert "secret" not in str(e.value)
+
+
+def _flux(evenements, done=True):
+    corps = "".join(f"data: {e if isinstance(e, str) else json.dumps(e)}\n\n"
+                    for e in evenements) + ("data: [DONE]\n\n" if done else "")
+    return Modeles("http://x", "sk-secret", client=httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, text=corps, headers={"content-type": "text/event-stream"}))))
+
+
+def _d(texte, fin=None):
+    return {"choices": [{"delta": {"content": texte}, "finish_reason": fin}]}
+
+
+def test_flux_evenement_error_leve_sans_fuite():
+    m = _flux([_d("a"), {"error": {"message": "boom sk-secret", "code": 500}}])
+    with pytest.raises(ErreurModele) as e:
+        list(m.generer_flux("g", [], 0))
+    assert "sk-secret" not in str(e.value) and "boom" not in str(e.value)
+
+
+def test_flux_coupe_sans_done_ni_finish_reason_leve():
+    recus = []
+    with pytest.raises(ErreurModele):
+        recus.extend(_flux([_d("a")], done=False).generer_flux("g", [], 0))  # garde le reçu
+    assert recus == ["a"]
+
+
+def test_flux_finish_reason_sans_done_est_une_fin_normale():
+    assert list(_flux([_d("a", "stop")], done=False).generer_flux("g", [], 0)) == ["a"]
+
+
+def test_flux_length_signale_la_troncature():
+    from rag.modeles import TRONQUE
+    assert list(_flux([_d("a"), _d(None, "length")]).generer_flux("g", [], 0)) == ["a", TRONQUE]
+
+
+def test_flux_bloc_sans_choices_ignore():
+    assert list(_flux([_d("a"), {"choices": [], "usage": {}}]).generer_flux("g", [], 0)) == ["a"]
+
+
+@pytest.mark.parametrize("brut", ["[1, 2]", "42", "{oups", '{"choices": ["x"]}',
+                                  '{"choices": [{"delta": {"content": 5}}]}'])
+def test_flux_evenement_malforme_leve_erreur_modele(brut):
+    with pytest.raises(ErreurModele):
+        list(_flux([brut]).generer_flux("g", [], 0))
+
+
+@pytest.fixture
+def sans_attente(monkeypatch):
+    dodo = []
+    monkeypatch.setattr("rag.modeles.time.sleep", dodo.append)
+    return dodo
+
+
+def _client(gerer):
+    return Modeles("http://x", "sk-test", client=httpx.Client(transport=httpx.MockTransport(gerer)))
+
+
+def _vecs(req):
+    n = len(json.loads(req.content)["input"])
+    return httpx.Response(200, json={"data": [{"index": i, "embedding": [0.0] * 1024}
+                                              for i in range(n)]})
+
+
+def test_delais_par_usage():
+    vus = []
+
+    def gerer(req):
+        vus.append(req.extensions["timeout"])
+        if req.url.path.endswith("/embeddings"):
+            return _vecs(req)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+    m = _client(gerer)
+    m.embed_requete("q", M, "i")
+    m.embed_documents(["a"], M)
+    m.generer("g", [], 0)
+    m.generer("g", [], 0, json_mode=True, delai=15)
+    assert [v["read"] for v in vus] == [15, 300, 300, 15]
+    assert all(v["connect"] == 5 and v["pool"] == 5 for v in vus)
+
+
+def test_delai_du_flux_et_du_client_par_defaut():
+    vus = []
+
+    def gerer(req):
+        vus.append(req.extensions["timeout"])
+        return httpx.Response(200, text="data: [DONE]\n\n")
+    list(_client(gerer).generer_flux("g", [], 0))
+    assert (vus[0]["read"], vus[0]["connect"]) == (300, 5)
+    assert Modeles("http://x", "k").client.timeout == httpx.Timeout(300, connect=5, pool=5)
+
+
+@pytest.mark.parametrize("statut", [502, 503, 504])
+def test_embeddings_repris_sur_erreur_transitoire(statut, sans_attente):
+    appels = []
+
+    def gerer(req):
+        appels.append(1)
+        return httpx.Response(statut) if len(appels) < 3 else _vecs(req)
+    assert len(_client(gerer).embed_requete("q", M, "i")) == 1024
+    assert len(appels) == 3 and sans_attente == [0.5, 1.5]
+
+
+def test_embeddings_repris_sur_erreur_de_connexion_puis_abandon(sans_attente):
+    appels = []
+
+    def gerer(req):
+        appels.append(1)
+        raise httpx.ConnectError("refus")
+    with pytest.raises(ErreurModele) as e:
+        _client(gerer).embed_documents(["a"], M)
+    assert len(appels) == 3 and "ConnectError" in str(e.value) and "sk-test" not in str(e.value)
+
+
+def test_pas_de_reprise_sur_500_ni_sur_delai_de_lecture(sans_attente):
+    appels = []
+
+    def lent(req):
+        appels.append(1)
+        raise httpx.ReadTimeout("lent")
+    with pytest.raises(ErreurModele):
+        _client(lent).embed_requete("q", M, "i")
+    with pytest.raises(ErreurModele):
+        _client(lambda r: (appels.append(1), httpx.Response(500))[1]).embed_documents(["a"], M)
+    assert len(appels) == 2 and sans_attente == []
+
+
+def test_generation_jamais_reprise(sans_attente):
+    appels = []
+
+    def gerer(req):
+        appels.append(1)
+        return httpx.Response(503)
+    with pytest.raises(ErreurModele):
+        _client(gerer).generer("g", [], 0)
+    with pytest.raises(ErreurModele):
+        list(_client(gerer).generer_flux("g", [], 0))
+    assert len(appels) == 2 and sans_attente == []
+
+
+@pytest.mark.parametrize("corps", [{"choices": [{"message": {"content": None}}]},
+                                   {"choices": []}, {"choices": [{"message": None}]}, [1], "x"])
+def test_generation_malformee_leve_erreur_modele(corps):
+    with pytest.raises(ErreurModele):
+        _client(lambda r: httpx.Response(200, json=corps)).generer("g", [], 0)
+
+
+@pytest.mark.parametrize("data", [[{"index": 0}], [{"embedding": [0.0] * 1024}], None, [None],
+                                  [{"index": 0, "embedding": None}], "x"])
+def test_embeddings_malformes_levent_erreur_modele(data):
+    with pytest.raises(ErreurModele):
+        _client(lambda r: httpx.Response(200, json={"data": data})).embed_documents(["a"], M)
+    with pytest.raises(ErreurModele):
+        _client(lambda r: httpx.Response(200, json=[1])).embed_documents(["a"], M)
+
+
+def _flux_coupe(evenements):
+    def corps():
+        for e in evenements:
+            yield f"data: {json.dumps(e)}\n\n".encode()
+        raise httpx.ReadError("connexion tombée")
+    return Modeles("http://x", "sk-secret", client=httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, content=corps(),
+                                 headers={"content-type": "text/event-stream"}))))
+
+
+def test_flux_coupure_apres_finish_reason_garde_la_reponse():
+    assert list(_flux_coupe([_d("a"), _d(None, "stop")]).generer_flux("g", [], 0)) == ["a"]
+
+
+def test_flux_coupure_apres_length_signale_la_troncature():
+    from rag.modeles import TRONQUE
+    assert list(_flux_coupe([_d("a", "length")]).generer_flux("g", [], 0)) == ["a", TRONQUE]
+
+
+def test_flux_coupure_avant_finish_reason_leve():
+    with pytest.raises(ErreurModele, match="ReadError"):
+        list(_flux_coupe([_d("a")]).generer_flux("g", [], 0))

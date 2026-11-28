@@ -11,6 +11,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Incrémenter à chaque changement de notes.py, decoupage.py ou exclusions.py : l'empreinte change,
 # donc tout est réanalysé (une note devenue « secret » est alors retirée de toutes les versions).
+# Exception : la borne dure de decoupage.py (morceaux hors borne seulement) n'a pas incrémenté la
+# version, pour éviter une réindexation complète ; voir README, Exploitation.
 VERSION_ANALYSEUR = 2
 
 PUBLIC: frozenset[str] = frozenset({"public-maison"})
@@ -125,6 +127,8 @@ class ReponseConf(_Strict):
     passages: int
     seuil_refus_rerank: float | None
     seuil_refus_cosinus: float | None
+    # Taille totale des textes de passages envoyés au LLM (≈ 4 caractères par token).
+    budget_passages_caracteres: Annotated[int, Field(ge=2000)] = 24000
 
 
 class BancConf(_Strict):

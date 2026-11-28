@@ -41,7 +41,7 @@ class FauxModeles:
         self.appels += 1
         return self._vec(question)
 
-    def generer(self, modele, messages, temperature, json_mode=False):
+    def generer(self, modele, messages, temperature, json_mode=False, delai=None):
         from rag.modeles import ErreurModele
         raise ErreurModele("pas de génération dans les faux modèles")
 
