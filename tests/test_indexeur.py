@@ -3,6 +3,7 @@ import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 
+import psycopg
 import pytest
 
 from rag.config import SourceConf, charger_config
@@ -286,7 +287,6 @@ def test_refus_du_modele_pour_un_document_isole(bd, coffre):
 
 
 def test_erreur_de_connexion_postgres_arrete_la_passe(bd, coffre, faux_modeles):
-    import psycopg
     with pytest.raises(psycopg.OperationalError):
         indexer_source(bd, SRC, LecteurQuiEchoue(coffre, {"b.md"}, psycopg.OperationalError("perdue")),
                        CONF, faux_modeles)
@@ -328,3 +328,19 @@ def test_source_sans_fichier_indexable_n_est_pas_un_echec(bd, faux_modeles):
     inscrire_source(bd, "depot-vide")
     b = indexer_source(bd, src, LecteurUnExclu("uv.lock"), CONF, faux_modeles)
     assert b.exclus == 1 and b.nouveaux == 0
+
+
+@pytest.mark.parametrize("exc", [psycopg.errors.UndefinedColumn("x"),
+                                 psycopg.errors.InsufficientPrivilege("x"),
+                                 psycopg.errors.UniqueViolation("x"),
+                                 psycopg.errors.ForeignKeyViolation("x"),
+                                 psycopg.errors.QueryCanceled("x")])
+def test_erreur_postgres_hors_liste_blanche_arrete_la_passe(bd, coffre, faux_modeles, exc):
+    with pytest.raises(type(exc)):
+        indexer_source(bd, SRC, LecteurQuiEchoue(coffre, {"b.md"}, exc), CONF, faux_modeles)
+
+
+def test_erreur_de_donnees_postgres_isolee(bd, coffre, faux_modeles):
+    exc = psycopg.errors.UntranslatableCharacter("x")  # DataError : propre au document
+    b = indexer_source(bd, SRC, LecteurQuiEchoue(coffre, {"b.md"}, exc), CONF, faux_modeles)
+    assert b.echecs == 1 and chemins(bd) == {"a.md", "c.md", "d.md"}

@@ -43,10 +43,14 @@ _REFUS_DU_DOCUMENT = re.compile(r"HTTP (400|413|422)$")
 
 
 def _arret_global(exc: Exception) -> bool:
-    """Pannes qui ne tiennent pas au document : base, modèle injoignable, source disparue."""
-    if isinstance(exc, (SourceSupprimee, psycopg.OperationalError, psycopg.InterfaceError,
-                        psycopg.errors.ForeignKeyViolation)):
+    """Pannes qui ne tiennent pas au document : base, modèle injoignable, source disparue.
+
+    Postgres en liste blanche : seule une `DataError` (valeur refusée, caractère intraduisible…)
+    tient au document ; toute autre erreur de la base arrête la passe."""
+    if isinstance(exc, SourceSupprimee):
         return True
+    if isinstance(exc, psycopg.Error):
+        return not isinstance(exc, psycopg.DataError)
     if isinstance(exc, ErreurModele):  # un 400/413/422 vise l'entrée ; le reste est une panne
         return not _REFUS_DU_DOCUMENT.search(str(exc))
     return False
