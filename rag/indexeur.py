@@ -311,8 +311,9 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 raise
             bilan.echecs += 1
             log.error("%s : %r en échec (%s)", source.nom, chemin, _resume(exc))
-            if bilan.echecs >= ECHECS_MAX:
-                raise
+            if bilan.echecs >= ECHECS_MAX:  # sans l'erreur d'origine : elle peut citer le contenu
+                raise RuntimeError(f"{source.nom} : trop de documents en échec "
+                                   f"({bilan.echecs})") from None
         except BaseException:  # KeyboardInterrupt, SystemExit : arrêt net
             conn.rollback()
             raise

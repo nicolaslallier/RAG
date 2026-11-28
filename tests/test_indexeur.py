@@ -295,8 +295,16 @@ def test_erreur_de_connexion_postgres_arrete_la_passe(bd, coffre, faux_modeles):
 def test_trop_d_echecs_arrete_la_passe(bd, coffre, faux_modeles, monkeypatch):
     import rag.indexeur
     monkeypatch.setattr(rag.indexeur, "ECHECS_MAX", 2)
-    with pytest.raises(RuntimeError, match="illisible"):
-        indexer_source(bd, SRC, LecteurQuiEchoue(coffre), CONF, faux_modeles)
+    lec = LecteurQuiEchoue(coffre, exc=psycopg.errors.UntranslatableCharacter(
+        "DETAIL: contenu SECRET_DU_DOCUMENT"))
+    lus = []
+    lire = lec.lire
+    lec.lire = lambda c: lus.append(c) or lire(c)
+    with pytest.raises(RuntimeError, match="trop de documents en échec") as e:
+        indexer_source(bd, SRC, lec, CONF, faux_modeles)
+    assert "SECRET" not in str(e.value)
+    assert e.value.__cause__ is None and e.value.__suppress_context__
+    assert len(lus) == 2  # arrêt au ECHECS_MAX-ième échec
 
 
 def test_frontmatter_avec_nul_indexe(bd, tmp_path, faux_modeles):
