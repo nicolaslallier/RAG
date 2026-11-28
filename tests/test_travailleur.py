@@ -256,6 +256,27 @@ def test_etat_ne_nomme_pas_une_source_supprimee(client, bd, cfg, faux_modeles):
     assert "secret-supprime" not in r.text and "semantique" in r.json()["derniere_nocturne"]["bilan"]
 
 
+def test_etat_ne_nomme_pas_un_coffre_prive_du_yaml_jamais_indexe(bd, tmp_path, coffre,
+                                                                 faux_modeles):
+    from psycopg.types.json import Jsonb
+
+    d = yaml.safe_load(Path("config/rag.yaml").read_text())
+    d["sources"] = [{"nom": n, "type": "obsidian", "visibilite": v, "emplacement": str(coffre)}
+                    for n, v in (("coffre-maison", "public-maison"), ("coffre-secret", "prive"))]
+    f = tmp_path / "yaml-prive.yaml"
+    f.write_text(yaml.safe_dump(d))
+    echec = {"erreur": "echec"}  # les deux en échec dès la première passe : absents de la base
+    bd.execute("INSERT INTO passes (genre, fin, ok, bilan) VALUES ('nocturne', now(), false, %s)",
+               (Jsonb({"coffre-maison": echec, "coffre-secret": echec}),))
+    bd.commit()
+    c = faire(f, faux_modeles, jeton_prive="priv")
+    r = c.get("/etat", headers=auth)
+    assert "coffre-secret" not in r.text
+    assert r.json()["derniere_nocturne"]["bilan"] == {"coffre-maison": echec}
+    r = c.get("/etat", headers={"Authorization": "Bearer priv"})
+    assert r.json()["derniere_nocturne"]["bilan"]["coffre-secret"] == echec
+
+
 
 
 def test_etat_n_expose_aucun_message_d_exception(client, bd, cfg, reglages, faux_modeles,
@@ -438,24 +459,3 @@ def test_sans_garde_conserve_apres_une_passe_en_echec(bd, depot, reglages, faux_
     lignes = {r["nom"]: r for r in bd.execute("SELECT nom, sans_garde, demande_le FROM sources")}
     assert lignes["depot-x"]["sans_garde"] is True and lignes["depot-x"]["demande_le"] is None
     assert lignes["depot-y"]["sans_garde"] is False
-
-
-def test_etat_ne_nomme_pas_un_coffre_prive_du_yaml_jamais_indexe(bd, tmp_path, coffre,
-                                                                 faux_modeles):
-    from psycopg.types.json import Jsonb
-
-    d = yaml.safe_load(Path("config/rag.yaml").read_text())
-    d["sources"] = [{"nom": n, "type": "obsidian", "visibilite": v, "emplacement": str(coffre)}
-                    for n, v in (("coffre-maison", "public-maison"), ("coffre-secret", "prive"))]
-    f = tmp_path / "yaml-prive.yaml"
-    f.write_text(yaml.safe_dump(d))
-    echec = {"erreur": "echec"}  # les deux en échec dès la première passe : absents de la base
-    bd.execute("INSERT INTO passes (genre, fin, ok, bilan) VALUES ('nocturne', now(), false, %s)",
-               (Jsonb({"coffre-maison": echec, "coffre-secret": echec}),))
-    bd.commit()
-    c = faire(f, faux_modeles, jeton_prive="priv")
-    r = c.get("/etat", headers=auth)
-    assert "coffre-secret" not in r.text
-    assert r.json()["derniere_nocturne"]["bilan"] == {"coffre-maison": echec}
-    r = c.get("/etat", headers={"Authorization": "Bearer priv"})
-    assert r.json()["derniere_nocturne"]["bilan"]["coffre-secret"] == echec
