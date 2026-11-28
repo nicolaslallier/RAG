@@ -898,3 +898,156 @@ def test_import_nomme_le_changement_de_niveau(gc, bd, appels):
                 files={"fichier": ("s.yaml", t.encode(), "text/yaml")})
     assert r.status_code == 200 and "mon-depot" in r.text
     assert "travail → public-maison" in r.text
+
+
+# --- Quarantaine --------------------------------------------------------------------------------
+
+JETON_EXEMPLE = "sk-" + "a" * 24  # faux jeton construit : jamais de littéral réaliste dans le dépôt
+
+
+@pytest.fixture
+def secret_en_quarantaine(bd, index, faux_modeles):
+    """Une note du coffre écartée pour un faux secret ; rend la signature de sa ligne `exclus`."""
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source
+    from rag.sources import LecteurDossier
+
+    (index.coffre / "Cles.md").write_text(f"# Clés\n\nexemple : {JETON_EXEMPLE}\n")
+    src = SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian",
+                     emplacement=str(index.coffre))
+    indexer_source(bd, src, LecteurDossier(index.coffre),
+                   charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
+    sig = bd.execute("SELECT signature FROM exclus WHERE chemin = 'Cles.md'").fetchone()["signature"]
+    bd.commit()
+    return sig
+
+
+def decisions_en_base(bd):
+    r = [(d["chemin"], d["decision"]) for d in bd.execute(
+        "SELECT chemin, decision FROM quarantaine_decisions ORDER BY chemin")]
+    bd.rollback()
+    return r
+
+
+def cible(signature=None, **k):
+    d = {"source": "coffre-maison", "chemin": "Cles.md"} | k
+    return d | ({"signature": signature} if signature is not None else {})
+
+
+def test_menu_quarantaine_seulement_pour_l_ecrivain(client_priv, client_pub):
+    lien = 'href="/ui/quarantaine"'
+    assert lien in client_priv.get("/ui/").text and lien in client_priv.get("/ui/exclusions").text
+    assert lien not in client_pub.get("/ui/").text
+    assert lien not in client_pub.get("/ui/exclusions").text
+
+
+def test_ecran_quarantaine_reserve_a_l_ecrivain(client, client_pub, secret_en_quarantaine):
+    assert client_pub.get("/ui/quarantaine").status_code == 403
+    assert client_pub.get("/ui/quarantaine/export").status_code == 403
+    client.cookies.clear()
+    assert client.get("/ui/quarantaine", follow_redirects=False).status_code == 303
+
+
+def test_ecran_quarantaine_montre_le_declencheur_masque(client_priv, secret_en_quarantaine):
+    r = client_priv.get("/ui/quarantaine")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    for attendu in ("Cles.md", "ligne 3", "sk-aaa… (27 caractères)", "Accepter", "Refuser",
+                    'hx-post="/ui/quarantaine/accepter"', "1 secret à traiter"):
+        assert attendu in r.text, attendu
+    assert JETON_EXEMPLE not in r.text and "exemple :" not in r.text
+
+
+def test_quarantaine_filtre_en_fragment(client_priv, secret_en_quarantaine):
+    r = client_priv.get("/ui/quarantaine?raison=genere", headers=HX)
+    assert r.status_code == 200 and "<html" not in r.text
+    assert 'id="liste-quarantaine"' in r.text and "Cles.md" not in r.text
+    assert "Aucun fichier" in r.text
+    r = client_priv.get("/ui/quarantaine?etat=inconnu&raison=nimporte", headers=HX)
+    assert "Cles.md" in r.text
+    assert client_priv.get("/ui/quarantaine?page=999999999").status_code == 200
+
+
+def test_accepter_par_l_interface(client_priv, bd, secret_en_quarantaine):
+    r = client_priv.post("/ui/quarantaine/accepter", headers=HX,
+                         data=cible(secret_en_quarantaine))
+    assert r.status_code == 200, r.text
+    assert "Accepté : le fichier sera indexé à la prochaine passe." in r.text
+    assert 'id="liste-quarantaine"' in r.text and 'hx-swap-oob="true"' in r.text
+    assert "Cles.md" not in r.text
+    assert decisions_en_base(bd) == [("Cles.md", "accepte")]
+    assert bd.execute("SELECT demande_le FROM sources").fetchone()["demande_le"] is not None
+    bd.rollback()
+    t = client_priv.get("/ui/quarantaine?etat=accepte").text
+    assert "Cles.md" in t and "en attente d'indexation" in t and "Annuler" in t
+
+
+def test_ecritures_de_quarantaine_exigent_l_ecrivain(client, bd, secret_en_quarantaine):
+    export = yaml.safe_dump([{"source": "coffre-maison", "chemin": "Cles.md",
+                              "decision": "refuse", "signature": "s", "regles": []}]).encode()
+    envois = [("/ui/quarantaine/accepter", {"data": cible(secret_en_quarantaine)}),
+              ("/ui/quarantaine/refuser", {"data": cible()}),
+              ("/ui/quarantaine/annuler", {"data": cible()}),
+              ("/ui/quarantaine/import", {"files": {"fichier": ("q.yaml", export, "text/yaml")}})]
+    for url, corps in envois:
+        client.cookies.clear()
+        r = client.post(url, headers=HX, follow_redirects=False, **corps)
+        assert r.status_code == 401 and r.headers["hx-redirect"] == "/ui/connexion", url
+        assert connecter(client, "pub").post(url, headers=HX, **corps).status_code == 403, url
+        connecter(client, "priv")
+        assert client.post(url, **corps).status_code == 403, url
+        assert client.post(url, headers=HX | {"Origin": "http://ailleurs.exemple"},
+                           **corps).status_code == 403, url
+    assert decisions_en_base(bd) == []
+
+
+def test_accepter_signature_perimee(client_priv, bd, secret_en_quarantaine):
+    r = client_priv.post("/ui/quarantaine/accepter", headers=HX, data=cible("autre"))
+    assert r.status_code == 400
+    assert "Acceptation refusée : le fichier a changé depuis l&#39;affichage" in r.text \
+        or "Acceptation refusée : le fichier a changé depuis l'affichage" in r.text
+    assert decisions_en_base(bd) == []
+    assert client_priv.post("/ui/quarantaine/accepter", headers=HX,
+                            data=cible()).status_code == 422
+
+
+def test_accepter_source_inconnue_ou_fichier_hors_quarantaine(client_priv, bd,
+                                                               secret_en_quarantaine):
+    r = client_priv.post("/ui/quarantaine/accepter", headers=HX,
+                         data=cible("s", source="inconnue"))
+    assert r.status_code == 404
+    r = client_priv.post("/ui/quarantaine/accepter", headers=HX,
+                         data=cible("s", chemin="Accueil.md"))
+    assert r.status_code == 400 and "ce fichier n&#39;est pas en quarantaine" in r.text
+    assert decisions_en_base(bd) == []
+
+
+def test_refuser_puis_annuler_par_l_interface(client_priv, bd, secret_en_quarantaine):
+    r = client_priv.post("/ui/quarantaine/refuser", headers=HX, data=cible())
+    assert r.status_code == 200 and "Refusé : le fichier reste exclu." in r.text
+    assert decisions_en_base(bd) == [("Cles.md", "refuse")]
+    assert "Cles.md" in client_priv.get("/ui/quarantaine?etat=refuse").text
+    r = client_priv.post("/ui/quarantaine/annuler", headers=HX, data=cible())
+    assert r.status_code == 200 and "Décision annulée." in r.text
+    assert decisions_en_base(bd) == []
+    r = client_priv.post("/ui/quarantaine/annuler", headers=HX, data=cible())
+    assert r.status_code == 200 and "Aucune décision à annuler." in r.text
+
+
+def test_export_import_quarantaine_par_l_interface(client_priv, bd, secret_en_quarantaine):
+    client_priv.post("/ui/quarantaine/accepter", headers=HX, data=cible(secret_en_quarantaine))
+    r = client_priv.get("/ui/quarantaine/export")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/yaml")
+    assert r.headers["content-disposition"] == 'attachment; filename="quarantaine-rag.yaml"'
+    assert r.headers["cache-control"] == "no-store"
+    d = yaml.safe_load(r.text)
+    assert [(e["chemin"], e["decision"]) for e in d] == [("Cles.md", "accepte")]
+    r = client_priv.post("/ui/quarantaine/import", headers=HX,
+                         files={"fichier": ("q.yaml", r.content, "text/yaml")})
+    assert r.status_code == 200 and "0 ajoutée, 1 déjà présente." in r.text
+    r = client_priv.post("/ui/quarantaine/import", headers=HX,
+                         files={"fichier": ("q.yaml", b"{a: 1}", "text/yaml")})
+    assert r.status_code == 400 and "Import refusé" in r.text
+    r = client_priv.post("/ui/quarantaine/import", headers=HX,
+                         files={"fichier": ("q.yaml", b"#" * (1024 * 1024 + 1), "text/yaml")})
+    assert r.status_code == 413
+    assert decisions_en_base(bd) == [("Cles.md", "accepte")]

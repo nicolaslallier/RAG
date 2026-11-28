@@ -1,0 +1,73 @@
+{# File de quarantaine : comptes, tableau, pagination ; hors bande (oob) après une écriture. #}
+<div id="liste-quarantaine"{% if oob %} hx-swap-oob="true"{% endif %}>
+<p class="aide">{{ comptes.secret }} secret{{ "s" if comptes.secret > 1 }} à traiter ·
+  {{ comptes.genere }} fichier{{ "s" if comptes.genere > 1 }} généré{{ "s" if comptes.genere > 1 }} à traiter</p>
+{% if liste.fichiers %}
+<div class="defilement">
+<table>
+  <thead>
+    <tr>
+      <th scope="col">Source</th><th scope="col">Chemin</th><th scope="col">Raison</th>
+      <th scope="col">Déclencheur</th><th scope="col">État</th><th scope="col">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in liste.fichiers %}
+    {% set cible = {"source": f.source, "chemin": f.chemin, "vue_source": vue.source,
+                    "vue_raison": vue.raison, "vue_etat": vue.etat, "vue_page": vue.page} %}
+    <tr>
+      <td>{{ f.source }}</td>
+      <th scope="row">{{ f.chemin }}</th>
+      <td><span class="etiquette">{{ f.raison }}</span></td>
+      <td>
+        {%- if not f.detail %}{% if f.indexe %}—{% else %}verdict détaillé à la prochaine passe{% endif %}
+        {%- elif f.detail.regle == "nom_secret" %}nom de fichier : <code>{{ f.detail.motif }}</code>
+        {%- elif f.detail.regle == "genere" %}fichier généré : <code>{{ f.detail.motif }}</code>
+        {%- else %}
+        <ul class="declencheurs">
+          {% for c in f.detail.correspondances %}<li>ligne {{ c.ligne }} : <code>{{ c.extrait }}</code></li>{% endfor %}
+          {% if f.detail.tronque %}<li>et d'autres correspondances</li>{% endif %}
+        </ul>
+        {%- endif %}
+        {% if f.modifie %}<p class="aide">Modifié depuis l'acceptation.</p>{% endif %}
+        {% if f.etat == "a_traiter" and f.regles_levees %}<p class="aide">Déjà accepté pour : {{ f.regles_levees | join(", ") }}.</p>{% endif %}
+      </td>
+      <td>
+        {%- if f.etat == "a_traiter" %}à traiter
+        {%- elif f.etat == "refuse" %}refusé
+        {%- elif f.indexe %}accepté, indexé
+        {%- else %}accepté, en attente d'indexation{% endif -%}
+      </td>
+      <td>
+        {% if f.etat == "a_traiter" %}
+        {% if f.detail %}<button type="button"
+            hx-post="/ui/quarantaine/accepter" hx-vals='{{ (cible | combine_signature(f.signature)) | tojson }}'
+            hx-confirm="Indexer ce fichier malgré le verdict « {{ f.raison }} » ?"
+            hx-target="#resultat" hx-swap="innerHTML">Accepter</button>{% endif %}
+        <button type="button" class="secondaire"
+            hx-post="/ui/quarantaine/refuser" hx-vals='{{ cible | tojson }}'
+            hx-target="#resultat" hx-swap="innerHTML">Refuser</button>
+        {% else %}
+        <button type="button" class="secondaire"
+            hx-post="/ui/quarantaine/annuler" hx-vals='{{ cible | tojson }}'
+            hx-target="#resultat" hx-swap="innerHTML">Annuler</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p>Aucun fichier dans cette vue.</p>
+{% endif %}
+<p class="aide">{{ liste.total }} fichier{{ "s" if liste.total > 1 }}
+{%- if liste.pages > 1 %} · page {{ liste.page }} sur {{ liste.pages }}{% endif %}</p>
+{% if liste.pages > 1 %}
+<p class="pagination">
+  {% set base = "/ui/quarantaine?source=" ~ (vue.source | en_requete) ~ "&raison=" ~ vue.raison ~ "&etat=" ~ vue.etat ~ "&" %}
+  {% if liste.page > 1 %}<a href="{{ base }}page={{ liste.page - 1 }}" hx-get="{{ base }}page={{ liste.page - 1 }}" hx-target="#liste-quarantaine" hx-swap="outerHTML" hx-push-url="true">Précédente</a>{% endif %}
+  {% if liste.page < liste.pages %}<a href="{{ base }}page={{ liste.page + 1 }}" hx-get="{{ base }}page={{ liste.page + 1 }}" hx-target="#liste-quarantaine" hx-swap="outerHTML" hx-push-url="true">Suivante</a>{% endif %}
+</p>
+{% endif %}
+</div>

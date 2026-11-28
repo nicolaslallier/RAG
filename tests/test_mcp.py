@@ -217,3 +217,22 @@ def test_modele_indisponible_dit_sans_detail(client, monkeypatch):
     monkeypatch.setattr(api, "sources_citees", panne)  # traverse rag_repondre
     texte = erreur_de(client, "rag_repondre", {"question": "poulet"})
     assert "modèle indisponible" in texte and "litellm.interne" not in texte
+
+
+def test_mcp_ne_rend_pas_le_detail_de_quarantaine(client, bd, index, faux_modeles):
+    from rag.config import SourceConf, charger_config
+    from rag.indexeur import indexer_source
+    from rag.sources import LecteurDossier
+
+    jeton = "sk-" + "a" * 24  # faux jeton construit : jamais de littéral réaliste dans le dépôt
+    (index.coffre / "Cles.md").write_text(f"# Clés\n\nexemple : {jeton}\n")
+    src = SourceConf(visibilite="public-maison", nom="coffre-maison", type="obsidian",
+                     emplacement=str(index.coffre))
+    indexer_source(bd, src, LecteurDossier(index.coffre),
+                   charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
+    res = rpc(client, "tools/call", {"name": "rag_fichiers",
+                                     "arguments": {"source": "coffre-maison", "etat": "exclu_auto"}})
+    brut = res["content"][0]["text"]
+    d = json.loads(brut)
+    assert any(f["chemin"] == "Cles.md" and f["raison"] == "secret" for f in d["fichiers"])
+    assert "detail" not in brut and "extrait" not in brut and "sk-aaa" not in brut
