@@ -217,8 +217,9 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                  FROM documents d WHERE d.source_id = %s""", (v, source_id))
     }
     emp = empreinte_indexation(conf)
-    deja_exclus = {r["chemin"]: (r["signature"], r["regle"]) for r in conn.execute(
-        "SELECT chemin, signature, detail->>'regle' AS regle FROM exclus "
+    # chemin -> (signature, règle, raison) des verdicts déjà lus sous cette empreinte
+    deja_exclus = {r["chemin"]: (r["signature"], r["regle"], r["raison"]) for r in conn.execute(
+        "SELECT chemin, signature, detail->>'regle' AS regle, raison FROM exclus "
         "WHERE source_id = %s AND empreinte = %s AND lu", (source_id, emp))}
     absents = existants.keys() - entrees.keys()
     # exclus à la main : voulus, ils ne trahissent pas un listage partiel
@@ -290,7 +291,12 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             raison, detail = affiner(brut, chemin, contenu, source.exclure,
                                      levees_de(chemin, e, sha))
             if raison:
-                log.warning("%s : %r exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
+                # un contenu_secret accepté est relu à chaque passe tant que le contenu lu n'est
+                # pas celui accepté (seul moyen de voir un retour au contenu d'origine) : le
+                # même verdict sous la même signature ne s'annonce plus qu'en info
+                deja_vu = bool(deja and deja[0] == e.signature and deja[2] == raison)
+                (log.info if deja_vu else log.warning)(
+                    "%s : %r exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
                 _verrouiller_identite(conn, source, source_id)
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))

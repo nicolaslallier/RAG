@@ -556,3 +556,24 @@ def test_leve_par_le_nom_non_ecrit_reste_en_file(bd, q, faux_modeles):
     e = exclu(bd, ".env.example")
     assert e is not None and e["detail"]["regle"] == "nom_secret"
     assert etats(bd)[".env.example"] == "a_traiter"
+
+
+def test_contenu_accepte_different_ne_s_annonce_qu_une_fois(bd, q, depot, tmp_path, faux_modeles,
+                                                            caplog):
+    """Signature égale, contenu lu différent de celui accepté : relu à chaque passe (pour voir
+    un retour au contenu d'origine), mais l'avertissement n'est émis qu'une fois."""
+    accepter(bd, "depot-test", PLAN)
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    lire = lec.lire
+    autre = f"# Plan\n\nvrai : {JETON}z\n".encode()
+    lus = []
+    lec.lire = lambda c: lus.append(c) or (autre if c == PLAN else lire(c))
+    avertis = []
+    for _ in range(3):
+        caplog.clear()
+        with caplog.at_level("INFO", logger="rag.indexeur"):
+            indexer_source(bd, SRC, lec, CONF, faux_modeles)
+        avertis.append([r.levelname for r in caplog.records if PLAN in r.getMessage()])
+    # l'avertissement a été émis à la première passe (fixture `q`), sous cette signature
+    assert avertis == [["INFO"], ["INFO"], ["INFO"]]
+    assert lus.count(PLAN) == 3 and PLAN not in chemins(bd)
