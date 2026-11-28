@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block titre %}Quarantaine{% endblock %}
+{% block contenu %}
+<h1>Quarantaine</h1>
+<p class="aide">Fichiers écartés automatiquement comme secrets ou fichiers générés. Accepter indexe le
+  fichier tant que son contenu ne change pas ; refuser le laisse exclu et le sort de cette file.
+  Le contenu n'est jamais affiché : seulement la ligne et un extrait masqué de ce qui a déclenché l'exclusion.</p>
+<form class="filtres" method="get" action="/ui/quarantaine" hx-get="/ui/quarantaine"
+      hx-target="#liste-quarantaine" hx-swap="outerHTML" hx-push-url="true" hx-trigger="change">
+  <label for="q-source">Source</label>
+  <select id="q-source" name="source">
+    <option value="">Toutes</option>
+    {% for nom in sources %}<option value="{{ nom }}"{% if nom == vue.source %} selected{% endif %}>{{ nom }}</option>{% endfor %}
+  </select>
+  <label for="q-raison">Raison</label>
+  <select id="q-raison" name="raison">
+    {% for valeur, libelle in (("secret", "Secrets"), ("genere", "Fichiers générés"), ("toutes", "Toutes")) %}
+    <option value="{{ valeur }}"{% if valeur == vue.raison %} selected{% endif %}>{{ libelle }}</option>{% endfor %}
+  </select>
+  <label for="q-etat">État</label>
+  <select id="q-etat" name="etat">
+    {% for valeur, libelle in (("a_traiter", "À traiter"), ("accepte", "Acceptés"), ("refuse", "Refusés")) %}
+    <option value="{{ valeur }}"{% if valeur == vue.etat %} selected{% endif %}>{{ libelle }}</option>{% endfor %}
+  </select>
+  <noscript><button type="submit">Filtrer</button></noscript>
+</form>
+<div id="resultat" aria-live="polite"></div>
+{% include "_liste_quarantaine.html" %}
+<section class="carte bloc">
+  <h2>Sauvegarde</h2>
+  <p><a href="/ui/quarantaine/export" download>Exporter (YAML)</a></p>
+  <form class="filtres" hx-post="/ui/quarantaine/import" hx-encoding="multipart/form-data"
+        hx-target="#resultat" hx-swap="innerHTML">
+    <label for="fichier">Importer un export</label>
+    <input id="fichier" type="file" name="fichier" accept=".yaml,.yml,text/yaml" required>
+    <button type="submit" class="secondaire">Importer</button>
+  </form>
+  <p class="aide">Fusion : une décision déjà en place est gardée ; 1 Mo au plus.</p>
+</section>
+{% endblock %}

@@ -1,4 +1,5 @@
-"""Interface de gestion sous /ui/ : connexion par jeton (cookie), Sources, Fichiers, Exclusions.
+"""Interface de gestion sous /ui/ : connexion par jeton (cookie), Sources, Fichiers, Exclusions,
+Quarantaine.
 
 Le cookie `rag_session` contient le jeton lui-même ; il n'est jamais affiché ni journalisé.
 Les écritures exigent le jeton privé, l'en-tête `HX-Request` et une `Origin` absente ou locale.
@@ -21,6 +22,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from rag import quarantaine
 from rag.config import TOUT
 from rag.db import connexion
 from rag.gestion import (
@@ -40,6 +42,7 @@ from rag.gestion import exclusions as lister_exclusions
 from rag.gestion import fichier as lire_fichier
 from rag.gestion import fichiers as lister_fichiers
 from rag.gestion import sources as lister_sources
+from rag.quarantaine import DecisionInvalide
 from rag.sources import ErreurSource, jeton_general, verifier_depot
 from rag.sources_gerees import (
     Coffret,
@@ -66,11 +69,14 @@ SANS_CACHE = {"Cache-Control": "no-store"}
 PAR_PAGE = 50
 ETATS = ("indexe", "exclu_auto", "exclu_manuel")
 INTROUVABLE = "Source ou fichier introuvable."
+ETATS_QUARANTAINE = ("a_traiter", "accepte", "refuse")
+RAISONS_QUARANTAINE = ("secret", "genere")
+SANS_EMPREINTE = "-"  # champ `contenu_sha256` d'une ligne jamais lue (un champ vide serait absent)
 GROS_APERCU = 100  # au-delà, seconde confirmation (case à cocher)
 ORIGINE_FICHIERS = "fichiers"  # aperçu lancé depuis l'écran des fichiers
 IMPORT_MAX = 1024 * 1024  # octets du fichier importé
 IMPORT_MARGE = 16 * 1024  # enveloppe multipart tolérée au-delà, pour refuser tôt sur Content-Length
-CHEMINS_IMPORT = ("/ui/exclusions/import", "/ui/sources-git/import")  # plafond propre (rag.garde)
+CHEMINS_IMPORT = ("/ui/exclusions/import", "/ui/sources-git/import", "/ui/quarantaine/import")  # plafond propre (rag.garde)
 
 
 def _sans_cache[R: Response](reponse: R) -> R:
@@ -124,6 +130,8 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
     gabarits = Jinja2Templates(directory=DOSSIER / "gabarits")  # autoescape actif (.html)
     gabarits.env.filters["en_requete"] = lambda v: quote(str(v), safe="")  # tout encodé, « / » aussi
     gabarits.env.filters["en_texte"] = _en_texte  # texte simple : échappé par le gabarit
+    gabarits.env.filters["combine_signature"] = lambda cible, signature, sha: cible | {
+        "signature": signature, "contenu_sha256": sha or SANS_EMPREINTE}  # ce que l'écran a montré
     routeur = APIRouter(prefix="/ui")
 
     def session(request: Request) -> frozenset[str]:
@@ -147,7 +155,14 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
                 or not origine_locale(request)):
             raise HTTPException(403, "écriture refusée", headers=SANS_CACHE)
 
+    def ecrivain_visible(niveaux: Annotated[frozenset[str], Depends(session)]) -> None:
+        if not peut_ecrire(niveaux):  # GET des formulaires : l'écrivain seulement
+            raise HTTPException(403, "réservé à l'écrivain", headers=SANS_CACHE)
+
     def page_ui(request: Request, nom: str, statut: int = 200, **contexte) -> HTMLResponse:
+        jeton = request.cookies.get(COOKIE, "")
+        contexte.setdefault("menu_ecrivain", bool(jeton) and peut_ecrire(
+            niveaux_de("Bearer " + jeton) or frozenset()))
         return _sans_cache(gabarits.TemplateResponse(request, nom, contexte, status_code=statut))
 
     @routeur.get("/connexion", response_class=HTMLResponse)
@@ -355,11 +370,133 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
                  f"{pluriel(n, 'document')} retiré{'s' if n > 1 else ''}.")
         return await run_in_threadpool(message, request, texte, niveaux=niveaux)
 
-    # --- Sources git --------------------------------------------------------------------------
+    # --- Quarantaine ---------------------------------------------------------------------------
 
-    def ecrivain_visible(niveaux: Annotated[frozenset[str], Depends(session)]) -> None:
-        if not peut_ecrire(niveaux):  # GET des formulaires : l'écrivain seulement
-            raise HTTPException(403, "réservé à l'écrivain", headers=SANS_CACHE)
+    def vue_quarantaine(niveaux, source: str, raison: str, etat: str, page: int) -> dict:
+        """Contexte de la liste : filtres nettoyés, file paginée (ramenée à la dernière page), comptes."""
+        vue = {"source": source.strip(),
+               "raison": raison if raison in (*RAISONS_QUARANTAINE, "toutes") else "secret",
+               "etat": etat if etat in ETATS_QUARANTAINE else "a_traiter"}
+        filtres = {"niveaux": niveaux, "source": vue["source"] or None,
+                   "raison": None if vue["raison"] == "toutes" else vue["raison"],
+                   "etat": vue["etat"], "par_page": PAR_PAGE}
+        with connexion(database_url) as conn:
+            liste = quarantaine.file(conn, page=min(max(page, 1), PAGE_MAX), **filtres)
+            if 1 <= liste["pages"] < liste["page"]:
+                liste = quarantaine.file(conn, page=liste["pages"], **filtres)
+            comptes = quarantaine.comptes(conn, niveaux=niveaux)
+            noms = [s["nom"] for s in lister_sources(conn, niveaux=niveaux)]
+        return {"liste": liste, "comptes": comptes, "sources": noms,
+                "vue": vue | {"page": liste["page"]}}
+
+    def message_quarantaine(request, texte, niveaux, vue_source="", vue_raison="secret",
+                            vue_etat="a_traiter", vue_page=1):
+        return page_ui(request, "_message_quarantaine.html", message=texte, oob=True,
+                       **vue_quarantaine(niveaux, vue_source, vue_raison, vue_etat, vue_page))
+
+    @routeur.get("/quarantaine", response_class=HTMLResponse,
+                 dependencies=[Depends(ecrivain_visible)])
+    def ecran_quarantaine(request: Request, niveaux: Annotated[frozenset[str], Depends(session)],
+                          source: str = "", raison: str = "secret", etat: str = "a_traiter",
+                          page: int = 1):
+        gabarit = "_liste_quarantaine.html" if request.headers.get("hx-request") == "true" \
+            else "quarantaine.html"
+        return page_ui(request, gabarit, oob=False,
+                       **vue_quarantaine(niveaux, source, raison, etat, page))
+
+    @routeur.post("/quarantaine/accepter", response_class=HTMLResponse,
+                  dependencies=[Depends(ecrivain)])
+    def accepter_fichier(request: Request, niveaux: Annotated[frozenset[str], Depends(session)],
+                         source: Annotated[str, Form()], chemin: Annotated[str, Form()],
+                         signature: Annotated[str, Form()],
+                         contenu_sha256: Annotated[str, Form()],
+                         vue_source: Annotated[str, Form()] = "",
+                         vue_raison: Annotated[str, Form()] = "secret",
+                         vue_etat: Annotated[str, Form()] = "a_traiter",
+                         vue_page: Annotated[int, Form()] = 1):
+        try:
+            with connexion(database_url) as conn:
+                quarantaine.accepter(conn, source, chemin, signature,
+                                     "" if contenu_sha256 == SANS_EMPREINTE else contenu_sha256)
+        except DecisionInvalide as e:
+            return message(request, f"Acceptation refusée : {e}.", 400, erreur=True)
+        except SourceInconnue:
+            raise HTTPException(404, "source inconnue", headers=SANS_CACHE) from None
+        log.info("quarantaine : un fichier accepté dans %s", source)  # jamais le chemin
+        return message_quarantaine(request, "Accepté : le fichier sera indexé à la prochaine passe.",
+                                   niveaux, vue_source, vue_raison, vue_etat, vue_page)
+
+    @routeur.post("/quarantaine/refuser", response_class=HTMLResponse,
+                  dependencies=[Depends(ecrivain)])
+    def refuser_fichier(request: Request, niveaux: Annotated[frozenset[str], Depends(session)],
+                        source: Annotated[str, Form()], chemin: Annotated[str, Form()],
+                        vue_source: Annotated[str, Form()] = "",
+                        vue_raison: Annotated[str, Form()] = "secret",
+                        vue_etat: Annotated[str, Form()] = "a_traiter",
+                        vue_page: Annotated[int, Form()] = 1):
+        try:
+            with connexion(database_url) as conn:
+                quarantaine.refuser(conn, source, chemin)
+        except DecisionInvalide as e:
+            return message(request, f"Refus impossible : {e}.", 400, erreur=True)
+        except SourceInconnue:
+            raise HTTPException(404, "source inconnue", headers=SANS_CACHE) from None
+        log.info("quarantaine : un fichier refusé dans %s", source)
+        return message_quarantaine(request, "Refusé : le fichier reste exclu.",
+                                   niveaux, vue_source, vue_raison, vue_etat, vue_page)
+
+    @routeur.post("/quarantaine/annuler", response_class=HTMLResponse,
+                  dependencies=[Depends(ecrivain)])
+    def annuler_decision(request: Request, niveaux: Annotated[frozenset[str], Depends(session)],
+                         source: Annotated[str, Form()], chemin: Annotated[str, Form()],
+                         vue_source: Annotated[str, Form()] = "",
+                         vue_raison: Annotated[str, Form()] = "secret",
+                         vue_etat: Annotated[str, Form()] = "a_traiter",
+                         vue_page: Annotated[int, Form()] = 1):
+        with connexion(database_url) as conn:
+            fait = quarantaine.annuler(conn, source, chemin)
+        if fait:
+            log.info("quarantaine : une décision annulée dans %s", source)
+        return message_quarantaine(request,
+                                   "Décision annulée." if fait else "Aucune décision à annuler.",
+                                   niveaux, vue_source, vue_raison, vue_etat, vue_page)
+
+    @routeur.get("/quarantaine/export", dependencies=[Depends(ecrivain_visible)])
+    def exporter_quarantaine():
+        with connexion(database_url) as conn:
+            texte = quarantaine.exporter(conn)
+        return _sans_cache(Response(texte, media_type="text/yaml", headers={
+            "Content-Disposition": 'attachment; filename="quarantaine-rag.yaml"'}))
+
+    @routeur.post("/quarantaine/import", response_class=HTMLResponse,
+                  dependencies=[Depends(ecrivain)])
+    async def importer_quarantaine(request: Request,
+                                   niveaux: Annotated[frozenset[str], Depends(session)]):
+        # Corps lu ici, après `ecrivain` : un formulaire déclaré serait lu avant la garde.
+        lu = await _lire_fichier_import(request)
+        if isinstance(lu, tuple):
+            return message(request, lu[0], lu[1], erreur=True)
+        try:
+            texte = lu.decode("utf-8")
+        except UnicodeDecodeError:
+            return message(request, "Fichier illisible : UTF-8 attendu.", 400, erreur=True)
+
+        def importer_en_base() -> dict:
+            with connexion(database_url) as conn:
+                return quarantaine.importer(conn, texte)
+
+        try:
+            bilan = await run_in_threadpool(importer_en_base)
+        except DecisionInvalide as e:
+            return message(request, f"Import refusé : {e}.", 400, erreur=True)
+        a, i = bilan["ajoutees"], bilan["ignorees"]
+        log.info("import de décisions de quarantaine : %d ajoutées, %d déjà présentes", a, i)
+        return await run_in_threadpool(
+            message_quarantaine, request,
+            f"{a} ajoutée{'s' if a > 1 else ''}, {i} déjà présente{'s' if i > 1 else ''}.",
+            niveaux)
+
+    # --- Sources git --------------------------------------------------------------------------
 
     def source_geree(nom: str) -> dict:
         with connexion(database_url) as conn:

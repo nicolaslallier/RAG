@@ -134,3 +134,75 @@ def test_migrer_role_monitoring_puis_amorcage(env_cli, tmp_path, monkeypatch, bd
                       ).fetchone()["column_default"] is None
     assert bd.execute("SELECT visibilite FROM sources WHERE nom = 'depot'"
                       ).fetchone()["visibilite"] == "prive"
+
+
+JETON = "sk-" + "a" * 24  # faux jeton construit : jamais de littéral réaliste dans le dépôt
+
+
+def test_cli_quarantaine_lister_accepter_refuser_annuler(env_cli, capsys):
+    (env_cli / "Cles.md").write_text(f"# Clés\n\nexemple : {JETON}\n")
+    assert cli.main(["indexer"]) == 0
+    capsys.readouterr()
+    assert cli.main(["quarantaine", "lister"]) == 0
+    out = capsys.readouterr().out
+    assert ("a_traiter\tcoffre-maison\tCles.md\tsecret\t"
+            "contenu : ligne 3 sk-aaa… (27 caractères)") in out
+    assert JETON not in out
+    assert cli.main(["quarantaine", "accepter", "coffre-maison", "Cles.md"]) == 0
+    assert "accepté (contenu_secret)" in capsys.readouterr().err
+    assert cli.main(["indexer"]) == 0
+    capsys.readouterr()
+    assert cli.main(["chercher", "exemple"]) == 0
+    assert "Cles.md" in capsys.readouterr().out
+    assert cli.main(["quarantaine", "refuser", "coffre-maison", "Cles.md"]) == 0
+    capsys.readouterr()
+    assert cli.main(["quarantaine", "lister", "--etat", "refuse"]) == 0
+    assert "Cles.md" in capsys.readouterr().out
+    assert cli.main(["quarantaine", "annuler", "coffre-maison", "Cles.md"]) == 0
+    capsys.readouterr()
+    assert cli.main(["quarantaine", "annuler", "coffre-maison", "Cles.md"]) == 1
+    assert "aucune décision" in capsys.readouterr().err
+
+
+def test_cli_quarantaine_accepter_refuse(env_cli, capsys):
+    assert cli.main(["indexer"]) == 0
+    capsys.readouterr()
+    assert cli.main(["quarantaine", "accepter", "coffre-maison", "Accueil.md"]) == 1
+    assert "refusé : ce fichier n'est pas en quarantaine" in capsys.readouterr().err
+    assert cli.main(["quarantaine", "accepter", "inconnue", "x.md"]) == 1
+    assert "source inconnue" in capsys.readouterr().err
+
+
+def test_cli_quarantaine_exporter_importer(env_cli, capsys, tmp_path):
+    assert cli.main(["indexer"]) == 0
+    capsys.readouterr()
+    f = tmp_path / "quarantaine.yaml"
+    f.write_text("- {source: coffre-maison, chemin: x.md, decision: refuse, signature: s, "
+                 "regles: []}\n")
+    assert cli.main(["quarantaine", "importer", str(f)]) == 0
+    assert "1 ajoutée(s), 0 ignorée(s)" in capsys.readouterr().err
+    assert cli.main(["quarantaine", "exporter"]) == 0
+    assert yaml.safe_load(capsys.readouterr().out) == [
+        {"source": "coffre-maison", "chemin": "x.md", "decision": "refuse", "signature": "s",
+         "regles": [], "contenu_sha256": None}]
+    assert cli.main(["quarantaine", "importer", str(tmp_path / "absent.yaml")]) == 1
+    assert "illisible" in capsys.readouterr().err
+    f.write_text("pas une liste\n")
+    assert cli.main(["quarantaine", "importer", str(f)]) == 1
+    assert "fichier invalide, rien d'importé" in capsys.readouterr().err
+
+
+def test_cli_quarantaine_lister_orphelins(env_cli, capsys):
+    (env_cli / "Cles.md").write_text(f"# Clés\n\nexemple : {JETON}\n")
+    assert cli.main(["indexer"]) == 0
+    assert cli.main(["quarantaine", "refuser", "coffre-maison", "Cles.md"]) == 0
+    capsys.readouterr()
+    assert cli.main(["quarantaine", "lister", "--etat", "orphelin"]) == 0
+    assert "Cles.md" not in capsys.readouterr().out
+    (env_cli / "Cles.md").unlink()
+    assert cli.main(["indexer"]) == 0
+    capsys.readouterr()
+    assert cli.main(["quarantaine", "lister", "--etat", "orphelin"]) == 0
+    sortie = capsys.readouterr()
+    assert "orphelin\tcoffre-maison\tCles.md\trefuse\tcontenu_secret" in sortie.out
+    assert "1 décision(s) sans fichier en file" in sortie.err

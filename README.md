@@ -80,20 +80,55 @@ dans un cookie `rag_session` (`HttpOnly`, `SameSite=Strict`, limité à `/ui`).
   avec la raison), le détail des morceaux d'un fichier et la liste des exclusions.
 - `RAG_JETON_PRIVE` : voit aussi les sources `prive` et `travail` et **peut écrire** : exclure un fichier ou un
   motif (aperçu puis confirmation, seconde confirmation au-delà de 100 documents), annuler une
-  exclusion, importer et exporter les exclusions, demander une réindexation. Sans
+  exclusion, importer et exporter les exclusions, demander une réindexation, traiter la
+  quarantaine (accepter ou refuser un fichier écarté comme secret ou fichier généré). Sans
   `RAG_JETON_PRIVE` dans l'environnement, l'interface est en lecture seule.
 - Les écritures n'existent que sous `/ui/` : ni l'API par jeton `Bearer` ni le MCP ne peuvent
-  exclure ou annuler.
+  exclure ou annuler, ni accepter un fichier en quarantaine. Le MCP ne rend jamais le détail d'un
+  verdict (règle, lignes, extraits).
 - Côté MCP (lecture seule, mêmes niveaux de visibilité que le jeton) : `rag_sources` rend
   `{"sources": [...], "en_cours": {"genre", "debut"} | null}` (les sources et leur état, et la
   passe d'indexation en cours, comme l'écran Sources), `rag_fichiers` liste les fichiers d'une
   source (indexés ou exclus, avec la raison).
 - Un motif d'exclusion suit `fnmatch` (le `*` traverse les `/`), 1 à 1000 caractères ; la raison est
-  facultative (500 caractères au plus). Le contenu d'un fichier exclu n'est jamais lu ni affiché.
+  facultative (500 caractères au plus). Le contenu d'un fichier exclu n'est jamais affiché ni
+  enregistré : pour un secret trouvé dans un contenu, seuls le numéro de ligne et un extrait masqué
+  (6 premiers caractères et longueur) sont gardés.
 
 **Le coffre Obsidian est indexé en `public-maison`, par choix** (`config/rag.yaml`). Toute note du
 coffre est donc visible avec `RAG_JETON`, c'est-à-dire par LiteLLM et Jarvis via le MCP. Une note qui
 ne doit pas l'être se retire par une exclusion (écran Exclusions ou `exclure:`), pas par un niveau.
+
+### Quarantaine
+
+Les fichiers écartés automatiquement comme `secret` ou `genere` peuvent être examinés dans l'écran
+Quarantaine (`/ui/quarantaine`, réservé à `RAG_JETON_PRIVE`) ou par la CLI. `binaire`, `config`,
+`manuelle` et `trop_gros` n'y entrent jamais. L'écran montre la règle qui a déclenché le verdict
+(`nom_secret`, `contenu_secret`, `genere`) et, pour un secret dans un contenu, chaque ligne avec un
+extrait masqué ; jamais le contenu. La file s'ouvre sur les secrets ; les fichiers générés se voient
+par le filtre.
+
+- **Accepter** lève une règle, pour un fichier et une signature : le fichier est indexé à la passe
+  demandée aussitôt. Pour `contenu_secret`, l'acceptation vaut en plus pour **ce contenu-là**
+  (sha256 du contenu lu), pas seulement pour la signature. Un fichier modifié retourne en
+  quarantaine ; un fichier accepté sur son nom reste exclu si son contenu porte un secret (il revient
+  dans la file avec la règle `contenu_secret`) ; un fichier généré accepté reste exclu s'il est binaire.
+- **Refuser** laisse le fichier exclu et le sort de la file ; le refus vaut pour le chemin, même
+  modifié. **Annuler** oublie la décision (une acceptation annulée retire le document).
+- L'exclusion manuelle prime sur l'acceptation.
+
+```
+rag quarantaine lister [--source S] [--raison secret|genere|toutes] [--etat a_traiter|accepte|refuse|orphelin] [--prive]
+rag quarantaine accepter SOURCE CHEMIN
+rag quarantaine refuser SOURCE CHEMIN
+rag quarantaine annuler SOURCE CHEMIN
+rag quarantaine exporter
+rag quarantaine importer FICHIER
+```
+
+`--etat orphelin` liste les décisions qui n'ont plus de fichier dans la file (fichier disparu,
+redevenu propre, devenu binaire ou exclu à la main) : l'écran ne les montre pas, l'export les
+garde ; `rag quarantaine annuler` les efface.
 
 ### Sources git gérées dans l'interface
 
@@ -186,6 +221,11 @@ Aucune n'est faite par un agent.
 - Tourner `RAG_DB_PASSWORD` : `POSTGRES_PASSWORD` n'est lu qu'à la création du volume `rag-pgdata`.
   D'abord `docker --context colima exec -it rag-rag-postgres-1 psql -U rag -c "ALTER ROLE rag PASSWORD '…'"`,
   puis changer `infra/rag` et redéployer (ou supprimer le volume et réindexer).
+- **Après le déploiement de la quarantaine (migration 009)** : les fichiers déjà exclus pour un secret
+  dans leur contenu sont relus une fois à la passe suivante (leur détail manquait) ;
+  `VERSION_ANALYSEUR` n'a pas changé, aucun verdict ne change. Contrôle :
+  `SELECT count(*) FROM exclus WHERE raison = 'secret' AND lu AND detail IS NULL;` rend 0 après une
+  passe complète.
 - **Après le déploiement du lot « sources » (migration 008)** : les nouveaux motifs de secrets
   sur les **noms** (`.npmrc`, `*.tfstate`, `kubeconfig`…) s'appliquent dès la passe suivante. Ceux
   sur le **contenu** (jetons GitLab `glpat-…`, Slack `xox?-…` et `xapp-…`) ne s'appliquent qu'aux fichiers
@@ -241,8 +281,8 @@ Aucune n'est faite par un agent.
 
 ## Sauvegarde
 
-`rag-pgdata` ne contient que **deux** données irremplaçables : les **exclusions manuelles** et les
-**sources git** (posées par l'interface `/ui/`). Tout le reste se reconstruit par `rag indexer --complet` depuis le coffre
+`rag-pgdata` ne contient que **trois** données irremplaçables : les **exclusions manuelles**, les
+**sources git** (posées par l'interface `/ui/`) et les **décisions de quarantaine**. Tout le reste se reconstruit par `rag indexer --complet` depuis le coffre
 (S3) et GitHub. **Exporter après chaque changement d'exclusion** : bouton « Exporter (YAML) » de
 l'écran Exclusions, ou
 
@@ -252,11 +292,19 @@ l'écran Exclusions, ou
 
     docker --context colima exec rag-rag-1 rag sources exporter > sources-rag.yaml
 
-(l'export ne contient jamais les jetons : à ressaisir après une restauration). Garder ces fichiers
+(l'export ne contient jamais les jetons : à ressaisir après une restauration).
+
+**Exporter aussi les décisions de quarantaine après chaque changement** : bouton « Exporter (YAML) »
+de l'écran Quarantaine, ou
+
+    docker --context colima exec rag-rag-1 rag quarantaine exporter > quarantaine-rag.yaml
+
+Garder ces fichiers
 hors de la VM. **Après une perte de la base**, vider `RAG_SOURCES_AMORCE` dans la pile *avant* de
 redémarrer : sinon `rag migrer` ré-amorce depuis `sources-maison.yaml` et ressuscite les sources
 supprimées depuis l'interface. Importer ensuite le dernier export des sources (et celui des
-exclusions). Après un `colima delete` : relancer la pile (même précaution), réimporter
-(boutons « Importer » des écrans Exclusions et Sources) puis réindexer. Seuls `banc/` et `config/` (dans git),
-ces exclusions et ces sources sont irremplaçables. Le volume vit dans la VM : `colima delete` l'efface (comme
+exclusions, puis celui des décisions de quarantaine). Après un `colima delete` : relancer la pile
+(même précaution), réimporter (boutons « Importer » des écrans Exclusions, Sources et Quarantaine)
+puis réindexer. Seuls `banc/` et `config/` (dans git), ces exclusions, ces sources et ces décisions
+sont irremplaçables. Le volume vit dans la VM : `colima delete` l'efface (comme
 `rag-donnees`), une réindexation complète est alors à prévoir.

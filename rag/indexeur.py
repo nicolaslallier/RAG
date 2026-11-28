@@ -8,11 +8,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import psycopg
+from psycopg.types.json import Jsonb
 
+from rag import quarantaine
 from rag.config import IndexationConf, SourceConf, empreinte_indexation, plafond_lecture
 from rag.decoupage import Morceau, decouper_note
 from rag.decoupage_code import decouper_code, langage
-from rag.exclusions import motif_exclusion
+from rag.exclusions import affiner, motif_exclusion
 from rag.gestion import SourceSupprimee, correspond, motifs_manuels, verrouiller_source
 from rag.modeles import ErreurModele
 from rag.notes import Note, analyser_note
@@ -176,15 +178,24 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     conn.commit()
     v = version_courante(conn, conf)
     motifs = motifs_manuels(conn, source.nom)
+    acceptes = quarantaine.levees(conn, source.nom)
     conn.commit()
 
+    def levees_de(chemin, e, sha256: str | None = None) -> frozenset[str]:
+        """Règles levées pour ce fichier, si sa signature est celle qui a été acceptée ;
+        `contenu_secret` seulement si le contenu lu (`sha256`) est celui qui a été accepté."""
+        lv = acceptes.get(chemin)
+        return lv.pour(e.signature, sha256) if lv else frozenset()
+
     entrees = {}
-    exclus_listage = {}  # chemin -> (entrée, raison) : écartés sur le nom, jamais lus
+    leves_par_nom = set()  # écartés sur le nom, entrés grâce à une acceptation (nom_secret, genere)
+    exclus_listage = {}  # chemin -> (entrée, raison, détail) : écartés sur le nom, jamais lus
     for e in lecteur.lister():
         chemin = nfc(e.chemin)
         if source.type == "obsidian" and not chemin.endswith(".md"):
             continue  # pièces jointes, .gitignore, .DS_Store : hors coffre de notes
-        raison = motif_exclusion(chemin, b"", source.exclure)
+        brut = motif_exclusion(chemin, b"", source.exclure)
+        raison, detail = affiner(brut, chemin, b"", source.exclure, levees_de(chemin, e))
         if raison is None and correspond(chemin, motifs):
             raison = "manuelle"
         if raison is None and e.taille > plafond_lecture(conf):
@@ -192,8 +203,10 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             log.warning("%s : %r exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
         if raison is None:
             entrees[chemin] = e
+            if brut is not None:
+                leves_par_nom.add(chemin)
             continue
-        exclus_listage[chemin] = (e, raison)
+        exclus_listage[chemin] = (e, raison, detail)
         if raison not in ("config", "manuelle"):
             bilan.exclus += 1  # secret, verrou, généré : exclus sur le nom, jamais lus
     existants = {
@@ -204,12 +217,13 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                  FROM documents d WHERE d.source_id = %s""", (v, source_id))
     }
     emp = empreinte_indexation(conf)
-    deja_exclus = {r["chemin"]: r["signature"] for r in conn.execute(
-        "SELECT chemin, signature FROM exclus WHERE source_id = %s AND empreinte = %s AND lu",
-        (source_id, emp))}
+    # chemin -> (signature, règle, raison) des verdicts déjà lus sous cette empreinte
+    deja_exclus = {r["chemin"]: (r["signature"], r["regle"], r["raison"]) for r in conn.execute(
+        "SELECT chemin, signature, detail->>'regle' AS regle, raison FROM exclus "
+        "WHERE source_id = %s AND empreinte = %s AND lu", (source_id, emp))}
     absents = existants.keys() - entrees.keys()
     # exclus à la main : voulus, ils ne trahissent pas un listage partiel
-    manuels = {c for c, (_, raison) in exclus_listage.items() if raison == "manuelle"}
+    manuels = {c for c, (_, raison, _) in exclus_listage.items() if raison == "manuelle"}
     manquants = absents - manuels
     # rien d'indexé encore : un listage vide n'efface rien, ce n'est pas un échec
     if not forcer and existants and ((not entrees and not manuels)
@@ -223,13 +237,15 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
 
     # le listage (clone ou fetch) est la fenêtre la plus longue : identité relue avant d'écrire
     _verrouiller_identite(conn, source, source_id)
-    for chemin, (e, raison) in exclus_listage.items():
+    for chemin, (e, raison, detail) in exclus_listage.items():
         conn.execute(
-            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
-               VALUES (%s, %s, %s, %s, %s, false) ON CONFLICT (source_id, chemin) DO UPDATE
-               SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                   raison = EXCLUDED.raison, lu = false""",
-            (source_id, chemin, e.signature, emp, raison))
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail,
+                                  contenu_sha256)
+               VALUES (%s, %s, %s, %s, %s, false, %s, NULL) ON CONFLICT (source_id, chemin)
+               DO UPDATE SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                   raison = EXCLUDED.raison, lu = false, detail = EXCLUDED.detail,
+                   contenu_sha256 = NULL""",
+            (source_id, chemin, e.signature, emp, raison, Jsonb(detail) if detail else None))
     conn.commit()  # pas de verrou de ligne sur `exclus` pendant le travail lent qui suit
 
     repos = timedelta(minutes=source.repos_minutes)
@@ -243,11 +259,12 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         if ex:
             conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
         conn.execute(
-            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
-               VALUES (%s, %s, %s, %s, 'manuelle', false)
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail,
+                                  contenu_sha256)
+               VALUES (%s, %s, %s, %s, 'manuelle', false, NULL, NULL)
                ON CONFLICT (source_id, chemin) DO UPDATE
                SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                   raison = EXCLUDED.raison, lu = false""",
+                   raison = EXCLUDED.raison, lu = false, detail = NULL, contenu_sha256 = NULL""",
             (source_id, chemin, e.signature, emp))
         conn.commit()
         exclus_en_passe.add(chemin)
@@ -256,7 +273,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     for chemin, e in sorted(entrees.items()):
         ex = existants.get(chemin)
         try:
-            if deja_exclus.get(chemin) == e.signature:
+            deja = deja_exclus.get(chemin)
+            if deja and deja[0] == e.signature and deja[1] not in levees_de(chemin, e):
                 bilan.exclus += 1
                 continue
             if ex and ex["signature"] == e.signature and ex["a_v"]:
@@ -268,21 +286,33 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             if exclu_en_passe(chemin, e, ex):  # exclu depuis le listage : jamais lu
                 continue
             contenu = lecteur.lire(chemin)
-            if raison := motif_exclusion(chemin, contenu, source.exclure):
-                log.warning("%s : %r exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
+            sha = hashlib.sha256(contenu).hexdigest()
+            brut = motif_exclusion(chemin, contenu, source.exclure)
+            raison, detail = affiner(brut, chemin, contenu, source.exclure,
+                                     levees_de(chemin, e, sha))
+            if raison:
+                # un contenu_secret accepté est relu à chaque passe tant que le contenu lu n'est
+                # pas celui accepté (seul moyen de voir un retour au contenu d'origine) : le
+                # même verdict sous la même signature ne s'annonce plus qu'en info
+                deja_vu = bool(deja and deja[0] == e.signature and deja[2] == raison)
+                (log.info if deja_vu else log.warning)(
+                    "%s : %r exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
                 _verrouiller_identite(conn, source, source_id)
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
                 conn.execute(
-                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
-                       VALUES (%s, %s, %s, %s, %s, true) ON CONFLICT (source_id, chemin) DO UPDATE
-                       SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                           raison = EXCLUDED.raison, lu = true""",
-                    (source_id, chemin, e.signature, emp, raison))
+                    """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu,
+                                          detail, contenu_sha256)
+                       VALUES (%s, %s, %s, %s, %s, true, %s, %s) ON CONFLICT (source_id, chemin)
+                       DO UPDATE SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                           raison = EXCLUDED.raison, lu = true, detail = EXCLUDED.detail,
+                           contenu_sha256 = EXCLUDED.contenu_sha256""",
+                    (source_id, chemin, e.signature, emp, raison,
+                     Jsonb(detail) if detail else None, sha))
                 conn.commit()
                 bilan.exclus += 1
                 continue
-            sha = hashlib.sha256(contenu).hexdigest()
+            par_levee = brut is not None  # indexé seulement grâce à une acceptation
             if ex and ex["sha256"] == sha and ex["a_v"]:
                 conn.execute("UPDATE documents SET signature = %s WHERE id = %s",
                              (e.signature, ex["id"]))
@@ -296,6 +326,12 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             # qui arrive attend le commit puis retire le document écrit
             _verrouiller_identite(conn, source, source_id)
             if exclu_en_passe(chemin, e, ex):
+                continue
+            # acceptation retirée ou changée pendant la passe : rien n'est écrit, reprise à la
+            # suivante
+            if par_levee and quarantaine.levees(conn, source.nom).get(chemin) != acceptes.get(chemin):
+                conn.rollback()
+                bilan.reportes += 1
                 continue
             conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
                          (source_id, chemin))
@@ -330,7 +366,10 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         """DELETE FROM exclus WHERE source_id = %s
              AND (NOT (chemin = ANY(%s)) OR (NOT lu AND NOT (chemin = ANY(%s))))""",
         (source_id, [*entrees, *exclus_listage],
-         [*exclus_listage, *exclus_en_passe, *manuelles]))
+         # levés par le nom mais pas écrits pendant la passe (échec, acceptation retirée,
+         # repos) : leur ligne reste, le fichier ne sort pas de la file ; écrits, elle est
+         # déjà effacée
+         [*exclus_listage, *exclus_en_passe, *manuelles, *leves_par_nom]))
     for chemin in absents:
         conn.execute("DELETE FROM documents WHERE id = %s", (existants[chemin]["id"],))
         bilan.supprimes += 1

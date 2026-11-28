@@ -13,6 +13,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # donc tout est réanalysé (une note devenue « secret » est alors retirée de toutes les versions).
 # Exception : la borne dure de decoupage.py (morceaux hors borne seulement) n'a pas incrémenté la
 # version, pour éviter une réindexation complète ; voir README, Exploitation.
+# Exception : le détail des verdicts (verdict, affiner : quarantaine) n'a changé aucun verdict et n'a
+# pas incrémenté la version.
 VERSION_ANALYSEUR = 2
 
 PUBLIC: frozenset[str] = frozenset({"public-maison"})

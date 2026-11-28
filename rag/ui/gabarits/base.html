@@ -21,6 +21,7 @@
     <nav>
       <a href="/ui/">Sources</a>
       <a href="/ui/exclusions">Exclusions</a>
+      {% if menu_ecrivain %}<a href="/ui/quarantaine">Quarantaine</a>{% endif %}
       {% block navigation_plus %}{% endblock %}
       <form method="post" action="/ui/deconnexion"><button type="submit" class="lien">Déconnexion</button></form>
     </nav>

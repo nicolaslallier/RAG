@@ -216,10 +216,13 @@ def _retirer_documents(conn, source_id: int, motif: str) -> int:
     conn.execute("DELETE FROM documents WHERE id = ANY(%s)", (ids,))
     for d in docs:
         conn.execute(
-            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
-               VALUES (%s, %s, %s, %s, 'manuelle', false) ON CONFLICT (source_id, chemin)
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail,
+                                  contenu_sha256)
+               VALUES (%s, %s, %s, %s, 'manuelle', false, NULL, NULL)
+               ON CONFLICT (source_id, chemin)
                DO UPDATE SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                             raison = EXCLUDED.raison, lu = false""",
+                             raison = EXCLUDED.raison, lu = false, detail = NULL,
+                             contenu_sha256 = NULL""",
             (source_id, d["chemin"], d["signature"], empreinte))
     return len(docs)
 

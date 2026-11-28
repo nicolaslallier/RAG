@@ -203,6 +203,8 @@ def _appliquer_modification(conn, nom: str, conf: SourceConf, utilisateur: str,
         conn.execute("DELETE FROM documents WHERE source_id = %s", (sid,))
         conn.execute("DELETE FROM noeuds WHERE source_id = %s", (sid,))
         conn.execute("DELETE FROM exclus WHERE source_id = %s", (sid,))
+        # un autre dépôt : les décisions prises sur l'ancien ne valent plus
+        conn.execute("DELETE FROM quarantaine_decisions WHERE source = %s", (nom,))
         conn.execute("UPDATE sources SET revision = NULL, graphe_revision = NULL"
                      " WHERE id = %s", (sid,))
     conn.execute(
@@ -261,6 +263,7 @@ def supprimer(conn, nom: str) -> None:
         verrouiller_source(conn, nom)
         _geree(conn, nom)
         conn.execute("DELETE FROM exclusions_manuelles WHERE source = %s", (nom,))
+        conn.execute("DELETE FROM quarantaine_decisions WHERE source = %s", (nom,))
         conn.execute("DELETE FROM sources WHERE nom = %s AND geree", (nom,))
         conn.commit()
     except BaseException:
