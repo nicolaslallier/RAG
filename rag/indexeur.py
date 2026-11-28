@@ -188,13 +188,14 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         return lv.pour(e.signature, sha256) if lv else frozenset()
 
     entrees = {}
+    leves_par_nom = set()  # écartés sur le nom, entrés grâce à une acceptation (nom_secret, genere)
     exclus_listage = {}  # chemin -> (entrée, raison, détail) : écartés sur le nom, jamais lus
     for e in lecteur.lister():
         chemin = nfc(e.chemin)
         if source.type == "obsidian" and not chemin.endswith(".md"):
             continue  # pièces jointes, .gitignore, .DS_Store : hors coffre de notes
-        raison, detail = affiner(motif_exclusion(chemin, b"", source.exclure), chemin, b"",
-                                 source.exclure, levees_de(chemin, e))
+        brut = motif_exclusion(chemin, b"", source.exclure)
+        raison, detail = affiner(brut, chemin, b"", source.exclure, levees_de(chemin, e))
         if raison is None and correspond(chemin, motifs):
             raison = "manuelle"
         if raison is None and e.taille > plafond_lecture(conf):
@@ -202,6 +203,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             log.warning("%s : %r exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
         if raison is None:
             entrees[chemin] = e
+            if brut is not None:
+                leves_par_nom.add(chemin)
             continue
         exclus_listage[chemin] = (e, raison, detail)
         if raison not in ("config", "manuelle"):
@@ -357,7 +360,10 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         """DELETE FROM exclus WHERE source_id = %s
              AND (NOT (chemin = ANY(%s)) OR (NOT lu AND NOT (chemin = ANY(%s))))""",
         (source_id, [*entrees, *exclus_listage],
-         [*exclus_listage, *exclus_en_passe, *manuelles]))
+         # levés par le nom mais pas écrits pendant la passe (échec, acceptation retirée,
+         # repos) : leur ligne reste, le fichier ne sort pas de la file ; écrits, elle est
+         # déjà effacée
+         [*exclus_listage, *exclus_en_passe, *manuelles, *leves_par_nom]))
     for chemin in absents:
         conn.execute("DELETE FROM documents WHERE id = %s", (existants[chemin]["id"],))
         bilan.supprimes += 1

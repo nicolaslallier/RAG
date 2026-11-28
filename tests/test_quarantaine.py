@@ -528,3 +528,31 @@ def test_import_malforme_n_ecrit_rien(bd, q, texte):
 
 def test_import_valide_de_reference(bd, q):
     assert importer(bd, _VALIDE)["ajoutees"] == 1
+
+
+# --- tour 2 de relecture ---
+
+def retirer_pendant_les_embeddings(faux_modeles, mot):
+    """Supprime les décisions (autre connexion) pendant le calcul des vecteurs d'un texte."""
+    embed, fait = faux_modeles.embed_documents, []
+
+    def embed_et_retirer(textes, modele):
+        if not fait and any(mot in t for t in textes):
+            fait.append(1)
+            with connexion(URL) as autre:
+                autre.execute("DELETE FROM quarantaine_decisions")
+                autre.commit()
+        return embed(textes, modele)
+
+    faux_modeles.embed_documents = embed_et_retirer
+    return fait
+
+
+def test_leve_par_le_nom_non_ecrit_reste_en_file(bd, q, faux_modeles):
+    accepter(bd, "depot-test", ".env.example")
+    fait = retirer_pendant_les_embeddings(faux_modeles, "CLE=xyz")
+    b = q()
+    assert fait and b.reportes == 1 and ".env.example" not in chemins(bd)
+    e = exclu(bd, ".env.example")
+    assert e is not None and e["detail"]["regle"] == "nom_secret"
+    assert etats(bd)[".env.example"] == "a_traiter"
