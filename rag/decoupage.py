@@ -37,7 +37,7 @@ def _couper(t: str, cible: int, seps: list[str]) -> list[str]:
     if compter_tokens(t) <= cible:
         return [t] if t else []
     if not seps:   # mot géant, ligne minifiée, base64 : coupe par caractères
-        pas = cible * 4
+        pas = max(cible, 1) * 4
         return [t[i:i + pas] for i in range(0, len(t), pas)]
     sep, morceaux = seps[0], t.split(seps[0])
     out = []

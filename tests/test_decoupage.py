@@ -128,3 +128,8 @@ def test_code_source_a_ligne_geante_borne():
     from rag.decoupage_code import decouper_code
     m = decouper_code("R", "gros.json", '{"x": "' + "a" * 30000 + '"}', CONF)
     assert len(m) > 1 and all(compter_tokens(x.texte) <= BORNE + 50 for x in m)
+
+
+def test_coupe_dure_avec_cible_nulle_ne_plante_pas():
+    from rag.decoupage import _couper
+    assert "".join(_couper("x" * 10, 0, [])) == "x" * 10
