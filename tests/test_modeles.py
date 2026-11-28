@@ -288,3 +288,27 @@ def test_embeddings_malformes_levent_erreur_modele(data):
         _client(lambda r: httpx.Response(200, json={"data": data})).embed_documents(["a"], M)
     with pytest.raises(ErreurModele):
         _client(lambda r: httpx.Response(200, json=[1])).embed_documents(["a"], M)
+
+
+def _flux_coupe(evenements):
+    def corps():
+        for e in evenements:
+            yield f"data: {json.dumps(e)}\n\n".encode()
+        raise httpx.ReadError("connexion tombée")
+    return Modeles("http://x", "sk-secret", client=httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, content=corps(),
+                                 headers={"content-type": "text/event-stream"}))))
+
+
+def test_flux_coupure_apres_finish_reason_garde_la_reponse():
+    assert list(_flux_coupe([_d("a"), _d(None, "stop")]).generer_flux("g", [], 0)) == ["a"]
+
+
+def test_flux_coupure_apres_length_signale_la_troncature():
+    from rag.modeles import TRONQUE
+    assert list(_flux_coupe([_d("a", "length")]).generer_flux("g", [], 0)) == ["a", TRONQUE]
+
+
+def test_flux_coupure_avant_finish_reason_leve():
+    with pytest.raises(ErreurModele, match="ReadError"):
+        list(_flux_coupe([_d("a")]).generer_flux("g", [], 0))

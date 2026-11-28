@@ -160,7 +160,8 @@ class Modeles:
         except httpx.HTTPStatusError as e:
             raise ErreurModele(f"LiteLLM flux : HTTP {e.response.status_code}") from None
         except httpx.HTTPError as e:
-            raise ErreurModele(f"LiteLLM flux : {type(e).__name__}") from None
+            if fin is None:   # coupure après un finish_reason : la réponse est complète
+                raise ErreurModele(f"LiteLLM flux : {type(e).__name__}") from None
         if fin is None:   # connexion coupée proprement, sans [DONE] ni finish_reason
             raise ErreurModele("LiteLLM flux : interrompu avant la fin")
         if fin == "length":
