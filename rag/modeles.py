@@ -15,6 +15,32 @@ class ErreurModele(Exception):
     pass
 
 
+class _Tronque:
+    """Dernier élément de `generer_flux` quand le modèle s'arrête sur sa limite de longueur."""
+
+    def __repr__(self) -> str:
+        return "TRONQUE"
+
+
+TRONQUE = _Tronque()
+
+
+def _fragment(data: str) -> tuple[str | None, str | None]:
+    """(texte, finish_reason) d'un événement du flux ; ErreurModele si erreur ou forme imprévue."""
+    try:
+        ev = json.loads(data)
+        if ev.get("error"):   # sans le message du fournisseur : il peut contenir des détails
+            raise ErreurModele("LiteLLM flux : erreur du fournisseur")
+        choix = (ev.get("choices") or [{}])[0]
+        contenu = (choix.get("delta") or {}).get("content")
+        fin = choix.get("finish_reason")
+    except (ValueError, AttributeError, TypeError, IndexError, KeyError):
+        raise ErreurModele("LiteLLM flux : événement inattendu") from None
+    if not isinstance(contenu, str | None) or not isinstance(fin, str | None):
+        raise ErreurModele("LiteLLM flux : événement inattendu")
+    return contenu, fin
+
+
 def contexte_tls(ca: Path | None) -> ssl.SSLContext:
     """CA maison en plus des CA système. Python 3.13 exige par défaut (VERIFY_X509_STRICT) une
     extension keyUsage que le certificat de la CA maison n'a pas : on garde la vérification de la
@@ -68,9 +94,11 @@ class Modeles:
         except (KeyError, IndexError, TypeError):
             raise ErreurModele("réponse de génération inattendue") from None
 
-    def generer_flux(self, modele: str, messages: list[dict], temperature: float) -> Iterator[str]:
+    def generer_flux(self, modele: str, messages: list[dict],
+                     temperature: float) -> Iterator[str | _Tronque]:
         corps = {"model": modele, "messages": messages, "temperature": temperature,
                  "stream": True}
+        fin = None
         try:
             with self.client.stream("POST", f"{self.url}/v1/chat/completions", json=corps,
                                     headers=self.entetes) as r:
@@ -80,14 +108,20 @@ class Modeles:
                         continue
                     data = ligne[5:].strip()
                     if data == "[DONE]":
-                        return
-                    choix = json.loads(data).get("choices") or [{}]
-                    if fragment := (choix[0].get("delta") or {}).get("content"):
-                        yield fragment
+                        fin = fin or "stop"
+                        break
+                    contenu, raison = _fragment(data)
+                    fin = raison or fin
+                    if contenu:
+                        yield contenu
         except httpx.HTTPStatusError as e:
             raise ErreurModele(f"LiteLLM flux : HTTP {e.response.status_code}") from None
-        except (httpx.HTTPError, ValueError) as e:
+        except httpx.HTTPError as e:
             raise ErreurModele(f"LiteLLM flux : {type(e).__name__}") from None
+        if fin is None:   # connexion coupée proprement, sans [DONE] ni finish_reason
+            raise ErreurModele("LiteLLM flux : interrompu avant la fin")
+        if fin == "length":
+            yield TRONQUE
 
 
 def modeles_depuis(reglages) -> Modeles:

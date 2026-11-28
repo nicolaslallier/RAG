@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from rag.config import Config
+from rag.modeles import TRONQUE
 from rag.recherche import Filtres, Resultat, chercher
 from rag.refus import REFUS, doit_refuser
 
@@ -147,17 +148,21 @@ def repondre_flux(conn, question: str, config: Config, modeles, version_id: int,
     if raison:
         yield {"type": "texte", "delta": REFUS}
         yield {"type": "fin", "refus": True, "raison": raison, "citations": [],
-               "citations_valides": False}
+               "citations_valides": False, "tronque": False}
         return
-    texte = ""
+    texte, tronque = "", False
     for delta in modeles.generer_flux(config.reponse.modele,
                                       construire_messages(
                                           question, passages,
                                           config.reponse.budget_passages_caracteres),
                                       config.reponse.temperature):
+        if delta is TRONQUE:
+            tronque = True
+            continue
         texte += delta
         yield {"type": "texte", "delta": delta}
     cites = citations(texte)
     refuse = _est_refus(texte)
     yield {"type": "fin", "refus": refuse, "raison": "modele_refuse" if refuse else "",
-           "citations": cites, "citations_valides": _valides(cites, len(passages))}
+           "citations": cites, "citations_valides": _valides(cites, len(passages)),
+           "tronque": tronque}

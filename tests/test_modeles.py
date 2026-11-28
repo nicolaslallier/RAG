@@ -134,3 +134,48 @@ def test_generer_flux_erreur_http():
     with pytest.raises(ErreurModele) as e:
         list(m.generer_flux("g", [], 0))
     assert "secret" not in str(e.value)
+
+
+def _flux(evenements, done=True):
+    corps = "".join(f"data: {e if isinstance(e, str) else json.dumps(e)}\n\n"
+                    for e in evenements) + ("data: [DONE]\n\n" if done else "")
+    return Modeles("http://x", "sk-secret", client=httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, text=corps, headers={"content-type": "text/event-stream"}))))
+
+
+def _d(texte, fin=None):
+    return {"choices": [{"delta": {"content": texte}, "finish_reason": fin}]}
+
+
+def test_flux_evenement_error_leve_sans_fuite():
+    m = _flux([_d("a"), {"error": {"message": "boom sk-secret", "code": 500}}])
+    with pytest.raises(ErreurModele) as e:
+        list(m.generer_flux("g", [], 0))
+    assert "sk-secret" not in str(e.value) and "boom" not in str(e.value)
+
+
+def test_flux_coupe_sans_done_ni_finish_reason_leve():
+    recus = []
+    with pytest.raises(ErreurModele):
+        recus.extend(_flux([_d("a")], done=False).generer_flux("g", [], 0))  # garde le reçu
+    assert recus == ["a"]
+
+
+def test_flux_finish_reason_sans_done_est_une_fin_normale():
+    assert list(_flux([_d("a", "stop")], done=False).generer_flux("g", [], 0)) == ["a"]
+
+
+def test_flux_length_signale_la_troncature():
+    from rag.modeles import TRONQUE
+    assert list(_flux([_d("a"), _d(None, "length")]).generer_flux("g", [], 0)) == ["a", TRONQUE]
+
+
+def test_flux_bloc_sans_choices_ignore():
+    assert list(_flux([_d("a"), {"choices": [], "usage": {}}]).generer_flux("g", [], 0)) == ["a"]
+
+
+@pytest.mark.parametrize("brut", ["[1, 2]", "42", "{oups", '{"choices": ["x"]}',
+                                  '{"choices": [{"delta": {"content": 5}}]}'])
+def test_flux_evenement_malforme_leve_erreur_modele(brut):
+    with pytest.raises(ErreurModele):
+        list(_flux([brut]).generer_flux("g", [], 0))

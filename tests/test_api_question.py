@@ -140,3 +140,37 @@ def test_repondre_applique_le_bonus_de_source(cfg, faux_modeles, monkeypatch):
     c = faire(cfg, Generation(faux_modeles))
     c.post("/repondre", json={"question": "poulet au cidre dans coffre-maison"}, headers=auth)
     assert vu == [["coffre-maison"]]
+
+
+def _evenements(c, route="/repondre", question="recette de poulet au cidre"):
+    with c.stream("POST", route, json={"question": question, "flux": True}, headers=auth) as r:
+        assert r.status_code == 200
+        return [json.loads(ligne[6:]) for ligne in r.iter_lines() if ligne.startswith("data: ")]
+
+
+def test_flux_panne_du_modele_evenement_erreur(cfg, faux_modeles):
+    ev = _evenements(faire(cfg, Generation(faux_modeles, panne=True)))
+    assert ev[0]["type"] == "sources"
+    assert ev[-1] == {"type": "erreur", "detail": "modèle indisponible"}
+
+
+def test_flux_exception_imprevue_evenement_erreur_generique(cfg, faux_modeles, caplog):
+    class Casse(Generation):
+        def generer_flux(self, modele, messages, temperature):
+            yield "Du cidre "
+            raise RuntimeError("détail interne à ne pas montrer")
+    with caplog.at_level("ERROR", logger="rag.api"):
+        ev = _evenements(faire(cfg, Casse(faux_modeles)))
+    assert ev[-1] == {"type": "erreur", "detail": "erreur interne"}
+    assert "détail interne" not in json.dumps(ev, ensure_ascii=False)
+    assert "flux de réponse en échec" in caplog.text
+
+
+def test_flux_question_exception_avant_les_passages(cfg, faux_modeles):
+    class SansEmbedding(Generation):
+        def embed_requete(self, *a):
+            raise KeyError("embedding")
+    ev = _evenements(faire(cfg, SansEmbedding(faux_modeles)), "/question",
+                     "Quelle est la recette ?")
+    assert ev[0]["type"] == "aiguillage" and ev[-1] == {"type": "erreur",
+                                                        "detail": "erreur interne"}

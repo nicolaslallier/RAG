@@ -214,7 +214,22 @@ def test_flux(bd, index, faux_modeles):
     assert ev[0]["type"] == "sources" and ev[0]["sources"]
     assert [e["delta"] for e in ev if e["type"] == "texte"] == ["Du cidre ", "[1]."]
     assert ev[-1] == {"type": "fin", "refus": False, "raison": "", "citations": [1],
-                      "citations_valides": True}
+                      "citations_valides": True, "tronque": False}
+
+
+def test_flux_tronque(bd, index, faux_modeles):
+    from rag.modeles import TRONQUE
+    g = AvecGeneration(faux_modeles, flux=["Du cidre [1] et", TRONQUE])
+    ev = list(repondre_flux(bd, Q, CONFIG, g, index.version, niveaux=PUBLIC))
+    assert [e["delta"] for e in ev if e["type"] == "texte"] == ["Du cidre [1] et"]
+    assert ev[-1]["tronque"] is True and ev[-1]["citations"] == [1]
+
+
+def test_flux_refus_avant_llm_porte_tronque(bd, index, faux_modeles):
+    g = AvecGeneration(faux_modeles, flux=[])
+    ev = list(repondre_flux(bd, "bitcoin", avec_seuils(cosinus=0.99), g, index.version,
+                            niveaux=PUBLIC))
+    assert ev[-1]["tronque"] is False and ev[-1]["citations_valides"] is False
 
 
 def test_flux_sans_citation_le_dit(bd, index, faux_modeles):

@@ -286,14 +286,18 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
         if flux:
             def evenements():
                 yield from avant
-                with connexion(reglages.database_url) as conn:
-                    v = version_id(conn, empreinte) or 0
-                    try:
+                try:
+                    with connexion(reglages.database_url) as conn:
+                        v = version_id(conn, empreinte) or 0
                         yield from repondre_flux(conn, question, config, modeles, v,
                                                  niveaux=niveaux, filtres=f, reranker=reranker,
                                                  bonus_sources=bonus)
-                    except ErreurModele:  # en plein flux : plus de code HTTP possible
-                        yield {"type": "erreur", "detail": "modèle indisponible"}
+                except ErreurModele as e:  # en plein flux : plus de code HTTP possible
+                    log.warning("flux de réponse : %s", e)
+                    yield {"type": "erreur", "detail": "modèle indisponible"}
+                except Exception:  # idem : un événement, jamais un flux coupé net
+                    log.exception("flux de réponse en échec")
+                    yield {"type": "erreur", "detail": "erreur interne"}
             return StreamingResponse(_sse(evenements()), media_type="text/event-stream")
         with connexion(reglages.database_url) as conn:
             v = version_id(conn, empreinte) or 0
