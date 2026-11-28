@@ -55,7 +55,7 @@ class _Strict(BaseModel):
 
 
 class SourceConf(_Strict):
-    nom: str = Field(pattern=r"^[\w.-]+$")   # sert de nom de dossier de clone
+    nom: str = Field(pattern=r"^[\w.-]+$", max_length=100)  # sert de nom de dossier de clone
 
     @field_validator("nom")
     @classmethod

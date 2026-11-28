@@ -57,12 +57,13 @@ def test_une_source_sans_visibilite_est_refusee(tmp_path):
     assert all(s.visibilite == "public-maison" for s in charger_config(Path("config/rag.yaml")).sources)
 
 
-@pytest.mark.parametrize("nom", [".", "..", "a/b", "../x", ""])
+@pytest.mark.parametrize("nom", [".", "..", "a/b", "../x", "", "a" * 101])
 def test_nom_de_source_refuse(nom):
     from rag.config import SourceConf
     with pytest.raises(pydantic.ValidationError):
         SourceConf(nom=nom, type="code", emplacement="x", visibilite="public-maison")
     SourceConf(nom="mcp-fs.gateway_2", type="code", emplacement="x", visibilite="public-maison")
+    SourceConf(nom="a" * 100, type="code", emplacement="x", visibilite="public-maison")
 
 
 def test_poids_source_negatif_refuse():

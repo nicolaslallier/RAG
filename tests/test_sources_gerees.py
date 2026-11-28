@@ -95,7 +95,7 @@ def _valider(nom="x", url=URL_OK, branche="main", visi="public-maison", exclure=
     return valider(nom, url, branche, visi, list(exclure), utilisateur, noms_reserves=RESERVES)
 
 
-@pytest.mark.parametrize("nom", ["", ".", "..", "a/b", "coffre-maison", "a b"])
+@pytest.mark.parametrize("nom", ["", ".", "..", "a/b", "coffre-maison", "a b", "a" * 101])
 def test_nom_refuse(nom):
     with pytest.raises(SourceInvalide):
         _valider(nom=nom)
