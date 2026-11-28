@@ -3,11 +3,21 @@
 Accepter lève une règle pour un fichier et une signature ; refuser sort le fichier de la file.
 Lectures filtrées par `niveaux` ; écritures réservées à l'interface (écrivain) et à la CLI."""
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 
+import yaml
+
+from rag.config import NOM_MAX
 from rag.exclusions import RAISONS_ACCEPTABLES, REGLES_ACCEPTABLES
-from rag.gestion import _source, _source_connue, demander_reindexation, verrouiller_source
+from rag.gestion import (
+    MOTIF_MAX,
+    _source,
+    _source_connue,
+    demander_reindexation,
+    verrouiller_source,
+)
 from rag.sources import nfc
 
 
@@ -254,3 +264,75 @@ def annuler(conn, source: str, chemin: str) -> bool:
         conn.rollback()
         raise
     return True
+
+
+SIGNATURE_MAX = 200
+_CLES = {"source", "chemin", "decision", "signature", "regles"}
+_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def exporter(conn) -> str:
+    """Décisions en YAML : liste de `{source, chemin, decision, signature, regles,
+    contenu_sha256}` (`contenu_sha256` : le contenu accepté pour `contenu_secret`, sinon nul)."""
+    return yaml.safe_dump(
+        [dict(r) for r in conn.execute(
+            "SELECT source, chemin, decision, signature, regles, contenu_sha256 "
+            'FROM quarantaine_decisions ORDER BY source, chemin COLLATE "C"')],
+        allow_unicode=True, sort_keys=False)
+
+
+def _texte(valeur, maxi: int) -> bool:
+    return isinstance(valeur, str) and 1 <= len(valeur.strip()) <= maxi
+
+
+def _lignes_import(texte: str) -> list[tuple]:
+    try:
+        donnees = yaml.safe_load(texte)
+    except yaml.YAMLError as e:
+        raise DecisionInvalide("YAML illisible") from e
+    if not isinstance(donnees, list):
+        raise DecisionInvalide("une liste de décisions est attendue")
+    lignes = []
+    for i, d in enumerate(donnees, 1):
+        if not isinstance(d, dict) or not _CLES <= d.keys() <= _CLES | {"contenu_sha256"}:
+            raise DecisionInvalide(
+                f"entrée {i} : clés source, chemin, decision, signature, regles (contenu_sha256)")
+        regles, sha = d["regles"], d.get("contenu_sha256")
+        if (not _texte(d["source"], NOM_MAX) or not _texte(d["chemin"], MOTIF_MAX)
+                or not _texte(d["signature"], SIGNATURE_MAX)
+                or d["decision"] not in ("accepte", "refuse")
+                or not isinstance(regles, list)
+                or not all(isinstance(r, str) and r in REGLES_ACCEPTABLES for r in regles)
+                or (d["decision"] == "accepte" and not regles)
+                or not (sha is None or (isinstance(sha, str) and _SHA256.fullmatch(sha)))
+                or (d["decision"] == "accepte" and "contenu_secret" in regles and sha is None)):
+            raise DecisionInvalide(f"entrée {i} : valeur refusée")
+        lignes.append((d["source"].strip(), nfc(d["chemin"].strip()), d["decision"],
+                       d["signature"].strip(), sorted(set(regles)), sha))
+    return lignes
+
+
+def importer(conn, texte: str) -> dict:
+    """Importe un export ; tout est validé avant d'écrire, en une transaction. Fusion : une
+    décision déjà en place est gardée. Une acceptation ajoutée demande une passe de sa source."""
+    lignes = _lignes_import(texte)
+    ajoutees, a_reindexer = 0, set()
+    try:
+        for source, chemin, decision, signature, regles, sha in lignes:
+            if conn.execute(
+                    """INSERT INTO quarantaine_decisions
+                         (source, chemin, decision, signature, regles, contenu_sha256)
+                       VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (source, chemin) DO NOTHING""",
+                    (source, chemin, decision, signature, regles, sha)).rowcount:
+                ajoutees += 1
+                if decision == "accepte":
+                    a_reindexer.add(source)
+        conn.execute("UPDATE sources SET graphe_revision = NULL "
+                     "WHERE type = 'code' AND nom = ANY(%s)", (sorted(a_reindexer),))
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    for source in sorted(a_reindexer):
+        demander_reindexation(conn, source)  # sans effet pour une source inconnue
+    return {"ajoutees": ajoutees, "ignorees": len(lignes) - ajoutees}

@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from rag.config import PUBLIC, TOUT, SourceConf, charger_config
 from rag.db import connexion
@@ -16,7 +17,9 @@ from rag.quarantaine import (
     annuler,
     comptes,
     decrire,
+    exporter,
     file,
+    importer,
     levees,
     levees_indexees,
     refuser,
@@ -454,3 +457,74 @@ def test_maj_graphe_passe_les_fichiers_acceptes_et_indexes(bd, q, depot, tmp_pat
     assert vus == [{}, attendu]
     assert levees_indexees(bd, "depot-test") == attendu
     assert attendu[PLAN].regles == {"contenu_secret"}
+
+
+# --- export, import ---
+
+SHA = "0" * 64
+
+
+def test_export_import_aller_retour(bd, q):
+    accepter(bd, "depot-test", PLAN)
+    refuser(bd, "depot-test", "uv.lock")
+    texte = exporter(bd)
+    d = yaml.safe_load(texte)
+    assert [e["chemin"] for e in d] == [PLAN, "uv.lock"]
+    assert all(e.keys() == {"source", "chemin", "decision", "signature", "regles",
+                            "contenu_sha256"} for e in d)
+    assert d[0]["contenu_sha256"] == exclu(bd, PLAN)["contenu_sha256"]
+    assert d[1]["contenu_sha256"] is None
+    bd.execute("DELETE FROM quarantaine_decisions")
+    bd.execute("UPDATE sources SET demande_le = NULL")
+    bd.commit()
+    assert importer(bd, texte) == {"ajoutees": 2, "ignorees": 0}
+    assert source_en_base(bd)["demande_le"] is not None
+    q()
+    assert PLAN in chemins(bd)
+    assert importer(bd, texte) == {"ajoutees": 0, "ignorees": 2}
+
+
+def test_import_garde_la_decision_en_place(bd, q):
+    refuser(bd, "depot-test", PLAN)
+    texte = yaml.safe_dump([{"source": "depot-test", "chemin": PLAN, "decision": "accepte",
+                             "signature": "s", "regles": ["contenu_secret"],
+                             "contenu_sha256": SHA}])
+    assert importer(bd, texte) == {"ajoutees": 0, "ignorees": 1}
+    assert decision(bd, PLAN)["decision"] == "refuse"
+
+
+def test_import_d_une_source_inconnue_est_garde(bd, q):
+    texte = yaml.safe_dump([{"source": "future", "chemin": "a.md", "decision": "accepte",
+                             "signature": "s", "regles": ["genere"]}])  # sans contenu_sha256
+    assert importer(bd, texte) == {"ajoutees": 1, "ignorees": 0}
+
+
+_VALIDE = ("- {source: s, chemin: a, decision: accepte, signature: x, regles: [contenu_secret], "
+           f"contenu_sha256: '{SHA}'}}")
+
+
+@pytest.mark.parametrize("texte", [
+    "{a: 1}",
+    "- {source: s, chemin: a}",
+    _VALIDE[:-1] + ", autre: 1}",
+    "- {source: s, chemin: a, decision: peut-etre, signature: x, regles: []}",
+    "- {source: s, chemin: a, decision: accepte, signature: x, regles: []}",
+    "- {source: s, chemin: a, decision: accepte, signature: x, regles: [binaire]}",
+    "- {source: s, chemin: a, decision: accepte, signature: x, regles: genere}",
+    "- {source: s, chemin: a, decision: accepte, signature: x, regles: [[genere]]}",
+    "- {source: s, chemin: '', decision: accepte, signature: x, regles: [genere]}",
+    "- {source: s, chemin: a, decision: accepte, signature: '', regles: [genere]}",
+    "- {source: s, chemin: a, decision: accepte, signature: x, regles: [contenu_secret]}",
+    ("- {source: s, chemin: a, decision: accepte, signature: x, regles: [genere], "
+     "contenu_sha256: pas-un-sha}"),
+    "- [",
+    _VALIDE + "\n- {source: s, chemin: b, decision: refuse}",
+])
+def test_import_malforme_n_ecrit_rien(bd, q, texte):
+    with pytest.raises(DecisionInvalide):
+        importer(bd, texte)
+    assert nb_decisions(bd) == 0
+
+
+def test_import_valide_de_reference(bd, q):
+    assert importer(bd, _VALIDE)["ajoutees"] == 1

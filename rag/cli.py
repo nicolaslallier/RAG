@@ -1,4 +1,4 @@
-"""CLI `rag` : migrer, indexer, chercher, servir, exclusions, sources."""
+"""CLI `rag` : migrer, indexer, chercher, servir, exclusions, quarantaine, sources."""
 
 import argparse
 import sys
@@ -231,6 +231,58 @@ def _sources_cli(conn, a, config) -> int:
     return 0
 
 
+def _quarantaine_cli(conn, a) -> int:
+    from rag import quarantaine as qr
+    from rag.gestion import SourceInconnue
+    if a.action == "lister":
+        r = qr.file(conn, niveaux=TOUT if a.prive else PUBLIC, source=a.source,
+                    raison=None if a.raison == "toutes" else a.raison, etat=a.etat, par_page=1000)
+        for f in r["fichiers"]:
+            print(f"{f['etat']}\t{f['source']}\t{f['chemin']}\t{f['raison']}\t"
+                  f"{qr.decrire(f['detail'])}")
+        print(f"{r['total']} fichier(s)", file=sys.stderr)
+        return 0
+    if a.action == "exporter":
+        print(qr.exporter(conn), end="")
+        return 0
+    if a.action == "importer":
+        try:
+            texte = Path(a.fichier).read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            print("fichier illisible, rien d'importé : UTF-8 attendu", file=sys.stderr)
+            return 1
+        except OSError as e:
+            print(f"fichier illisible, rien d'importé : {e.strerror or e}", file=sys.stderr)
+            return 1
+        try:
+            r = qr.importer(conn, texte)
+        except qr.DecisionInvalide as e:
+            print(f"fichier invalide, rien d'importé : {e}", file=sys.stderr)
+            return 1
+        print(f"{r['ajoutees']} ajoutée(s), {r['ignorees']} ignorée(s)", file=sys.stderr)
+        return 0
+    try:
+        if a.action == "accepter":
+            r = qr.accepter(conn, a.source, a.chemin)
+            print(f"accepté ({', '.join(r['regles'])}) : indexé à la prochaine passe",
+                  file=sys.stderr)
+        elif a.action == "refuser":
+            qr.refuser(conn, a.source, a.chemin)
+            print("refusé : le fichier reste exclu", file=sys.stderr)
+        elif not qr.annuler(conn, a.source, a.chemin):
+            print("aucune décision pour ce fichier", file=sys.stderr)
+            return 1
+        else:
+            print("décision annulée", file=sys.stderr)
+    except qr.DecisionInvalide as e:
+        print(f"refusé : {e}", file=sys.stderr)
+        return 1
+    except SourceInconnue:
+        print("source inconnue", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="rag")
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -271,6 +323,18 @@ def main(argv: list[str] | None = None) -> int:
     pexc = sp.add_parser("exclusions").add_subparsers(dest="action", required=True)
     pexc.add_parser("exporter")
     pexc.add_parser("importer").add_argument("fichier")
+    pqu = sp.add_parser("quarantaine").add_subparsers(dest="action", required=True)
+    pqul = pqu.add_parser("lister")
+    pqul.add_argument("--source")
+    pqul.add_argument("--raison", choices=["secret", "genere", "toutes"], default="secret")
+    pqul.add_argument("--etat", choices=["a_traiter", "accepte", "refuse"], default="a_traiter")
+    pqul.add_argument("--prive", action="store_true")
+    for nom in ("accepter", "refuser", "annuler"):
+        pqux = pqu.add_parser(nom)
+        pqux.add_argument("source")
+        pqux.add_argument("chemin")
+    pqu.add_parser("exporter")
+    pqu.add_parser("importer").add_argument("fichier")
     psrc = sp.add_parser("sources").add_subparsers(dest="action", required=True)
     psrc.add_parser("lister")
     psrc.add_parser("exporter")
@@ -337,6 +401,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if a.cmd == "exclusions":
             return _exclusions_cli(conn, a)
+        if a.cmd == "quarantaine":
+            return _quarantaine_cli(conn, a)
         if a.cmd == "sources":
             return _sources_cli(conn, a, config)
         modeles = modeles_depuis(reglages)
