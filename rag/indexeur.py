@@ -207,11 +207,15 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     # exclus à la main : voulus, ils ne trahissent pas un listage partiel
     manuels = {c for c, (_, raison) in exclus_listage.items() if raison == "manuelle"}
     manquants = absents - manuels
-    if not forcer and ((not entrees and not manuels) or len(manquants) > len(existants) / 2):
+    # rien d'indexé encore : un listage vide n'efface rien, ce n'est pas un échec
+    if not forcer and existants and ((not entrees and not manuels)
+                                     or len(manquants) > len(existants) / 2):
         conn.rollback()
         raise CoffrePartielError(
             f"{source.nom} : listage de {len(entrees)} entrées, {len(manquants)} documents "
             f"sur {len(existants)} absents ; relancer avec forcer pour confirmer")
+    if not entrees and not existants:
+        log.warning("%s : aucun fichier indexable", source.nom)
 
     # le listage (clone ou fetch) est la fenêtre la plus longue : identité relue avant d'écrire
     _verrouiller_identite(conn, source, source_id)

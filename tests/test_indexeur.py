@@ -9,7 +9,7 @@ from rag.config import SourceConf, charger_config
 from rag.indexeur import CoffrePartielError, indexer_source
 from rag.modeles import ErreurModele
 from rag.sources import Entree, LecteurDossier
-from tests.conftest import FauxModeles
+from tests.conftest import FauxModeles, inscrire_source
 
 CONF = charger_config(Path("config/rag.yaml")).indexation
 SRC = SourceConf(visibilite="public-maison", nom="coffre-test", type="obsidian", emplacement="/tmp/x",
@@ -307,3 +307,24 @@ def test_frontmatter_avec_nul_indexe(bd, tmp_path, faux_modeles):
     assert b.echecs == 0
     r = bd.execute("SELECT frontmatter->>'titre' AS t, tags FROM documents").fetchone()
     assert r["t"] == "ab" and r["tags"] == ["xy"]
+
+
+def test_source_vide_n_est_pas_un_echec(bd, tmp_path, faux_modeles):
+    d = tmp_path / "vide"
+    d.mkdir()
+    b = indexer_source(bd, SRC, LecteurDossier(d), CONF, faux_modeles)
+    assert b == type(b)()
+    assert bd.execute("SELECT indexe_le FROM sources WHERE nom = %s",
+                      (SRC.nom,)).fetchone()["indexe_le"] is not None
+
+
+class LecteurUnExclu(LecteurFixe):
+    def lister(self):
+        return [Entree("uv.lock", "s1", datetime(2026, 1, 1, tzinfo=UTC), 5)]
+
+
+def test_source_sans_fichier_indexable_n_est_pas_un_echec(bd, faux_modeles):
+    src = SourceConf(visibilite="public-maison", nom="depot-vide", type="code", emplacement="x")
+    inscrire_source(bd, "depot-vide")
+    b = indexer_source(bd, src, LecteurUnExclu("uv.lock"), CONF, faux_modeles)
+    assert b.exclus == 1 and b.nouveaux == 0
