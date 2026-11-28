@@ -373,14 +373,17 @@ def importer(conn, texte: str, *, noms_reserves: set[str]) -> dict:
 _VERROU_AMORCE = 7242   # à côté de VERROU_MIGRATION (7240) et du travailleur (7241)
 
 
-def amorcer(conn, chemin: Path) -> int:
+def amorcer(conn, chemin: Path, *, noms_reserves: set[str] = frozenset()) -> int:
     """Amorçage unique : verse les sources du fichier en base, sans réindexer.
+
+    `noms_reserves` (sources du YAML principal) : refusés, sinon l'upsert ferait du coffre une
+    source de code gérée.
 
     Upsert par nom (une ligne déjà indexée garde id, révision et documents), `geree = true`,
     ni `demande_le` ni `sans_garde` touchés. Le marqueur `instance.sources_amorcees` est posé
     dans la même transaction : un second appel rend 0. Rend le nombre de sources versées.
     """
-    entrees = lire_export(Path(chemin).read_text(encoding="utf-8"))
+    entrees = lire_export(Path(chemin).read_text(encoding="utf-8"), noms_reserves=noms_reserves)
     try:
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (_VERROU_AMORCE,))
         if conn.execute("SELECT 1 FROM instance WHERE cle = 'sources_amorcees'").fetchone():

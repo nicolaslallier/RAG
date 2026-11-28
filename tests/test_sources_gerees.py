@@ -580,3 +580,13 @@ def test_import_export_garde_travail(bd):
              noms_reserves=RESERVES)
     assert _ligne(bd, "a")["visibilite"] == "travail"
     assert "visibilite: travail" in exporter(bd)
+
+
+def test_amorcer_refuse_un_nom_reserve(bd, tmp_path):
+    from rag.sources_gerees import amorcer
+    f = tmp_path / "a.yaml"
+    f.write_text('- {nom: coffre-maison, emplacement: "https://x/c.git", visibilite: public-maison}\n')
+    with pytest.raises(SourceInvalide, match="nom réservé"):
+        amorcer(bd, f, noms_reserves=RESERVES)
+    assert _nb(bd) == 0
+    assert bd.execute("SELECT 1 FROM instance WHERE cle = 'sources_amorcees'").fetchone() is None
