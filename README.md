@@ -162,9 +162,17 @@ Aucune n'est faite par un agent.
 ## Exploitation
 
 - La pile tourne dans la VM Colima du MacBook : si le Mac ou Colima s'arrête, le service s'arrête.
+- Santé : `GET /sante` répond `{"ok": true}` sans jeton (503 si la base est injoignable) ; avec
+  `RAG_JETON` ou `RAG_JETON_PRIVE`, il ajoute `documents` (sources visibles par ce jeton) et `version`.
 - État des passes : `curl -H "Authorization: Bearer $RAG_JETON" http://192.168.2.40:8000/etat`.
   Le port est en HTTP : `RAG_JETON_PRIVE` ne s'utilise que depuis le MacBook lui-même.
 - Relancer une passe : `POST /reindexer` avec `RAG_JETON_REINDEXER` (`{"source": "<nom>"}` facultatif).
+  Il répond toujours `202 {"ok": true}`, que la source existe ou non ; suivre l'effet par `/etat`.
+- Un corps de requête de plus de 64 Ko est refusé (413) avant toute lecture, donc avant le jeton,
+  sauf les imports de l'interface (1 Mo). Les filtres sont bornés (100 sources, 20 tags).
+- Toute réponse porte `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: same-origin` et une CSP stricte (`default-src 'self'`, sans script ni style en
+  ligne) : un gabarit de l'interface ne doit contenir ni `<script>` en ligne, ni `style=`, ni `hx-on`.
 - Journaux : Portainer (environnement Mac-book) ou `docker --context colima logs rag-rag-1` sur le Mac ;
   **pas dans Loki** (Alloy ne lit que l'hôte `192.168.2.10`).
 - Tourner un jeton : changer la valeur dans `infra/rag`, relancer le workflow `deploy`

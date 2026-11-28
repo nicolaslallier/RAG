@@ -187,11 +187,11 @@ def test_reindexer_exige_son_jeton(client, bd, cfg, reglages, faux_modeles):
     assert client.post("/reindexer", json={},
                        headers={"Authorization": "Bearer faux"}).status_code == 401
     r = client.post("/reindexer", json={"source": "coffre-maison"}, headers=auth_reindexer)
-    assert r.status_code == 202 and r.json() == {"demande": 1}
+    assert r.status_code == 202 and r.json() == {"ok": True}
     assert bd.execute("SELECT demande_le FROM sources").fetchone()["demande_le"]
-    r = client.post("/reindexer", json={"source": "inconnue"}, headers=auth_reindexer)
-    assert r.status_code == 202 and r.json() == {"demande": 0}  # pas d'oracle des noms
-    assert client.post("/reindexer", json={}, headers=auth_reindexer).json() == {"demande": 1}
+    inconnue = client.post("/reindexer", json={"source": "inconnue"}, headers=auth_reindexer)
+    assert (inconnue.status_code, inconnue.content) == (r.status_code, r.content)  # pas d'oracle
+    assert client.post("/reindexer", json={}, headers=auth_reindexer).json() == {"ok": True}
     assert client.post("/chercher", json={"question": "x"},
                        headers=auth_reindexer).status_code == 401  # ce jeton ne lit rien
 
@@ -227,6 +227,63 @@ def test_etat_en_cours(client, bd):
     bd.execute("INSERT INTO passes (genre) VALUES ('demandee')")
     bd.commit()
     assert client.get("/etat", headers=auth).json()["en_cours"]["genre"] == "demandee"
+
+
+BILAN = {"coffre-maison": {"nouveaux": 1}, "secret-supprime": {"supprimee": True},
+         "prive": {"erreur": "echec", "x": 1}, "semantique": {"traites": 3, "liens": 1, "echecs": 0},
+         "erreur": "interrompue"}
+
+
+def test_bilan_visible_liste_blanche():
+    from rag.api import bilan_visible
+
+    b = BILAN | {"pub": {"nouveaux": 1}}
+    assert bilan_visible(b, {"pub"}, complet=False) == {"pub": {"nouveaux": 1},
+                                                        "erreur": "interrompue"}
+    assert bilan_visible(b, {"pub"}, complet=True) == {
+        "pub": {"nouveaux": 1}, "erreur": "interrompue", "semantique": BILAN["semantique"]}
+    for complet in (False, True):
+        r = bilan_visible(b | {"semantique": {"erreur": "boum /srv/x"}}, {"pub"}, complet=complet)
+        assert r["semantique"] == {"erreur": "echec"}
+    assert bilan_visible(b, {"prive"}, complet=False)["prive"] == {"erreur": "echec"}
+    # une source privée nommée « erreur » : son dict n'est jamais rendu
+    assert "erreur" not in bilan_visible({"erreur": {"nouveaux": 2}}, {"pub"}, complet=True)
+
+
+def test_etat_ne_nomme_pas_une_source_supprimee(client, bd, cfg, faux_modeles):
+    from psycopg.types.json import Jsonb
+
+    inscrire_source(bd, "coffre-maison")
+    bd.execute("INSERT INTO passes (genre, fin, ok, bilan) VALUES ('nocturne', now(), true, %s)",
+               (Jsonb(BILAN),))
+    bd.commit()
+    r = client.get("/etat", headers=auth)
+    assert "secret-supprime" not in r.text
+    assert set(r.json()["derniere_nocturne"]["bilan"]) == {"coffre-maison", "erreur"}
+    r = faire(cfg, faux_modeles, jeton_prive="priv").get(
+        "/etat", headers={"Authorization": "Bearer priv"})
+    assert "secret-supprime" not in r.text and "semantique" in r.json()["derniere_nocturne"]["bilan"]
+
+
+def test_etat_ne_nomme_pas_un_coffre_prive_du_yaml_jamais_indexe(bd, tmp_path, coffre,
+                                                                 faux_modeles):
+    from psycopg.types.json import Jsonb
+
+    d = yaml.safe_load(Path("config/rag.yaml").read_text())
+    d["sources"] = [{"nom": n, "type": "obsidian", "visibilite": v, "emplacement": str(coffre)}
+                    for n, v in (("coffre-maison", "public-maison"), ("coffre-secret", "prive"))]
+    f = tmp_path / "yaml-prive.yaml"
+    f.write_text(yaml.safe_dump(d))
+    echec = {"erreur": "echec"}  # les deux en échec dès la première passe : absents de la base
+    bd.execute("INSERT INTO passes (genre, fin, ok, bilan) VALUES ('nocturne', now(), false, %s)",
+               (Jsonb({"coffre-maison": echec, "coffre-secret": echec}),))
+    bd.commit()
+    c = faire(f, faux_modeles, jeton_prive="priv")
+    r = c.get("/etat", headers=auth)
+    assert "coffre-secret" not in r.text
+    assert r.json()["derniere_nocturne"]["bilan"] == {"coffre-maison": echec}
+    r = c.get("/etat", headers={"Authorization": "Bearer priv"})
+    assert r.json()["derniere_nocturne"]["bilan"]["coffre-secret"] == echec
 
 
 

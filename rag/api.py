@@ -1,4 +1,4 @@
-"""API HTTP : /sante (sans jeton) et /chercher (jeton → niveaux de visibilité)."""
+"""API HTTP : /sante (sans jeton : ok seulement) et /chercher (jeton → niveaux de visibilité)."""
 
 import asyncio
 import hmac
@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date
 from types import SimpleNamespace
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -31,6 +31,7 @@ from rag.config import (
 )
 from rag.db import connexion
 from rag.entretien import doublons, liens_entrants, orphelines
+from rag.garde import EntetesSecurite, LimiteCorps
 from rag.graphe import chemin, expliquer
 from rag.lister import lister, taxonomie
 from rag.mcp_serveur import creer_mcp
@@ -39,17 +40,27 @@ from rag.recherche import Filtres, chercher
 from rag.reponse import diffuser, passages_pour, rediger
 from rag.rerank import reranker_depuis
 from rag.sources_gerees import coffret_depuis
-from rag.ui import STATIQUE, routeur_ui, validation_sans_cache
+from rag.ui import (
+    CHEMINS_IMPORT,
+    IMPORT_MARGE,
+    IMPORT_MAX,
+    STATIQUE,
+    routeur_ui,
+    validation_sans_cache,
+)
 
 log = logging.getLogger("rag.api")
 
 
+_Nom = Annotated[str, Field(max_length=NOM_MAX)]
+
+
 class FiltresEntree(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    sources: list[str] | None = None
-    dossier: str | None = None
-    tags: list[str] | None = None
-    type: str | None = None
+    sources: list[_Nom] | None = Field(None, max_length=100)  # la maison en compte une cinquantaine
+    dossier: str | None = Field(None, max_length=1000)        # un chemin, comme `cle` de /liens-entrants
+    tags: list[_Nom] | None = Field(None, max_length=20)      # comme le MCP
+    type: _Nom | None = None
     depuis: date | None = None
     jusqua: date | None = None
 
@@ -106,6 +117,24 @@ def version_id(conn, empreinte: str) -> int | None:
     return r["id"] if r else None
 
 
+def bilan_visible(bilan: dict, visibles: set[str], *, complet: bool) -> dict:
+    """Bilan d'une passe en liste blanche : les sources visibles et les clés techniques
+    (`semantique`, `erreur`). Un échec n'est jamais détaillé ; les comptes de la passe
+    sémantique (toutes visibilités confondues) ne sortent que pour un jeton qui voit tout."""
+    def sans_detail(v):
+        return {"erreur": "echec"} if isinstance(v, dict) and "erreur" in v else v
+    out = {k: sans_detail(v) for k, v in bilan.items() if k in visibles}
+    sem = bilan.get("semantique")
+    if "semantique" not in visibles and isinstance(sem, dict):
+        if "erreur" in sem:
+            out["semantique"] = {"erreur": "echec"}
+        elif complet:
+            out["semantique"] = sem
+    if "erreur" not in visibles and isinstance(bilan.get("erreur"), str):
+        out["erreur"] = "interrompue"   # posée par fermer_interrompues
+    return out
+
+
 def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) -> FastAPI:
     reglages = reglages or Reglages()
     if not reglages.jeton:
@@ -144,6 +173,9 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
 
     app = FastAPI(title="RAG maître", lifespan=cycle, docs_url=None, redoc_url=None,
                   openapi_url=None)
+    app.add_middleware(LimiteCorps,
+                       exceptions={c: IMPORT_MAX + IMPORT_MARGE for c in CHEMINS_IMPORT})
+    app.add_middleware(EntetesSecurite)  # ajouté en dernier = le plus externe : couvre aussi les 413
 
     class RouteMcp:  # application ASGI (une instance, pas une fonction) : 401 avant le MCP
         async def __call__(self, scope, receive, send):
@@ -216,8 +248,9 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
     @app.post("/reindexer", status_code=202, dependencies=[Depends(jeton_reindexer)])
     def route_reindexer(d: DemandeReindexer):
         with connexion(reglages.database_url) as conn:
-            # Un compte seulement, et pas de 404 : ni liste ni oracle des noms de sources.
-            return {"demande": gestion.demander_reindexation(conn, d.source)}
+            gestion.demander_reindexation(conn, d.source)
+        # Réponse constante : un compte (1 ou 0) dirait si la source existe.
+        return {"ok": True}
 
     @app.get("/etat")
     def route_etat(niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
@@ -232,12 +265,14 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
             nuit = conn.execute("SELECT debut, fin, ok, bilan FROM passes WHERE genre = "
                                 "'nocturne' AND fin IS NOT NULL ORDER BY debut DESC LIMIT 1"
                                 ).fetchone()
-            caches = {r["nom"] for r in conn.execute(
-                "SELECT nom FROM sources WHERE NOT visibilite = ANY(%s)", (sorted(niveaux),))}
-        if nuit:  # le bilan ne nomme pas une source que ce jeton ne voit pas
-            nuit["bilan"] = {k: ({"erreur": "echec"} if isinstance(v, dict) and "erreur" in v
-                                 else v)
-                             for k, v in nuit["bilan"].items() if k not in caches}
+            connues = {r["nom"] for r in conn.execute("SELECT nom FROM sources")}
+        if nuit:  # liste blanche : une source invisible ou disparue n'est jamais nommée
+            # + un coffre du fichier de config visible à ce jeton mais jamais indexé (échec
+            # dès sa première passe) : la config fait foi tant qu'il n'est pas en base
+            visibles = {s["nom"] for s in sources} | {
+                c.nom for c in config.sources if c.type == "obsidian"
+                and c.visibilite in niveaux and c.nom not in connues}
+            nuit["bilan"] = bilan_visible(nuit["bilan"] or {}, visibles, complet=niveaux == TOUT)
         return {"sources": sources, "en_cours": en_cours, "derniere_nocturne": nuit}
 
     app.include_router(routeur_ui(
@@ -254,10 +289,16 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
         return RedirectResponse("/ui/", status_code=307)
 
     @app.get("/sante")
-    def sante():
+    def sante(authorization: str = Header(default="")):
+        niveaux = niveaux_de(authorization)  # sans jeton valide : ok seulement, aucun détail
         try:
             with connexion(reglages.database_url) as conn:
-                n = conn.execute("SELECT count(*) n FROM documents").fetchone()["n"]
+                if niveaux is None:
+                    conn.execute("SELECT 1")
+                    return {"ok": True}
+                n = conn.execute(
+                    "SELECT count(*) n FROM documents d JOIN sources s ON s.id = d.source_id"
+                    " WHERE s.visibilite = ANY(%s)", (sorted(niveaux),)).fetchone()["n"]
         except Exception:  # noqa: BLE001 - la santé répond 503, sans détail
             return JSONResponse({"ok": False}, status_code=503)
         return {"ok": True, "documents": n, "version": empreinte}

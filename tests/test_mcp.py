@@ -164,3 +164,56 @@ def test_rag_sources_et_fichiers_respectent_les_niveaux(client, bd):
     assert res["isError"] is True and "source inconnue" in res["content"][0]["text"]
     priv = {"Authorization": "Bearer priv"}
     assert outil(client, "rag_fichiers", {"source": "coffre-maison"}, priv)["total"] > 0
+
+
+SECRET = "connexion postgresql://rag:motdepasse@hote.interne/rag /srv/secret"
+
+
+def boum(*a, **k):
+    raise RuntimeError(SECRET)
+
+
+def erreur_de(client, nom, args):
+    res = rpc(client, "tools/call", {"name": nom, "arguments": args})
+    assert res["isError"] is True, res
+    return res["content"][0]["text"]
+
+
+def test_erreur_interne_generique_et_journalisee(client, monkeypatch, caplog):
+    from rag import api
+    monkeypatch.setattr(api, "chercher", boum)
+    with caplog.at_level("ERROR", logger="rag.mcp"):
+        texte = erreur_de(client, "rag_chercher", {"question": "x"})
+    assert "erreur interne" in texte
+    for x in ("hote.interne", "motdepasse", "/srv/secret", "RuntimeError"):
+        assert x not in texte
+    assert any(r.name == "rag.mcp" and r.exc_info and "rag_chercher" in r.getMessage()
+               for r in caplog.records)
+
+
+@pytest.mark.parametrize("nom,cible,args", [
+    ("rag_lister", "lister", {"question": "quelles recettes", "type": "recette"}),
+    # sources_citees : appelée par rag_repondre avant la rédaction, et stable d'un lot à l'autre
+    ("rag_repondre", "sources_citees", {"question": "poulet"}),
+    ("rag_chemin", "chemin", {"de": "a", "vers": "b"}),
+    ("rag_expliquer", "expliquer", {"nom": "a"}),
+    ("rag_sources", "gestion.sources", {}),
+    ("rag_fichiers", "gestion.fichiers", {"source": "coffre-maison"}),
+])
+def test_erreur_interne_sur_chaque_outil(client, monkeypatch, nom, cible, args):
+    from rag import api
+    module, _, attr = cible.rpartition(".")
+    monkeypatch.setattr(getattr(api, module) if module else api, attr, boum)
+    texte = erreur_de(client, nom, args)
+    assert "erreur interne" in texte and "hote.interne" not in texte and "/srv/secret" not in texte
+
+
+def test_modele_indisponible_dit_sans_detail(client, monkeypatch):
+    from rag import api
+    from rag.modeles import ErreurModele
+
+    def panne(*a, **k):
+        raise ErreurModele("LiteLLM chat : HTTP 500 https://litellm.interne")
+    monkeypatch.setattr(api, "sources_citees", panne)  # traverse rag_repondre
+    texte = erreur_de(client, "rag_repondre", {"question": "poulet"})
+    assert "modèle indisponible" in texte and "litellm.interne" not in texte

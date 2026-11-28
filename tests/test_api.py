@@ -32,9 +32,19 @@ auth = {"Authorization": "Bearer pub"}
 auth_prive = {"Authorization": "Bearer priv"}
 
 
-def test_sante_sans_jeton(client):
-    r = client.get("/sante").json()
+def test_sante_sans_jeton_ne_dit_rien(client):
+    assert client.get("/sante").json() == {"ok": True}
+    assert client.get("/sante", headers={"Authorization": "Bearer mauvais"}).json() == {"ok": True}
+
+
+def test_sante_avec_jeton_compte_le_visible(client, bd):
+    r = client.get("/sante", headers=auth).json()
     assert r["ok"] is True and r["documents"] == 6
+    assert len(r["version"]) == 64 and int(r["version"], 16) >= 0
+    bd.execute("UPDATE sources SET visibilite = 'prive'")
+    bd.commit()
+    assert client.get("/sante", headers=auth).json()["documents"] == 0
+    assert client.get("/sante", headers=auth_prive).json()["documents"] == 6
 
 
 def test_sante_503_si_base_absente(cfg, faux_modeles):
@@ -86,6 +96,26 @@ def test_bornes(client):
                        headers=auth).status_code == 422
     assert client.post("/chercher", json={"question": "x", "filtres": {"inconnu": 1}},
                        headers=auth).status_code == 422
+
+
+@pytest.mark.parametrize("filtres", [
+    {"sources": ["s"] * 101},
+    {"sources": ["s" * 501]},
+    {"tags": ["t"] * 21},
+    {"tags": ["t" * 501]},
+    {"type": "t" * 501},
+    {"dossier": "d" * 1001},
+])
+def test_bornes_des_filtres(client, filtres):
+    r = client.post("/chercher", json={"question": "x", "filtres": filtres}, headers=auth)
+    assert r.status_code == 422
+
+
+def test_filtres_aux_bornes_exactes(client):
+    filtres = {"sources": ["s" * 500] * 100, "tags": ["t" * 500] * 20, "type": "t" * 500,
+               "dossier": "d" * 1000}
+    r = client.post("/chercher", json={"question": "x", "filtres": filtres}, headers=auth)
+    assert r.status_code == 200, r.text
 
 
 def test_refuse_de_demarrer_sans_jeton():
