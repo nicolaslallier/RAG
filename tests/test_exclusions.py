@@ -20,6 +20,16 @@ from rag.exclusions import motif_exclusion
     (".ENV", b"A=1", "secret"), ("ID_RSA", b"x", "secret"),
     ("k.asc", b"-----BEGIN PGP PRIVATE KEY BLOCK-----", "secret"),
     ("x.md", "é".encode()[:1], None),
+    (".npmrc", b"x", "secret"), ("home/.netrc", b"x", "secret"), ("cert.PFX", b"x", "secret"),
+    ("c.p12", b"x", "secret"), ("k.jks", b"x", "secret"),
+    ("infra/terraform.tfstate", b"x", "secret"), ("terraform.tfstate.backup", b"x", "secret"),
+    ("prod.tfvars", b"x", "secret"), ("gcp/credentials.json", b"x", "secret"),
+    ("kubeconfig", b"x", "secret"), ("mdp.kdbx", b"x", "secret"),
+    # faux jetons construits par concaténation : jamais de littéral réaliste dans le dépôt
+    ("ci.md", b"jeton: glpat-" + b"a" * 20, "secret"),
+    ("slack.md", b"xoxb-" + b"1" * 12 + b"-" + b"a" * 24, "secret"),
+    ("docs/kubeconfig.md", b"x", None), ("slack-doc.md", b"xoxb-your-token-here", None),
+    ("gl.md", b"prefixe-glpat-court", None),
 ])
 def test_motif_exclusion(chemin, debut, raison):
     assert motif_exclusion(chemin, debut, [".obsidian/**", "_versions/**"]) == raison
