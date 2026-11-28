@@ -41,7 +41,7 @@
       <td>
         {% if f.etat == "a_traiter" %}
         {% if f.detail %}<button type="button"
-            hx-post="/ui/quarantaine/accepter" hx-vals='{{ (cible | combine_signature(f.signature)) | tojson }}'
+            hx-post="/ui/quarantaine/accepter" hx-vals='{{ (cible | combine_signature(f.signature, f.contenu_sha256)) | tojson }}'
             hx-confirm="Indexer ce fichier malgré le verdict « {{ f.raison }} » ?"
             hx-target="#resultat" hx-swap="innerHTML">Accepter</button>{% endif %}
         <button type="button" class="secondaire"

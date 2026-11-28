@@ -71,7 +71,8 @@ def levees_indexees(conn, source: str) -> dict[str, Levee]:
 
 # Fichiers écartés pour une raison acceptable, puis fichiers acceptés déjà indexés.
 _FILE = """WITH file AS (
-  SELECT s.nom AS source, e.chemin, e.raison, e.signature, e.detail, q.cree_le AS decide_le,
+  SELECT s.nom AS source, e.chemin, e.raison, e.signature, e.contenu_sha256, e.detail,
+         q.cree_le AS decide_le,
          CASE WHEN q.decision = 'refuse' THEN 'refuse'
               WHEN q.decision = 'accepte' AND q.signature = e.signature
                    AND (e.detail->>'regle') = ANY(q.regles)
@@ -91,7 +92,7 @@ _FILE = """WITH file AS (
                       WHERE d.source_id = e.source_id AND d.chemin = e.chemin)
   UNION ALL
   SELECT s.nom, q.chemin, CASE WHEN q.regles = ARRAY['genere'] THEN 'genere' ELSE 'secret' END,
-         q.signature, NULL::jsonb, q.cree_le, 'accepte', true, false, q.regles
+         q.signature, NULL::text, NULL::jsonb, q.cree_le, 'accepte', true, false, q.regles
     FROM quarantaine_decisions q JOIN sources s ON s.nom = q.source
     JOIN documents d ON d.source_id = s.id AND d.chemin = q.chemin AND d.signature = q.signature
    WHERE s.visibilite = ANY(%(niveaux)s) AND q.decision = 'accepte')
@@ -146,10 +147,12 @@ def _exclu(conn, source_id: int, chemin: str) -> dict | None:
                         "WHERE source_id = %s AND chemin = %s", (source_id, chemin)).fetchone()
 
 
-def accepter(conn, source: str, chemin: str, signature: str | None = None) -> dict:
+def accepter(conn, source: str, chemin: str, signature: str | None = None,
+             contenu_sha256: str | None = None) -> dict:
     """Lève, pour ce fichier et sa signature, la règle qui l'a écarté ; demande une passe.
 
-    `signature` : celle que l'appelant a vue (interface) ; `None` : la courante (CLI).
+    `signature`, `contenu_sha256` : ce que l'appelant a vu (interface ; `""` pour « pas
+    d'empreinte ») ; `None` : la valeur courante (CLI). Une différence lève DecisionInvalide.
     Rend `{"regle": règle levée, "regles": toutes les règles levées}`."""
     chemin = nfc(chemin)
     try:
@@ -164,6 +167,8 @@ def accepter(conn, source: str, chemin: str, signature: str | None = None) -> di
         if regle == "contenu_secret" and not e["contenu_sha256"]:
             raise DecisionInvalide("verdict pas encore détaillé : attendre la prochaine passe")
         if signature is not None and signature != e["signature"]:
+            raise DecisionInvalide("le fichier a changé depuis l'affichage : recharger la page")
+        if contenu_sha256 is not None and contenu_sha256 != (e["contenu_sha256"] or ""):
             raise DecisionInvalide("le fichier a changé depuis l'affichage : recharger la page")
         # contenu_secret : liée au contenu lu (sha256), pas seulement à la signature
         sha = e["contenu_sha256"] if regle == "contenu_secret" else None

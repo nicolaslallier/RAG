@@ -907,7 +907,8 @@ JETON_EXEMPLE = "sk-" + "a" * 24  # faux jeton construit : jamais de littéral r
 
 @pytest.fixture
 def secret_en_quarantaine(bd, index, faux_modeles):
-    """Une note du coffre écartée pour un faux secret ; rend la signature de sa ligne `exclus`."""
+    """Une note du coffre écartée pour un faux secret ; rend ce que l'écran en montre
+    (`signature`, `contenu_sha256` de sa ligne `exclus`)."""
     from rag.config import SourceConf, charger_config
     from rag.indexeur import indexer_source
     from rag.sources import LecteurDossier
@@ -917,9 +918,10 @@ def secret_en_quarantaine(bd, index, faux_modeles):
                      emplacement=str(index.coffre))
     indexer_source(bd, src, LecteurDossier(index.coffre),
                    charger_config(Path("config/rag.yaml")).indexation, faux_modeles)
-    sig = bd.execute("SELECT signature FROM exclus WHERE chemin = 'Cles.md'").fetchone()["signature"]
+    vu = dict(bd.execute("SELECT signature, contenu_sha256 FROM exclus WHERE chemin = 'Cles.md'"
+                         ).fetchone())
     bd.commit()
-    return sig
+    return vu
 
 
 def decisions_en_base(bd):
@@ -929,9 +931,12 @@ def decisions_en_base(bd):
     return r
 
 
-def cible(signature=None, **k):
+def cible(vu=None, **k):
+    """Champs d'une action ; `vu` : ce que l'écran a montré (dict), ou une signature seule."""
     d = {"source": "coffre-maison", "chemin": "Cles.md"} | k
-    return d | ({"signature": signature} if signature is not None else {})
+    if isinstance(vu, str):
+        vu = {"signature": vu, "contenu_sha256": "-"}
+    return d | (vu or {})
 
 
 def test_menu_quarantaine_seulement_pour_l_ecrivain(client_priv, client_pub):
@@ -1051,3 +1056,22 @@ def test_export_import_quarantaine_par_l_interface(client_priv, bd, secret_en_qu
                          files={"fichier": ("q.yaml", b"#" * (1024 * 1024 + 1), "text/yaml")})
     assert r.status_code == 413
     assert decisions_en_base(bd) == [("Cles.md", "accepte")]
+
+
+def test_accepter_contenu_perime(client_priv, bd, secret_en_quarantaine):
+    r = client_priv.post("/ui/quarantaine/accepter", headers=HX,
+                         data=cible(secret_en_quarantaine | {"contenu_sha256": "0" * 64}))
+    assert r.status_code == 400 and "Acceptation refusée" in r.text
+    assert decisions_en_base(bd) == []
+    r = client_priv.post("/ui/quarantaine/accepter", headers=HX,
+                         data=cible(secret_en_quarantaine | {"contenu_sha256": "-"}))
+    assert r.status_code == 400 and decisions_en_base(bd) == []
+    r = client_priv.post("/ui/quarantaine/accepter", headers=HX,
+                         data={k: v for k, v in cible(secret_en_quarantaine).items()
+                               if k != "contenu_sha256"})
+    assert r.status_code == 422 and decisions_en_base(bd) == []
+
+
+def test_bouton_accepter_porte_le_contenu_vu(client_priv, secret_en_quarantaine):
+    t = client_priv.get("/ui/quarantaine").text
+    assert secret_en_quarantaine["contenu_sha256"] in t

@@ -601,3 +601,16 @@ def test_contenu_accepte_different_ne_s_annonce_qu_une_fois(bd, q, depot, tmp_pa
     # l'avertissement a été émis à la première passe (fixture `q`), sous cette signature
     assert avertis == [["INFO"], ["INFO"], ["INFO"]]
     assert lus.count(PLAN) == 3 and PLAN not in chemins(bd)
+
+
+def test_accepter_refuse_un_contenu_perime(bd, q):
+    e = exclu(bd, PLAN)
+    for vu in ("0" * 64, ""):
+        with pytest.raises(DecisionInvalide):
+            accepter(bd, "depot-test", PLAN, e["signature"], vu)
+    assert decision(bd, PLAN) is None
+    assert accepter(bd, "depot-test", PLAN, e["signature"], e["contenu_sha256"])["regles"] == [
+        "contenu_secret"]
+    # ligne jamais lue (nom) : « pas d'empreinte » vue
+    assert accepter(bd, "depot-test", ".env.example", exclu(bd, ".env.example")["signature"],
+                    "")["regles"] == ["nom_secret"]

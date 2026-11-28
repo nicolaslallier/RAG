@@ -71,6 +71,7 @@ ETATS = ("indexe", "exclu_auto", "exclu_manuel")
 INTROUVABLE = "Source ou fichier introuvable."
 ETATS_QUARANTAINE = ("a_traiter", "accepte", "refuse")
 RAISONS_QUARANTAINE = ("secret", "genere")
+SANS_EMPREINTE = "-"  # champ `contenu_sha256` d'une ligne jamais lue (un champ vide serait absent)
 GROS_APERCU = 100  # au-delà, seconde confirmation (case à cocher)
 ORIGINE_FICHIERS = "fichiers"  # aperçu lancé depuis l'écran des fichiers
 IMPORT_MAX = 1024 * 1024  # octets du fichier importé
@@ -129,8 +130,8 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
     gabarits = Jinja2Templates(directory=DOSSIER / "gabarits")  # autoescape actif (.html)
     gabarits.env.filters["en_requete"] = lambda v: quote(str(v), safe="")  # tout encodé, « / » aussi
     gabarits.env.filters["en_texte"] = _en_texte  # texte simple : échappé par le gabarit
-    gabarits.env.filters["combine_signature"] = lambda cible, signature: cible | {
-        "signature": signature}
+    gabarits.env.filters["combine_signature"] = lambda cible, signature, sha: cible | {
+        "signature": signature, "contenu_sha256": sha or SANS_EMPREINTE}  # ce que l'écran a montré
     routeur = APIRouter(prefix="/ui")
 
     def session(request: Request) -> frozenset[str]:
@@ -408,13 +409,15 @@ def routeur_ui(*, niveaux_de: Callable[[str], frozenset[str] | None], ecriture_p
     def accepter_fichier(request: Request, niveaux: Annotated[frozenset[str], Depends(session)],
                          source: Annotated[str, Form()], chemin: Annotated[str, Form()],
                          signature: Annotated[str, Form()],
+                         contenu_sha256: Annotated[str, Form()],
                          vue_source: Annotated[str, Form()] = "",
                          vue_raison: Annotated[str, Form()] = "secret",
                          vue_etat: Annotated[str, Form()] = "a_traiter",
                          vue_page: Annotated[int, Form()] = 1):
         try:
             with connexion(database_url) as conn:
-                quarantaine.accepter(conn, source, chemin, signature)
+                quarantaine.accepter(conn, source, chemin, signature,
+                                     "" if contenu_sha256 == SANS_EMPREINTE else contenu_sha256)
         except DecisionInvalide as e:
             return message(request, f"Acceptation refusée : {e}.", 400, erreur=True)
         except SourceInconnue:
