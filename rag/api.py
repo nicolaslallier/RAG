@@ -106,6 +106,24 @@ def version_id(conn, empreinte: str) -> int | None:
     return r["id"] if r else None
 
 
+def bilan_visible(bilan: dict, visibles: set[str], *, complet: bool) -> dict:
+    """Bilan d'une passe en liste blanche : les sources visibles et les clés techniques
+    (`semantique`, `erreur`). Un échec n'est jamais détaillé ; les comptes de la passe
+    sémantique (toutes visibilités confondues) ne sortent que pour un jeton qui voit tout."""
+    def sans_detail(v):
+        return {"erreur": "echec"} if isinstance(v, dict) and "erreur" in v else v
+    out = {k: sans_detail(v) for k, v in bilan.items() if k in visibles}
+    sem = bilan.get("semantique")
+    if "semantique" not in visibles and isinstance(sem, dict):
+        if "erreur" in sem:
+            out["semantique"] = {"erreur": "echec"}
+        elif complet:
+            out["semantique"] = sem
+    if "erreur" not in visibles and isinstance(bilan.get("erreur"), str):
+        out["erreur"] = "interrompue"   # posée par fermer_interrompues
+    return out
+
+
 def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) -> FastAPI:
     reglages = reglages or Reglages()
     if not reglages.jeton:
@@ -233,12 +251,13 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
             nuit = conn.execute("SELECT debut, fin, ok, bilan FROM passes WHERE genre = "
                                 "'nocturne' AND fin IS NOT NULL ORDER BY debut DESC LIMIT 1"
                                 ).fetchone()
-            caches = {r["nom"] for r in conn.execute(
-                "SELECT nom FROM sources WHERE NOT visibilite = ANY(%s)", (sorted(niveaux),))}
-        if nuit:  # le bilan ne nomme pas une source que ce jeton ne voit pas
-            nuit["bilan"] = {k: ({"erreur": "echec"} if isinstance(v, dict) and "erreur" in v
-                                 else v)
-                             for k, v in nuit["bilan"].items() if k not in caches}
+            connues = {r["nom"] for r in conn.execute("SELECT nom FROM sources")}
+        if nuit:  # liste blanche : une source invisible ou disparue n'est jamais nommée
+            # + une source du fichier de config visible à ce jeton mais jamais indexée (échec
+            # dès sa première passe) : la config fait foi tant qu'elle n'est pas en base
+            visibles = {s["nom"] for s in sources} | {
+                c.nom for c in config.sources if c.visibilite in niveaux and c.nom not in connues}
+            nuit["bilan"] = bilan_visible(nuit["bilan"] or {}, visibles, complet=niveaux == TOUT)
         return {"sources": sources, "en_cours": en_cours, "derniere_nocturne": nuit}
 
     app.include_router(routeur_ui(

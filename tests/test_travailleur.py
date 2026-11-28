@@ -220,6 +220,42 @@ def test_etat_en_cours(client, bd):
     assert client.get("/etat", headers=auth).json()["en_cours"]["genre"] == "demandee"
 
 
+BILAN = {"coffre-maison": {"nouveaux": 1}, "secret-supprime": {"supprimee": True},
+         "prive": {"erreur": "echec", "x": 1}, "semantique": {"traites": 3, "liens": 1, "echecs": 0},
+         "erreur": "interrompue"}
+
+
+def test_bilan_visible_liste_blanche():
+    from rag.api import bilan_visible
+
+    b = BILAN | {"pub": {"nouveaux": 1}}
+    assert bilan_visible(b, {"pub"}, complet=False) == {"pub": {"nouveaux": 1},
+                                                        "erreur": "interrompue"}
+    assert bilan_visible(b, {"pub"}, complet=True) == {
+        "pub": {"nouveaux": 1}, "erreur": "interrompue", "semantique": BILAN["semantique"]}
+    for complet in (False, True):
+        r = bilan_visible(b | {"semantique": {"erreur": "boum /srv/x"}}, {"pub"}, complet=complet)
+        assert r["semantique"] == {"erreur": "echec"}
+    assert bilan_visible(b, {"prive"}, complet=False)["prive"] == {"erreur": "echec"}
+    # une source privée nommée « erreur » : son dict n'est jamais rendu
+    assert "erreur" not in bilan_visible({"erreur": {"nouveaux": 2}}, {"pub"}, complet=True)
+
+
+def test_etat_ne_nomme_pas_une_source_supprimee(client, bd, cfg, faux_modeles):
+    from psycopg.types.json import Jsonb
+
+    inscrire_source(bd, "coffre-maison")
+    bd.execute("INSERT INTO passes (genre, fin, ok, bilan) VALUES ('nocturne', now(), true, %s)",
+               (Jsonb(BILAN),))
+    bd.commit()
+    r = client.get("/etat", headers=auth)
+    assert "secret-supprime" not in r.text
+    assert set(r.json()["derniere_nocturne"]["bilan"]) == {"coffre-maison", "erreur"}
+    r = faire(cfg, faux_modeles, jeton_prive="priv").get(
+        "/etat", headers={"Authorization": "Bearer priv"})
+    assert "secret-supprime" not in r.text and "semantique" in r.json()["derniere_nocturne"]["bilan"]
+
+
 
 
 def test_etat_n_expose_aucun_message_d_exception(client, bd, cfg, reglages, faux_modeles,
