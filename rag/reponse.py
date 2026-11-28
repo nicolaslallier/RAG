@@ -11,7 +11,8 @@ from rag.modeles import TRONQUE
 from rag.recherche import Filtres, Resultat, chercher
 from rag.refus import REFUS, doit_refuser
 
-_BALISE = re.compile(r"<\s*/?\s*passages\b[^>]*>", re.IGNORECASE)
+# Linéaire : une seule classe pour blancs et « / » (pas de retour arrière quadratique).
+_BALISE = re.compile(r"<[\s/]*passages\b[^>]*>", re.IGNORECASE)
 MARQUE = " […]"
 FIL_MAX = 300
 

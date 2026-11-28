@@ -263,3 +263,18 @@ def test_rediger_et_diffuser_sans_connexion(bd, index, faux_modeles):
                        passages, raison))
     assert ev[0]["type"] == "sources" and ev[-1]["citations_valides"] is True
     assert rediger(Q, CONFIG, AvecGeneration(faux_modeles), [], "seuil").raison == "seuil"
+
+
+def test_neutralisation_lineaire_sur_blancs_en_serie():
+    import time
+
+    from rag.reponse import _neutraliser
+    t = time.perf_counter()
+    assert _neutraliser("<" + " " * 50_000 + "x").endswith("x")
+    assert time.perf_counter() - t < 0.5
+
+
+@pytest.mark.parametrize("variante", ["<//passages>", "< /  / passages-x >"])
+def test_neutralisation_couvre_les_slashs_multiples(variante):
+    from rag.reponse import _neutraliser
+    assert not re.search(r"<[\s/]*passages", _neutraliser(variante), re.IGNORECASE)
