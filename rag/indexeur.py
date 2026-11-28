@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 from psycopg.types.json import Jsonb
 
+from rag import quarantaine
 from rag.config import IndexationConf, SourceConf, empreinte_indexation, plafond_lecture
 from rag.decoupage import Morceau, decouper_note
 from rag.decoupage_code import decouper_code, langage
@@ -177,7 +178,13 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     conn.commit()
     v = version_courante(conn, conf)
     motifs = motifs_manuels(conn, source.nom)
+    acceptes = quarantaine.levees(conn, source.nom)
     conn.commit()
+
+    def levees_de(chemin, e) -> frozenset[str]:
+        """Règles levées pour ce fichier, si sa signature est celle qui a été acceptée."""
+        signature, regles = acceptes.get(chemin, ("", frozenset()))
+        return regles if signature == e.signature else frozenset()
 
     entrees = {}
     exclus_listage = {}  # chemin -> (entrée, raison, détail) : écartés sur le nom, jamais lus
@@ -186,7 +193,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         if source.type == "obsidian" and not chemin.endswith(".md"):
             continue  # pièces jointes, .gitignore, .DS_Store : hors coffre de notes
         raison, detail = affiner(motif_exclusion(chemin, b"", source.exclure), chemin, b"",
-                                 source.exclure)
+                                 source.exclure, levees_de(chemin, e))
         if raison is None and correspond(chemin, motifs):
             raison = "manuelle"
         if raison is None and e.taille > plafond_lecture(conf):
@@ -206,9 +213,9 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                  FROM documents d WHERE d.source_id = %s""", (v, source_id))
     }
     emp = empreinte_indexation(conf)
-    deja_exclus = {r["chemin"]: r["signature"] for r in conn.execute(
-        "SELECT chemin, signature FROM exclus WHERE source_id = %s AND empreinte = %s AND lu",
-        (source_id, emp))}
+    deja_exclus = {r["chemin"]: (r["signature"], r["regle"]) for r in conn.execute(
+        "SELECT chemin, signature, detail->>'regle' AS regle FROM exclus "
+        "WHERE source_id = %s AND empreinte = %s AND lu", (source_id, emp))}
     absents = existants.keys() - entrees.keys()
     # exclus à la main : voulus, ils ne trahissent pas un listage partiel
     manuels = {c for c, (_, raison, _) in exclus_listage.items() if raison == "manuelle"}
@@ -258,7 +265,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     for chemin, e in sorted(entrees.items()):
         ex = existants.get(chemin)
         try:
-            if deja_exclus.get(chemin) == e.signature:
+            deja = deja_exclus.get(chemin)
+            if deja and deja[0] == e.signature and deja[1] not in levees_de(chemin, e):
                 bilan.exclus += 1
                 continue
             if ex and ex["signature"] == e.signature and ex["a_v"]:
@@ -270,8 +278,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             if exclu_en_passe(chemin, e, ex):  # exclu depuis le listage : jamais lu
                 continue
             contenu = lecteur.lire(chemin)
-            raison, detail = affiner(motif_exclusion(chemin, contenu, source.exclure), chemin,
-                                     contenu, source.exclure)
+            brut = motif_exclusion(chemin, contenu, source.exclure)
+            raison, detail = affiner(brut, chemin, contenu, source.exclure, levees_de(chemin, e))
             if raison:
                 log.warning("%s : %r exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
                 _verrouiller_identite(conn, source, source_id)
@@ -288,6 +296,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 conn.commit()
                 bilan.exclus += 1
                 continue
+            par_levee = brut is not None  # indexé seulement grâce à une acceptation
             sha = hashlib.sha256(contenu).hexdigest()
             if ex and ex["sha256"] == sha and ex["a_v"]:
                 conn.execute("UPDATE documents SET signature = %s WHERE id = %s",
@@ -302,6 +311,12 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             # qui arrive attend le commit puis retire le document écrit
             _verrouiller_identite(conn, source, source_id)
             if exclu_en_passe(chemin, e, ex):
+                continue
+            # acceptation retirée ou changée pendant la passe : rien n'est écrit, reprise à la
+            # suivante
+            if par_levee and quarantaine.levees(conn, source.nom).get(chemin) != acceptes.get(chemin):
+                conn.rollback()
+                bilan.reportes += 1
                 continue
             conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
                          (source_id, chemin))
