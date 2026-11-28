@@ -32,9 +32,19 @@ auth = {"Authorization": "Bearer pub"}
 auth_prive = {"Authorization": "Bearer priv"}
 
 
-def test_sante_sans_jeton(client):
-    r = client.get("/sante").json()
+def test_sante_sans_jeton_ne_dit_rien(client):
+    assert client.get("/sante").json() == {"ok": True}
+    assert client.get("/sante", headers={"Authorization": "Bearer mauvais"}).json() == {"ok": True}
+
+
+def test_sante_avec_jeton_compte_le_visible(client, bd):
+    r = client.get("/sante", headers=auth).json()
     assert r["ok"] is True and r["documents"] == 6
+    assert len(r["version"]) == 64 and int(r["version"], 16) >= 0
+    bd.execute("UPDATE sources SET visibilite = 'prive'")
+    bd.commit()
+    assert client.get("/sante", headers=auth).json()["documents"] == 0
+    assert client.get("/sante", headers=auth_prive).json()["documents"] == 6
 
 
 def test_sante_503_si_base_absente(cfg, faux_modeles):

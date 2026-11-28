@@ -338,6 +338,9 @@ def test_mcp_expliquer(client, monde):
 
 # --- Jeton de réindexation : il ne lit rien ---------------------------------------------------
 
+def test_sante_jeton_reindexer_sans_detail(client):
+    assert client.get("/sante", headers=REINDEX).json() == {"ok": True}
+
 @pytest.mark.parametrize("methode,chemin,corps", [
     ("POST", "/mcp", {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
     ("GET", "/etat", None),

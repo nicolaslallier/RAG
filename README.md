@@ -131,6 +131,8 @@ Aucune n'est faite par un agent.
 ## Exploitation
 
 - La pile tourne dans la VM Colima du MacBook : si le Mac ou Colima s'arrête, le service s'arrête.
+- Santé : `GET /sante` répond `{"ok": true}` sans jeton (503 si la base est injoignable) ; avec
+  `RAG_JETON` ou `RAG_JETON_PRIVE`, il ajoute `documents` (sources visibles par ce jeton) et `version`.
 - État des passes : `curl -H "Authorization: Bearer $RAG_JETON" http://192.168.2.40:8000/etat`.
   Le port est en HTTP : `RAG_JETON_PRIVE` ne s'utilise que depuis le MacBook lui-même.
 - Relancer une passe : `POST /reindexer` avec `RAG_JETON_REINDEXER` (`{"source": "<nom>"}` facultatif).

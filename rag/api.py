@@ -1,4 +1,4 @@
-"""API HTTP : /sante (sans jeton) et /chercher (jeton → niveaux de visibilité)."""
+"""API HTTP : /sante (sans jeton : ok seulement) et /chercher (jeton → niveaux de visibilité)."""
 
 import asyncio
 import hmac
@@ -275,10 +275,16 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
         return RedirectResponse("/ui/", status_code=307)
 
     @app.get("/sante")
-    def sante():
+    def sante(authorization: str = Header(default="")):
+        niveaux = niveaux_de(authorization)  # sans jeton valide : ok seulement, aucun détail
         try:
             with connexion(reglages.database_url) as conn:
-                n = conn.execute("SELECT count(*) n FROM documents").fetchone()["n"]
+                if niveaux is None:
+                    conn.execute("SELECT 1")
+                    return {"ok": True}
+                n = conn.execute(
+                    "SELECT count(*) n FROM documents d JOIN sources s ON s.id = d.source_id"
+                    " WHERE s.visibilite = ANY(%s)", (sorted(niveaux),)).fetchone()["n"]
         except Exception:  # noqa: BLE001 - la santé répond 503, sans détail
             return JSONResponse({"ok": False}, status_code=503)
         return {"ok": True, "documents": n, "version": empreinte}
