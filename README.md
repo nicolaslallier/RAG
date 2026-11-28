@@ -163,7 +163,7 @@ Aucune n'est faite par un agent.
   puis changer `infra/rag` et redéployer (ou supprimer le volume et réindexer).
 - **Après le déploiement du lot « sources » (migration 008)** : les nouveaux motifs de secrets
   sur les **noms** (`.npmrc`, `*.tfstate`, `kubeconfig`…) s'appliquent dès la passe suivante. Ceux
-  sur le **contenu** (jetons GitLab `glpat-…` et Slack `xox?-…`) ne s'appliquent qu'aux fichiers
+  sur le **contenu** (jetons GitLab `glpat-…`, Slack `xox?-…` et `xapp-…`) ne s'appliquent qu'aux fichiers
   relus : `VERSION_ANALYSEUR` n'a pas changé, pour éviter une réindexation complète. Contrôle
   ciblé, à faire une fois :
 
@@ -173,13 +173,13 @@ Aucune n'est faite par un agent.
   -- 1. documents suspects (morceaux ou frontmatter)
   SELECT s.nom, d.chemin FROM documents d JOIN sources s ON s.id = d.source_id
    WHERE d.id IN (SELECT d.id FROM documents d LEFT JOIN morceaux m ON m.document_id = d.id
-                   WHERE m.texte ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9]{8,}-)'
-                      OR d.frontmatter::text ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9]{8,}-)');
+                   WHERE m.texte ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abeposr]-([0-9]-|[A-Za-z0-9]{8,}-)|xapp-[0-9]-)'
+                      OR d.frontmatter::text ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abeposr]-([0-9]-|[A-Za-z0-9]{8,}-)|xapp-[0-9]-)');
   -- 2. les faire relire à la prochaine passe
   UPDATE documents SET signature = ''
    WHERE id IN (SELECT d.id FROM documents d LEFT JOIN morceaux m ON m.document_id = d.id
-                 WHERE m.texte ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9]{8,}-)'
-                    OR d.frontmatter::text ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9]{8,}-)');
+                 WHERE m.texte ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abeposr]-([0-9]-|[A-Za-z0-9]{8,}-)|xapp-[0-9]-)'
+                    OR d.frontmatter::text ~ '(glpat-[A-Za-z0-9_-]{20,}|xox[abeposr]-([0-9]-|[A-Za-z0-9]{8,}-)|xapp-[0-9]-)');
   ```
 
   Une signature vide force la relecture du fichier : l'analyseur l'exclut (`secret`) s'il contient

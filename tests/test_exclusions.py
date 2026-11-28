@@ -30,6 +30,24 @@ from rag.exclusions import motif_exclusion
     ("slack.md", b"xoxb-" + b"1" * 12 + b"-" + b"a" * 24, "secret"),
     ("docs/kubeconfig.md", b"x", None), ("slack-doc.md", b"xoxb-your-token-here", None),
     ("gl.md", b"prefixe-glpat-court", None),
+    ("xoxe1.md", b"xoxe.xoxp-1-" + b"A1b2" * 10, "secret"),
+    ("xoxe2.md", b"t=xoxe.xoxb-1-" + b"Z9" * 15, "secret"),
+    ("xoxe3.md", b"xoxe-1-" + b"My0xLTI" * 6, "secret"),
+    ("xoxa.md", b"xoxa-2-" + b"1" * 12 + b"-" + b"a" * 24, "secret"),
+    ("xapp.md", b"xapp-1-" + b"A0123ABCD" + b"-" + b"1" * 13 + b"-" + b"f0" * 16, "secret"),
+    ("xoxp.md", b"xoxp-" + b"1" * 12 + b"-" + b"2" * 12 + b"-" + b"a" * 32, "secret"),
+    ("xapp-doc.md", b"xapp-1-your-app-token", None), ("xoxe-doc.md", b"xoxe-1-court", None),
+    ("collé.md", b"motxoxb-" + b"1" * 12 + b"-" + b"a" * 24, None),
 ])
 def test_motif_exclusion(chemin, debut, raison):
     assert motif_exclusion(chemin, debut, [".obsidian/**", "_versions/**"]) == raison
+
+
+def test_motifs_slack_sans_redos():
+    import time
+    debut = time.monotonic()
+    for brut in (b"xoxb-" + b"a" * 50_000, b"xoxb-" + b"a-" * 25_000,
+                 b"xapp-1-" + b"a" * 50_000 + b"-", b"xapp-1-a-" + b"1" * 50_000 + b"-x",
+                 b"xoxe-1-" + b"-" * 50_000):
+        motif_exclusion("x.md", brut, [])
+    assert time.monotonic() - debut < 2

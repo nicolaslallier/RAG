@@ -13,8 +13,11 @@ _CONTENU_SECRET = re.compile(
     rb"|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}"
     rb"|hv[sb]\.[A-Za-z0-9_-]{20,}|(?<![A-Za-z0-9_.-])s\.[A-Za-z0-9]{24,}"
     rb"|(?<![A-Za-z0-9_-])glpat-[A-Za-z0-9_-]{20,}"
-    # Slack : deux segments d'au moins 8 caractères, pas « xoxb-your-token-here »
-    rb"|(?<![A-Za-z0-9_-])xox[abposr]-[A-Za-z0-9]{8,}-[A-Za-z0-9-]{8,}"
+    # Slack : « xox?-<n>-… » (rotation, xoxe.xoxp-1-…) ou deux segments d'au moins 8 caractères,
+    # jamais « xoxb-your-token-here » ; jetons d'application « xapp-<n>-… ». Classes disjointes
+    # des séparateurs : temps linéaire.
+    rb"|(?<![A-Za-z0-9_-])xox[abeposr]-(?:\d-[A-Za-z0-9-]{20,}|[A-Za-z0-9]{8,}-[A-Za-z0-9-]{8,})"
+    rb"|(?<![A-Za-z0-9_-])xapp-\d-[A-Za-z0-9]+-\d+-[A-Za-z0-9]{16,}"
 )
 _GENERES = ["uv.lock", "Cargo.lock", "package-lock.json", "pnpm-lock.yaml", "*.min.js", "*.map"]
 _DOSSIERS_GENERES = {"node_modules", "dist", "target", "graphify-out", ".venv"}
