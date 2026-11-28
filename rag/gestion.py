@@ -240,7 +240,8 @@ def exclure(conn, source: str, motif: str, raison: str | None = None) -> int:
 def demander_reindexation(conn, source: str | None) -> int:
     """Demande une passe au travailleur (toutes les sources si `None`) ; nombre de sources visées.
 
-    Un compte seulement, sans erreur pour un nom inconnu : ni liste ni oracle des noms.
+    Pas d'erreur pour un nom inconnu, mais le compte (1 ou 0) révèle si la source existe :
+    ne jamais le rendre à un appelant sans droit de lecture (`POST /reindexer` répond constant).
     """
     n = conn.execute(
         "UPDATE sources SET demande_le = now() WHERE %(s)s::text IS NULL OR nom = %(s)s",

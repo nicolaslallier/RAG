@@ -178,11 +178,11 @@ def test_reindexer_exige_son_jeton(client, bd, cfg, reglages, faux_modeles):
     assert client.post("/reindexer", json={},
                        headers={"Authorization": "Bearer faux"}).status_code == 401
     r = client.post("/reindexer", json={"source": "coffre-maison"}, headers=auth_reindexer)
-    assert r.status_code == 202 and r.json() == {"demande": 1}
+    assert r.status_code == 202 and r.json() == {"ok": True}
     assert bd.execute("SELECT demande_le FROM sources").fetchone()["demande_le"]
-    r = client.post("/reindexer", json={"source": "inconnue"}, headers=auth_reindexer)
-    assert r.status_code == 202 and r.json() == {"demande": 0}  # pas d'oracle des noms
-    assert client.post("/reindexer", json={}, headers=auth_reindexer).json() == {"demande": 1}
+    inconnue = client.post("/reindexer", json={"source": "inconnue"}, headers=auth_reindexer)
+    assert (inconnue.status_code, inconnue.content) == (r.status_code, r.content)  # pas d'oracle
+    assert client.post("/reindexer", json={}, headers=auth_reindexer).json() == {"ok": True}
     assert client.post("/chercher", json={"question": "x"},
                        headers=auth_reindexer).status_code == 401  # ce jeton ne lit rien
 

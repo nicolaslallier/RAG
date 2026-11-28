@@ -134,6 +134,7 @@ Aucune n'est faite par un agent.
 - État des passes : `curl -H "Authorization: Bearer $RAG_JETON" http://192.168.2.40:8000/etat`.
   Le port est en HTTP : `RAG_JETON_PRIVE` ne s'utilise que depuis le MacBook lui-même.
 - Relancer une passe : `POST /reindexer` avec `RAG_JETON_REINDEXER` (`{"source": "<nom>"}` facultatif).
+  Il répond toujours `202 {"ok": true}`, que la source existe ou non ; suivre l'effet par `/etat`.
 - Journaux : Portainer (environnement Mac-book) ou `docker --context colima logs rag-rag-1` sur le Mac ;
   **pas dans Loki** (Alloy ne lit que l'hôte `192.168.2.10`).
 - Tourner un jeton : changer la valeur dans `infra/rag`, relancer le workflow `deploy`

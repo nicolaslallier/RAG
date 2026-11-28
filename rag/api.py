@@ -235,8 +235,9 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
     @app.post("/reindexer", status_code=202, dependencies=[Depends(jeton_reindexer)])
     def route_reindexer(d: DemandeReindexer):
         with connexion(reglages.database_url) as conn:
-            # Un compte seulement, et pas de 404 : ni liste ni oracle des noms de sources.
-            return {"demande": gestion.demander_reindexation(conn, d.source)}
+            gestion.demander_reindexation(conn, d.source)
+        # Réponse constante : un compte (1 ou 0) dirait si la source existe.
+        return {"ok": True}
 
     @app.get("/etat")
     def route_etat(niveaux: frozenset[str] = Depends(niveaux_du_jeton)):
