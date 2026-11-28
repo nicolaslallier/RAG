@@ -49,14 +49,14 @@ class Modeles:
     def embed_requete(self, *a):
         return self.base.embed_requete(*a)
 
-    def generer(self, modele, messages, temperature, json_mode=False):
+    def generer(self, modele, messages, temperature, json_mode=False, delai=None):
         self.vus.append(messages)
         if json_mode:
             return '{"concepts": []}' if "concepts" in messages[0]["content"] else \
                 '{"mode": "repondre"}'
         return "Du cidre [1]."
 
-    def generer_flux(self, modele, messages, temperature):
+    def generer_flux(self, modele, messages, temperature, delai=None):
         self.vus.append(messages)
         yield from ("Du cidre ", "[1].")
 
@@ -206,9 +206,10 @@ def test_repondre_flux(client, modeles):
 
 
 def test_question_json(client, modeles):
-    for corps in ({"question": "Quelle est la recette de poulet au cidre ?"},
-                  {"question": "Quelles recettes pour le poulet ?"}):
-        texte, r = poster(client, "/question", corps, PUB)
+    for question, mode in (("Quelle est la recette de poulet au cidre ?", "repondre"),
+                           ("Quelles recettes pour le poulet ?", "lister")):
+        texte, r = poster(client, "/question", {"question": question}, PUB)
+        assert r["mode"] == mode  # le contrôle négatif ne passe pas à vide
         sans_fuite(texte, r)
     assert "ZZPRIVE" not in str(modeles.vus) and "ZZTRAVAIL" not in str(modeles.vus)
     corps = {"question": "Quelle est la recette dans coffre-prive ?"}
@@ -334,6 +335,8 @@ def test_mcp_expliquer(client, monde):
     for nom in ("calculer_salaire_secret", f"id:{monde['id_prive']}"):
         _, r = outil(client, "rag_expliquer", {"nom": nom})
         assert r["etat"] == "introuvable" and r["candidats"] == []
+        _, r = outil(client, "rag_expliquer", {"nom": nom}, PRIV)
+        assert r["etat"] == "ok"
 
 
 # --- Jeton de réindexation : il ne lit rien ---------------------------------------------------

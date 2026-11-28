@@ -268,10 +268,11 @@ def create_app(reglages: Reglages | None = None, modeles=None, reranker=None) ->
                                 ).fetchone()
             connues = {r["nom"] for r in conn.execute("SELECT nom FROM sources")}
         if nuit:  # liste blanche : une source invisible ou disparue n'est jamais nommée
-            # + une source du fichier de config visible à ce jeton mais jamais indexée (échec
-            # dès sa première passe) : la config fait foi tant qu'elle n'est pas en base
+            # + un coffre du fichier de config visible à ce jeton mais jamais indexé (échec
+            # dès sa première passe) : la config fait foi tant qu'il n'est pas en base
             visibles = {s["nom"] for s in sources} | {
-                c.nom for c in config.sources if c.visibilite in niveaux and c.nom not in connues}
+                c.nom for c in config.sources if c.type == "obsidian"
+                and c.visibilite in niveaux and c.nom not in connues}
             nuit["bilan"] = bilan_visible(nuit["bilan"] or {}, visibles, complet=niveaux == TOUT)
         return {"sources": sources, "en_cours": en_cours, "derniere_nocturne": nuit}
 

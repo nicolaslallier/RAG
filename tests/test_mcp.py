@@ -193,7 +193,8 @@ def test_erreur_interne_generique_et_journalisee(client, monkeypatch, caplog):
 
 @pytest.mark.parametrize("nom,cible,args", [
     ("rag_lister", "lister", {"question": "quelles recettes", "type": "recette"}),
-    ("rag_repondre", "repondre", {"question": "poulet"}),
+    # sources_citees : appelée par rag_repondre avant la rédaction, et stable d'un lot à l'autre
+    ("rag_repondre", "sources_citees", {"question": "poulet"}),
     ("rag_chemin", "chemin", {"de": "a", "vers": "b"}),
     ("rag_expliquer", "expliquer", {"nom": "a"}),
     ("rag_sources", "gestion.sources", {}),
@@ -213,6 +214,6 @@ def test_modele_indisponible_dit_sans_detail(client, monkeypatch):
 
     def panne(*a, **k):
         raise ErreurModele("LiteLLM chat : HTTP 500 https://litellm.interne")
-    monkeypatch.setattr(api, "repondre", panne)
+    monkeypatch.setattr(api, "sources_citees", panne)  # traverse rag_repondre
     texte = erreur_de(client, "rag_repondre", {"question": "poulet"})
     assert "modèle indisponible" in texte and "litellm.interne" not in texte

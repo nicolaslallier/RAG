@@ -195,27 +195,26 @@ def test_entetes_de_securite_sur_l_interface(client):
     assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
 
 
-@pytest.mark.parametrize("requete", [
-    ("GET", "/sante", {}, None),
-    ("GET", "/", {}, None),
-    ("GET", "/ui/", {}, None),
-    ("GET", "/ui/statique/htmx.min.js", {}, None),
-    ("POST", "/chercher", JSON, b'{"question": "x"}'),
-    ("POST", "/mcp", MCP, b'{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'),
-    ("GET", "/inexistant", {}, None),
-    ("POST", "/chercher", JSON, gros_json()),
-    ("FRAGMENT", "/ui/sources/coffre-maison", HX, None),
+@pytest.mark.parametrize("requete,statut", [
+    (("GET", "/sante", {}, None), 200),
+    (("GET", "/", {}, None), 307),
+    (("GET", "/ui/", {}, None), 303),
+    (("GET", "/ui/statique/htmx.min.js", {}, None), 200),
+    (("POST", "/chercher", JSON, b'{"question": "x"}'), 401),
+    (("POST", "/mcp", MCP, b'{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}'), 401),
+    (("GET", "/inexistant", {}, None), 404),
+    (("POST", "/chercher", JSON, gros_json()), 413),
+    (("FRAGMENT", "/ui/sources/coffre-maison", HX, None), 200),
 ], ids=["sante", "racine", "ui-sans-cookie", "statique", "401", "mcp-401", "404", "413",
         "fragment"])
-def test_entetes_sur_toutes_les_reponses(client, requete):
+def test_entetes_sur_toutes_les_reponses(client, requete, statut):
     methode, chemin, entetes, corps = requete
     if methode == "FRAGMENT":
         client.post("/ui/connexion", data={"jeton": "pub"}, follow_redirects=False)
         methode = "GET"
     r = client.request(methode, chemin, headers=entetes, content=corps, follow_redirects=False)
+    assert r.status_code == statut, r.text
     assert all(n in r.headers for n in SECURITE), (r.status_code, dict(r.headers))
-    if requete[0] == "FRAGMENT":
-        assert r.status_code == 200
 
 
 def test_en_tete_deja_pose_non_ecrase():
