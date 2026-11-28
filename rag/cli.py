@@ -234,6 +234,14 @@ def _sources_cli(conn, a, config) -> int:
 def _quarantaine_cli(conn, a) -> int:
     from rag import quarantaine as qr
     from rag.gestion import SourceInconnue
+    if a.action == "lister" and a.etat == "orphelin":  # décisions sans fichier dans la file
+        lignes = [d for d in qr.orphelines(conn, niveaux=TOUT if a.prive else PUBLIC)
+                  if a.source is None or d["source"] == a.source]
+        for d in lignes:
+            print(f"orphelin\t{d['source']}\t{d['chemin']}\t{d['decision']}\t"
+                  f"{', '.join(d['regles']) or '—'}")
+        print(f"{len(lignes)} décision(s) sans fichier en file", file=sys.stderr)
+        return 0
     if a.action == "lister":
         r = qr.file(conn, niveaux=TOUT if a.prive else PUBLIC, source=a.source,
                     raison=None if a.raison == "toutes" else a.raison, etat=a.etat, par_page=1000)
@@ -327,7 +335,8 @@ def main(argv: list[str] | None = None) -> int:
     pqul = pqu.add_parser("lister")
     pqul.add_argument("--source")
     pqul.add_argument("--raison", choices=["secret", "genere", "toutes"], default="secret")
-    pqul.add_argument("--etat", choices=["a_traiter", "accepte", "refuse"], default="a_traiter")
+    pqul.add_argument("--etat", choices=["a_traiter", "accepte", "refuse", "orphelin"],
+                      default="a_traiter")
     pqul.add_argument("--prive", action="store_true")
     for nom in ("accepter", "refuser", "annuler"):
         pqux = pqu.add_parser(nom)

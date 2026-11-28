@@ -23,6 +23,7 @@ from rag.quarantaine import (
     importer,
     levees,
     levees_indexees,
+    orphelines,
     refuser,
 )
 from rag.sources import LecteurGit
@@ -614,3 +615,23 @@ def test_accepter_refuse_un_contenu_perime(bd, q):
     # ligne jamais lue (nom) : « pas d'empreinte » vue
     assert accepter(bd, "depot-test", ".env.example", exclu(bd, ".env.example")["signature"],
                     "")["regles"] == ["nom_secret"]
+
+
+def test_orphelines_listent_les_decisions_sans_fichier_en_file(bd, q, depot):
+    accepter(bd, "depot-test", PLAN)
+    refuser(bd, "depot-test", "uv.lock")
+    bd.execute("INSERT INTO quarantaine_decisions (source, chemin, decision, signature, regles) "
+               "VALUES ('future', 'a.md', 'refuse', 's', '{}')")
+    bd.commit()
+    q()
+    assert [d["chemin"] for d in orphelines(bd, niveaux=TOUT)] == ["a.md"]
+    commit(depot, PLAN, "# Plan\n\nsans jeton\n")  # redevenu propre, indexé sans acceptation
+    git(depot, "rm", "-q", "uv.lock")                # disparu
+    git(depot, "commit", "-qm", "sans verrou")
+    q()
+    assert [(d["source"], d["chemin"]) for d in orphelines(bd, niveaux=TOUT)] == [
+        ("depot-test", PLAN), ("depot-test", "uv.lock"), ("future", "a.md")]
+    assert [d["chemin"] for d in orphelines(bd, niveaux=PUBLIC)] == [PLAN, "uv.lock"]
+    bd.execute("UPDATE sources SET visibilite = 'prive'")
+    bd.commit()
+    assert orphelines(bd, niveaux=PUBLIC) == []

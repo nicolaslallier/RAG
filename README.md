@@ -118,13 +118,17 @@ par le filtre.
 - L'exclusion manuelle prime sur l'acceptation.
 
 ```
-rag quarantaine lister [--source S] [--raison secret|genere|toutes] [--etat a_traiter|accepte|refuse] [--prive]
+rag quarantaine lister [--source S] [--raison secret|genere|toutes] [--etat a_traiter|accepte|refuse|orphelin] [--prive]
 rag quarantaine accepter SOURCE CHEMIN
 rag quarantaine refuser SOURCE CHEMIN
 rag quarantaine annuler SOURCE CHEMIN
 rag quarantaine exporter
 rag quarantaine importer FICHIER
 ```
+
+`--etat orphelin` liste les décisions qui n'ont plus de fichier dans la file (fichier disparu,
+redevenu propre, devenu binaire ou exclu à la main) : l'écran ne les montre pas, l'export les
+garde ; `rag quarantaine annuler` les efface.
 
 ### Sources git gérées dans l'interface
 

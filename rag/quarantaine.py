@@ -9,7 +9,7 @@ from typing import Literal
 
 import yaml
 
-from rag.config import NOM_MAX
+from rag.config import NOM_MAX, TOUT
 from rag.exclusions import RAISONS_ACCEPTABLES, REGLES_ACCEPTABLES
 from rag.gestion import (
     MOTIF_MAX,
@@ -128,6 +128,21 @@ def comptes(conn, *, niveaux: frozenset[str]) -> dict[str, int]:
             {"niveaux": sorted(niveaux), "raisons": list(RAISONS_ACCEPTABLES)}):
         n[r["raison"]] = r["n"]
     return n
+
+
+def orphelines(conn, *, niveaux: frozenset[str]) -> list[dict]:
+    """Décisions sans fichier dans la file (fichier devenu propre, binaire, exclu à la main,
+    disparu, modifié puis indexé…) : visibles seulement par l'export et par cette liste.
+    Celles d'une source inconnue ne sont rendues qu'avec tous les niveaux."""
+    return conn.execute(
+        _FILE + """SELECT q.source, q.chemin, q.decision, q.regles, q.cree_le
+                     FROM quarantaine_decisions q LEFT JOIN sources s ON s.nom = q.source
+                    WHERE (s.visibilite = ANY(%(niveaux)s) OR (s.id IS NULL AND %(tout)s))
+                      AND NOT EXISTS (SELECT 1 FROM file f
+                                       WHERE f.source = q.source AND f.chemin = q.chemin)
+                    ORDER BY q.source, q.chemin COLLATE "C" """,
+        {"niveaux": sorted(niveaux), "raisons": list(RAISONS_ACCEPTABLES),
+         "tout": niveaux >= TOUT}).fetchall()
 
 
 def decrire(detail: dict | None) -> str:

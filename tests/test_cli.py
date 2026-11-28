@@ -190,3 +190,19 @@ def test_cli_quarantaine_exporter_importer(env_cli, capsys, tmp_path):
     f.write_text("pas une liste\n")
     assert cli.main(["quarantaine", "importer", str(f)]) == 1
     assert "fichier invalide, rien d'importé" in capsys.readouterr().err
+
+
+def test_cli_quarantaine_lister_orphelins(env_cli, capsys):
+    (env_cli / "Cles.md").write_text(f"# Clés\n\nexemple : {JETON}\n")
+    assert cli.main(["indexer"]) == 0
+    assert cli.main(["quarantaine", "refuser", "coffre-maison", "Cles.md"]) == 0
+    capsys.readouterr()
+    assert cli.main(["quarantaine", "lister", "--etat", "orphelin"]) == 0
+    assert "Cles.md" not in capsys.readouterr().out
+    (env_cli / "Cles.md").unlink()
+    assert cli.main(["indexer"]) == 0
+    capsys.readouterr()
+    assert cli.main(["quarantaine", "lister", "--etat", "orphelin"]) == 0
+    sortie = capsys.readouterr()
+    assert "orphelin\tcoffre-maison\tCles.md\trefuse\tcontenu_secret" in sortie.out
+    assert "1 décision(s) sans fichier en file" in sortie.err
