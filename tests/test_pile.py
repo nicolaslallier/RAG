@@ -10,9 +10,10 @@ PILE = yaml.safe_load(BRUT)
 APPLI = ("rag", "rag-indexeur")
 
 
-def test_un_seul_port_lie_au_lan():
+def test_ports_publies():
     services = PILE["services"]
     assert services["rag"]["ports"] == ["8000:8000"]
+    assert services["rag-postgres-exporter"]["ports"] == ["9187:9187"]
     assert "ports" not in services["rag-indexeur"] and "ports" not in services["rag-postgres"]
     assert "infra-net" not in BRUT and "networks" not in PILE
     assert "0.0.0.0" not in BRUT
@@ -35,12 +36,28 @@ def test_noms_du_contrat():
     assert e["RAG_S3_ENDPOINT"] == "https://s3.infra.famillelallier.net"
     assert e["RAG_LITELLM_CA"] == e["AWS_CA_BUNDLE"] == "/etc/rag/infra-ca.crt"
     assert "@rag-postgres:5432/rag" in e["RAG_DATABASE_URL"]
-    assert set(PILE["services"]) == {"rag", "rag-indexeur", "rag-postgres"}
+    assert set(PILE["services"]) == {"rag", "rag-indexeur", "rag-postgres", "rag-postgres-exporter"}
     assert PILE["services"]["rag"]["image"].startswith("ghcr.io/nicolaslallier/rag:")
     pg = PILE["services"]["rag-postgres"]
     assert re.search(r"^pgvector/pgvector:\S+@sha256:[0-9a-f]{64}$", pg["image"])
     assert pg["environment"]["POSTGRES_PASSWORD"] == "${RAG_DB_PASSWORD:?}"
     assert set(PILE["volumes"]) == {"rag-donnees", "rag-pgdata"}
+
+
+def test_exporter_postgres():
+    s = PILE["services"]["rag-postgres-exporter"]
+    assert re.search(r"^prometheuscommunity/postgres-exporter:\S+@sha256:[0-9a-f]{64}$", s["image"])
+    e = s["environment"]
+    assert e["DATA_SOURCE_USER"] == "monitoring"
+    assert e["DATA_SOURCE_URI"] == "rag-postgres:5432/rag?sslmode=disable"
+    assert e["DATA_SOURCE_PASS"] == "${RAG_MONITORING_DB_PASSWORD:?}"
+    assert "RAG_DB_PASSWORD" not in str(s)   # jamais le superuser
+    assert {"--collector.postmaster", "--collector.stat_checkpointer",
+            "--collector.database_wraparound"} <= set(s["command"])
+    assert s["read_only"] is True and s["cap_drop"] == ["ALL"]
+    assert s["depends_on"] == {"rag-postgres": {"condition": "service_healthy"}}
+    for nom in APPLI:   # ceux qui lancent `rag migrer` créent le rôle
+        assert PILE["services"][nom]["environment"]["RAG_MONITORING_DB_PASSWORD"] == "${RAG_MONITORING_DB_PASSWORD:?}"
 
 
 def test_la_base_n_est_pas_sur_le_lan():

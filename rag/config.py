@@ -48,6 +48,7 @@ class Reglages(BaseSettings):
     s3_secret_key: str = ""
     coffre_bucket: str = "obsidian"
     coffre_prefixe: str = ""
+    monitoring_db_password: str = ""   # rôle `monitoring` (postgres-exporter) ; vide : rien n'est créé
 
 
 class _Strict(BaseModel):

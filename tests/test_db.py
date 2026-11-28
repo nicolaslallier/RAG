@@ -1,8 +1,9 @@
 import psycopg
 import pytest
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
-from rag.db import migrer
-from tests.conftest import inscrire_source
+from rag.db import assurer_role_monitoring, connexion, migrer
+from tests.conftest import URL, inscrire_source
 
 
 def test_migrer_est_idempotent(bd):
@@ -29,3 +30,28 @@ def test_visibilite_travail_acceptee_inconnue_refusee(bd):
     with pytest.raises(psycopg.errors.CheckViolation):
         bd.execute("UPDATE sources SET visibilite = 'pro'")
     bd.rollback()
+
+
+def test_role_monitoring_rejouable_et_sans_superuser(bd):
+    # Rôle d'essai : la fonction valide sa transaction, `monitoring` survivrait dans la base de dev.
+    try:
+        assurer_role_monitoring(bd, "Essai123", role="monitoring_essai")
+        assurer_role_monitoring(bd, "Autre456", role="monitoring_essai")   # rejouable, aligne le mot de passe
+        r = bd.execute("SELECT rolsuper, rolcanlogin, rolcreaterole, rolcreatedb, "
+                       "pg_has_role(rolname, 'pg_monitor', 'member') AS moniteur "
+                       "FROM pg_roles WHERE rolname = 'monitoring_essai'").fetchone()
+        assert r == {"rolsuper": False, "rolcanlogin": True, "rolcreaterole": False,
+                     "rolcreatedb": False, "moniteur": True}
+        bd.commit()
+        info = conninfo_to_dict(URL)
+        url = make_conninfo(URL, user="monitoring_essai", password="Autre456")
+        with connexion(url) as m:   # le dernier mot de passe ouvre une session qui lit les stats
+            assert m.execute("SELECT count(*) AS n FROM pg_stat_database WHERE datname = %s",
+                             (info["dbname"],)).fetchone()["n"] == 1
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                m.execute("SELECT 1 FROM sources LIMIT 1")
+    finally:
+        bd.rollback()
+        bd.execute("DROP OWNED BY monitoring_essai")   # retire le GRANT CONNECT
+        bd.execute("DROP ROLE monitoring_essai")
+        bd.commit()

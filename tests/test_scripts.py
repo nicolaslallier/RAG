@@ -14,7 +14,8 @@ import pytest
 
 J1, J2, J3 = "1" * 40, "2" * 40, "3" * 40
 COFFRE = {"RAG_DB_PASSWORD": "Abc123", "RAG_LITELLM_CLE": "sk-essai", "RAG_JETON": J1,
-          "RAG_JETON_REINDEXER": J2, "RAG_GITHUB_JETON": "gh-essai", "RAG_S3_SECRET_KEY": "s3-essai"}
+          "RAG_JETON_REINDEXER": J2, "RAG_GITHUB_JETON": "gh-essai", "RAG_S3_SECRET_KEY": "s3-essai",
+          "RAG_MONITORING_DB_PASSWORD": "Mon123"}
 BAO, CLE_API = "bao-jeton-essai", "portainer-cle-essai"
 
 
@@ -107,7 +108,7 @@ def test_rendu_ecrit_les_cles_et_rien_sur_la_sortie(faux, tmp_path):
     assert r.returncode == 0, r.stderr
     lignes = f.read_text().splitlines()
     assert "RAG_JETON=" + J1 in lignes and "RAG_JETON_PRIVE=" in lignes
-    assert "RAG_COFFRE_PREFIXE=" in lignes and len(lignes) == 9 and "RAG_CLE_SECRETS=" in lignes
+    assert "RAG_COFFRE_PREFIXE=" in lignes and len(lignes) == 10 and "RAG_CLE_SECRETS=" in lignes
     assert all(v not in r.stdout + r.stderr for v in COFFRE.values())
     assert oct(f.stat().st_mode)[-3:] == "600"
 
@@ -120,6 +121,8 @@ def test_rendu_masque_les_valeurs_dans_actions(faux, tmp_path):
 
 @pytest.mark.parametrize("coffre,attendu", [
     (SANS("RAG_S3_SECRET_KEY"), "RAG_S3_SECRET_KEY"),
+    (SANS("RAG_MONITORING_DB_PASSWORD"), "RAG_MONITORING_DB_PASSWORD"),
+    (AVEC(RAG_MONITORING_DB_PASSWORD=""), "RAG_MONITORING_DB_PASSWORD"),
     (AVEC(RAG_JETON="court"), "RAG_JETON"),
     (AVEC(RAG_JETON_REINDEXER=J1), "RAG_JETON_REINDEXER"),
     (AVEC(RAG_JETON_PRIVE=J2), "RAG_JETON_PRIVE"),
@@ -165,6 +168,16 @@ def test_up_refuse_une_variable_obligatoire_vide(faux, tmp_path):
     f.write_text(f.read_text().replace("IMAGE_TAG=sha-abc1234", "IMAGE_TAG="))
     r = lancer("scripts/portainer-stack.sh", "up", env=env)
     assert r.returncode != 0 and "IMAGE_TAG" in r.stderr and faux.requetes == []
+
+
+def test_up_refuse_sans_mot_de_passe_monitoring(faux, tmp_path):
+    env = env_up(faux, tmp_path)
+    f = Path(env["RAG_STACK_ENV"])
+    f.write_text("".join(ligne + "\n" for ligne in f.read_text().splitlines()
+                         if not ligne.startswith("RAG_MONITORING_DB_PASSWORD=")))
+    r = lancer("scripts/portainer-stack.sh", "up", env=env)
+    assert r.returncode != 0 and "RAG_MONITORING_DB_PASSWORD" in r.stderr and faux.requetes == []
+    assert "Mon123" not in r.stdout + r.stderr
 
 
 def test_up_accepte_un_jeton_github_vide(faux, tmp_path):
