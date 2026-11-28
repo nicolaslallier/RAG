@@ -120,7 +120,11 @@ def test_accepter_enregistre_signature_et_regle_et_demande_la_passe(bd, q):
     s = source_en_base(bd)
     assert s["demande_le"] is not None and s["graphe_revision"] is None
     assert etats(bd)[PLAN] == "accepte"
-    assert levees(bd, "depot-test") == {PLAN: (signature, frozenset({"contenu_secret"}))}
+    lv = levees(bd, "depot-test")
+    assert lv.keys() == {PLAN} and lv[PLAN].signature == signature
+    assert lv[PLAN].regles == {"contenu_secret"}
+    assert lv[PLAN].contenu_sha256 == exclu(bd, PLAN)["contenu_sha256"] is not None
+    assert d["contenu_sha256"] == exclu(bd, PLAN)["contenu_sha256"]
 
 
 def test_accepter_sans_signature_prend_la_courante(bd, q):
@@ -155,7 +159,8 @@ def test_accepter_refuse_sans_detail(bd, q):
 def test_accepter_cumule_les_regles_a_signature_egale(bd, q):
     accepter(bd, "depot-test", ".env.example")
     bd.execute("""UPDATE exclus SET detail = '{"regle": "contenu_secret", "tronque": false,
-                  "correspondances": []}', lu = true WHERE chemin = '.env.example'""")
+                  "correspondances": []}', lu = true, contenu_sha256 = 'x'
+                  WHERE chemin = '.env.example'""")
     bd.commit()
     assert etats(bd)[".env.example"] == "a_traiter"
     assert ligne(bd, ".env.example")["regles_levees"] == ["nom_secret"]
@@ -379,3 +384,32 @@ def test_ecritures_de_quarantaine_prennent_le_verrou_de_la_source(bd, q):
     assert bloque_par_le_verrou("depot-test", accepter, "depot-test", PLAN)
     assert bloque_par_le_verrou("depot-test", refuser, "depot-test", PLAN)
     assert bloque_par_le_verrou("depot-test", annuler, "depot-test", PLAN)
+
+
+def test_contenu_change_a_signature_egale_reste_exclu(bd, q, depot, tmp_path, faux_modeles):
+    """TOCTOU listage -> lecture, `touch -r` : l'acceptation de contenu_secret vaut pour un
+    contenu (sha256), pas seulement pour une signature."""
+    accepter(bd, "depot-test", PLAN)
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    lire = lec.lire
+    autre = f"# Plan\n\nvrai : {JETON}z\n".encode()
+    lec.lire = lambda c: autre if c == PLAN else lire(c)
+    indexer_source(bd, SRC, lec, CONF, faux_modeles)
+    assert PLAN not in chemins(bd)
+    e = exclu(bd, PLAN)
+    assert e["raison"] == "secret" and e["detail"]["regle"] == "contenu_secret"
+    assert e["contenu_sha256"] != decision(bd, PLAN)["contenu_sha256"]
+    f = ligne(bd, PLAN)
+    assert f["etat"] == "a_traiter" and f["modifie"] is True
+    assert bd.execute("SELECT count(*) n FROM morceaux WHERE texte LIKE '%%sk-aaa%%'"
+                      ).fetchone()["n"] == 0
+    q()  # contenu d'origine relu : l'acceptation vaut de nouveau
+    assert PLAN in chemins(bd)
+
+
+def test_accepter_contenu_secret_exige_l_empreinte_du_contenu(bd, q):
+    bd.execute("UPDATE exclus SET contenu_sha256 = NULL WHERE chemin = 'docs/plan.md'")
+    bd.commit()
+    with pytest.raises(DecisionInvalide):
+        accepter(bd, "depot-test", PLAN)
+    assert decision(bd, PLAN) is None

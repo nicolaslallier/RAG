@@ -3,6 +3,7 @@
 Accepter lève une règle pour un fichier et une signature ; refuser sort le fichier de la file.
 Lectures filtrées par `niveaux` ; écritures réservées à l'interface (écrivain) et à la CLI."""
 
+from dataclasses import dataclass
 from typing import Literal
 
 from rag.exclusions import RAISONS_ACCEPTABLES, REGLES_ACCEPTABLES
@@ -14,21 +15,44 @@ class DecisionInvalide(ValueError):
     """Décision refusée (fichier hors quarantaine, signature périmée, import invalide) ; rien n'est écrit."""
 
 
-def levees(conn, source: str) -> dict[str, tuple[str, frozenset[str]]]:
-    """Acceptations de `source` : chemin -> (signature acceptée, règles levées)."""
-    return {r["chemin"]: (r["signature"], frozenset(r["regles"])) for r in conn.execute(
-        "SELECT chemin, signature, regles FROM quarantaine_decisions "
+@dataclass(frozen=True)
+class Levee:
+    """Une acceptation : la signature et, pour `contenu_secret`, le contenu (sha256) acceptés."""
+    signature: str
+    regles: frozenset[str]
+    contenu_sha256: str | None = None
+
+    def pour(self, signature: str | None = None, sha256: str | None = None) -> frozenset[str]:
+        """Règles levées pour le fichier vu : aucune si sa signature a changé ; `contenu_secret`
+        seulement si le contenu effectivement lu (`sha256`) est celui qui a été accepté."""
+        if signature is not None and signature != self.signature:
+            return frozenset()
+        if sha256 is not None and sha256 != self.contenu_sha256:
+            return self.regles - {"contenu_secret"}
+        return self.regles
+
+
+def _levee(r) -> Levee:
+    return Levee(r["signature"], frozenset(r["regles"]), r["contenu_sha256"])
+
+
+def levees(conn, source: str) -> dict[str, Levee]:
+    """Acceptations de `source`, par chemin."""
+    return {r["chemin"]: _levee(r) for r in conn.execute(
+        "SELECT chemin, signature, regles, contenu_sha256 FROM quarantaine_decisions "
         "WHERE source = %s AND decision = 'accepte'", (source,))}
 
 
-def levees_indexees(conn, source: str) -> dict[str, frozenset[str]]:
-    """Règles levées des fichiers acceptés et indexés sous la signature acceptée (pour graphify)."""
-    return {r["chemin"]: frozenset(r["regles"]) for r in conn.execute(
-        """SELECT q.chemin, q.regles FROM quarantaine_decisions q
+def levees_indexees(conn, source: str) -> dict[str, Levee]:
+    """Acceptations des fichiers indexés sous la signature acceptée (pour graphify)."""
+    return {r["chemin"]: _levee(r) for r in conn.execute(
+        """SELECT q.chemin, q.signature, q.regles, q.contenu_sha256 FROM quarantaine_decisions q
              JOIN sources s ON s.nom = q.source
              JOIN documents d ON d.source_id = s.id AND d.chemin = q.chemin
                              AND d.signature = q.signature
-            WHERE q.source = %s AND q.decision = 'accepte'""", (source,))}
+            WHERE q.source = %s AND q.decision = 'accepte'
+              AND (NOT 'contenu_secret' = ANY(q.regles) OR d.sha256 = q.contenu_sha256)""",
+        (source,))}
 
 
 # Fichiers écartés pour une raison acceptable, puis fichiers acceptés déjà indexés.
@@ -36,10 +60,14 @@ _FILE = """WITH file AS (
   SELECT s.nom AS source, e.chemin, e.raison, e.signature, e.detail, q.cree_le AS decide_le,
          CASE WHEN q.decision = 'refuse' THEN 'refuse'
               WHEN q.decision = 'accepte' AND q.signature = e.signature
-                   AND (e.detail->>'regle') = ANY(q.regles) THEN 'accepte'
+                   AND (e.detail->>'regle') = ANY(q.regles)
+                   AND (e.detail->>'regle' <> 'contenu_secret'
+                        OR e.contenu_sha256 IS NOT DISTINCT FROM q.contenu_sha256) THEN 'accepte'
               ELSE 'a_traiter' END AS etat,
          false AS indexe,
-         COALESCE(q.decision = 'accepte' AND q.signature <> e.signature, false) AS modifie,
+         COALESCE(q.decision = 'accepte' AND (q.signature <> e.signature
+                  OR (e.detail->>'regle' = 'contenu_secret' AND 'contenu_secret' = ANY(q.regles)
+                      AND e.contenu_sha256 IS DISTINCT FROM q.contenu_sha256)), false) AS modifie,
          CASE WHEN q.decision = 'accepte' AND q.signature = e.signature THEN q.regles
               ELSE '{}'::text[] END AS regles_levees
     FROM exclus e JOIN sources s ON s.id = e.source_id
@@ -100,7 +128,7 @@ def decrire(detail: dict | None) -> str:
 
 
 def _exclu(conn, source_id: int, chemin: str) -> dict | None:
-    return conn.execute("SELECT raison, signature, detail FROM exclus "
+    return conn.execute("SELECT raison, signature, detail, contenu_sha256 FROM exclus "
                         "WHERE source_id = %s AND chemin = %s", (source_id, chemin)).fetchone()
 
 
@@ -119,18 +147,28 @@ def accepter(conn, source: str, chemin: str, signature: str | None = None) -> di
         regle = (e["detail"] or {}).get("regle")
         if regle not in REGLES_ACCEPTABLES:
             raise DecisionInvalide("verdict pas encore détaillé : attendre la prochaine passe")
+        if regle == "contenu_secret" and not e["contenu_sha256"]:
+            raise DecisionInvalide("verdict pas encore détaillé : attendre la prochaine passe")
         if signature is not None and signature != e["signature"]:
             raise DecisionInvalide("le fichier a changé depuis l'affichage : recharger la page")
+        # contenu_secret : liée au contenu lu (sha256), pas seulement à la signature
+        sha = e["contenu_sha256"] if regle == "contenu_secret" else None
         regles = conn.execute(
-            """INSERT INTO quarantaine_decisions AS q (source, chemin, decision, signature, regles)
-               VALUES (%s, %s, 'accepte', %s, %s)
+            """INSERT INTO quarantaine_decisions AS q
+                 (source, chemin, decision, signature, regles, contenu_sha256)
+               VALUES (%s, %s, 'accepte', %s, %s, %s)
                ON CONFLICT (source, chemin) DO UPDATE SET
                  regles = CASE WHEN q.decision = 'accepte' AND q.signature = EXCLUDED.signature
                                THEN ARRAY(SELECT DISTINCT r FROM unnest(q.regles || EXCLUDED.regles) r
                                            ORDER BY r)
                                ELSE EXCLUDED.regles END,
+                 contenu_sha256 = CASE WHEN q.decision = 'accepte'
+                                        AND q.signature = EXCLUDED.signature
+                                       THEN COALESCE(EXCLUDED.contenu_sha256, q.contenu_sha256)
+                                       ELSE EXCLUDED.contenu_sha256 END,
                  decision = 'accepte', signature = EXCLUDED.signature, cree_le = now()
-               RETURNING regles""", (source, chemin, e["signature"], [regle])).fetchone()["regles"]
+               RETURNING regles""",
+            (source, chemin, e["signature"], [regle], sha)).fetchone()["regles"]
         if s["type"] == "code":  # graphify doit voir le fichier rendu
             conn.execute("UPDATE sources SET graphe_revision = NULL WHERE id = %s", (s["id"],))
         demander_reindexation(conn, source)  # valide le tout
@@ -159,10 +197,12 @@ def _retirer_document_accepte(conn, s: dict, source: str, chemin: str) -> bool:
     conn.execute("DELETE FROM documents WHERE id = %s", (d["id"],))
     raison = "genere" if q["regles"] == ["genere"] else "secret"
     conn.execute(
-        """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail)
-           VALUES (%s, %s, %s, '', %s, true, NULL) ON CONFLICT (source_id, chemin)
+        """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail,
+                              contenu_sha256)
+           VALUES (%s, %s, %s, '', %s, true, NULL, NULL) ON CONFLICT (source_id, chemin)
            DO UPDATE SET signature = EXCLUDED.signature, empreinte = '',
-                         raison = EXCLUDED.raison, lu = true, detail = NULL""",
+                         raison = EXCLUDED.raison, lu = true, detail = NULL,
+                         contenu_sha256 = NULL""",
         (s["id"], chemin, q["signature"], raison))
     if s["type"] == "code":
         conn.execute("UPDATE sources SET graphe_revision = NULL WHERE id = %s", (s["id"],))

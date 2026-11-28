@@ -181,10 +181,11 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     acceptes = quarantaine.levees(conn, source.nom)
     conn.commit()
 
-    def levees_de(chemin, e) -> frozenset[str]:
-        """Règles levées pour ce fichier, si sa signature est celle qui a été acceptée."""
-        signature, regles = acceptes.get(chemin, ("", frozenset()))
-        return regles if signature == e.signature else frozenset()
+    def levees_de(chemin, e, sha256: str | None = None) -> frozenset[str]:
+        """Règles levées pour ce fichier, si sa signature est celle qui a été acceptée ;
+        `contenu_secret` seulement si le contenu lu (`sha256`) est celui qui a été accepté."""
+        lv = acceptes.get(chemin)
+        return lv.pour(e.signature, sha256) if lv else frozenset()
 
     entrees = {}
     exclus_listage = {}  # chemin -> (entrée, raison, détail) : écartés sur le nom, jamais lus
@@ -234,10 +235,12 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
     _verrouiller_identite(conn, source, source_id)
     for chemin, (e, raison, detail) in exclus_listage.items():
         conn.execute(
-            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail)
-               VALUES (%s, %s, %s, %s, %s, false, %s) ON CONFLICT (source_id, chemin) DO UPDATE
-               SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                   raison = EXCLUDED.raison, lu = false, detail = EXCLUDED.detail""",
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail,
+                                  contenu_sha256)
+               VALUES (%s, %s, %s, %s, %s, false, %s, NULL) ON CONFLICT (source_id, chemin)
+               DO UPDATE SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
+                   raison = EXCLUDED.raison, lu = false, detail = EXCLUDED.detail,
+                   contenu_sha256 = NULL""",
             (source_id, chemin, e.signature, emp, raison, Jsonb(detail) if detail else None))
     conn.commit()  # pas de verrou de ligne sur `exclus` pendant le travail lent qui suit
 
@@ -252,11 +255,12 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         if ex:
             conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
         conn.execute(
-            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail)
-               VALUES (%s, %s, %s, %s, 'manuelle', false, NULL)
+            """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail,
+                                  contenu_sha256)
+               VALUES (%s, %s, %s, %s, 'manuelle', false, NULL, NULL)
                ON CONFLICT (source_id, chemin) DO UPDATE
                SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                   raison = EXCLUDED.raison, lu = false, detail = NULL""",
+                   raison = EXCLUDED.raison, lu = false, detail = NULL, contenu_sha256 = NULL""",
             (source_id, chemin, e.signature, emp))
         conn.commit()
         exclus_en_passe.add(chemin)
@@ -278,8 +282,10 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             if exclu_en_passe(chemin, e, ex):  # exclu depuis le listage : jamais lu
                 continue
             contenu = lecteur.lire(chemin)
+            sha = hashlib.sha256(contenu).hexdigest()
             brut = motif_exclusion(chemin, contenu, source.exclure)
-            raison, detail = affiner(brut, chemin, contenu, source.exclure, levees_de(chemin, e))
+            raison, detail = affiner(brut, chemin, contenu, source.exclure,
+                                     levees_de(chemin, e, sha))
             if raison:
                 log.warning("%s : %r exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
                 _verrouiller_identite(conn, source, source_id)
@@ -287,17 +293,17 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
                 conn.execute(
                     """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu,
-                                          detail)
-                       VALUES (%s, %s, %s, %s, %s, true, %s) ON CONFLICT (source_id, chemin)
+                                          detail, contenu_sha256)
+                       VALUES (%s, %s, %s, %s, %s, true, %s, %s) ON CONFLICT (source_id, chemin)
                        DO UPDATE SET signature = EXCLUDED.signature, empreinte = EXCLUDED.empreinte,
-                           raison = EXCLUDED.raison, lu = true, detail = EXCLUDED.detail""",
+                           raison = EXCLUDED.raison, lu = true, detail = EXCLUDED.detail,
+                           contenu_sha256 = EXCLUDED.contenu_sha256""",
                     (source_id, chemin, e.signature, emp, raison,
-                     Jsonb(detail) if detail else None))
+                     Jsonb(detail) if detail else None, sha))
                 conn.commit()
                 bilan.exclus += 1
                 continue
             par_levee = brut is not None  # indexé seulement grâce à une acceptation
-            sha = hashlib.sha256(contenu).hexdigest()
             if ex and ex["sha256"] == sha and ex["a_v"]:
                 conn.execute("UPDATE documents SET signature = %s WHERE id = %s",
                              (e.signature, ex["id"]))
