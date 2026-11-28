@@ -10,7 +10,7 @@ from rag.config import IndexationConf, SourceConf, empreinte_indexation
 from rag.decoupage import Morceau, decouper_note
 from rag.decoupage_code import decouper_code, langage
 from rag.exclusions import motif_exclusion
-from rag.gestion import correspond, motifs_manuels, verrouiller_source
+from rag.gestion import SourceSupprimee, correspond, motifs_manuels, verrouiller_source
 from rag.notes import Note, analyser_note
 from rag.recherche import normaliser, vecteur_sql
 from rag.sources import nfc
@@ -104,8 +104,19 @@ def _ecrire(conn, source_id, chemin, e, sha, note, ms, v, vec_de, existant) -> i
     return len(ms)
 
 
-class SourceSupprimee(Exception):
-    """La source code n'existe plus en base : rien à indexer."""
+def _verrouiller_identite(conn, source: SourceConf, source_id: int) -> None:
+    """Verrou de la source, puis identité relue : une source code modifiée (URL, branche)
+    ou supprimée depuis le début de la passe n'est plus écrite."""
+    verrouiller_source(conn, source.nom)
+    if source.type != "code":
+        return
+    if conn.execute(
+            """SELECT 1 FROM sources WHERE id = %s AND nom = %s AND type = 'code'
+                  AND emplacement = %s AND COALESCE(branche, 'main') = %s""",
+            (source_id, source.nom, source.emplacement, source.branche or "main")
+            ).fetchone() is None:
+        conn.rollback()
+        raise SourceSupprimee(f"{source.nom} : source changée ou supprimée")
 
 
 def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, modeles, *,
@@ -174,6 +185,8 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             f"{source.nom} : listage de {len(entrees)} entrées, {len(manquants)} documents "
             f"sur {len(existants)} absents ; relancer avec forcer pour confirmer")
 
+    # le listage (clone ou fetch) est la fenêtre la plus longue : identité relue avant d'écrire
+    _verrouiller_identite(conn, source, source_id)
     for chemin, (e, raison) in exclus_listage.items():
         conn.execute(
             """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu)
@@ -190,6 +203,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         """Relit les motifs manuels ; si le chemin vient d'être exclu, le retire et valide."""
         if not correspond(chemin, motifs_manuels(conn, source.nom)):
             return False
+        _verrouiller_identite(conn, source, source_id)
         if ex:
             conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
         conn.execute(
@@ -220,6 +234,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             contenu = lecteur.lire(chemin)
             if raison := motif_exclusion(chemin, contenu, source.exclure):
                 log.warning("%s : %s exclu (%s)", source.nom, chemin, raison)  # jamais le contenu
+                _verrouiller_identite(conn, source, source_id)
                 if ex:
                     conn.execute("DELETE FROM documents WHERE id = %s", (ex["id"],))
                 conn.execute(
@@ -243,7 +258,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             # relu après les embeddings (longs), dans la transaction de l'écriture, sous le
             # verrou de la source : une exclusion validée entre-temps est vue, une exclusion
             # qui arrive attend le commit puis retire le document écrit
-            verrouiller_source(conn, source.nom)
+            _verrouiller_identite(conn, source, source_id)
             if exclu_en_passe(chemin, e, ex):
                 continue
             conn.execute("DELETE FROM exclus WHERE source_id = %s AND chemin = %s",
@@ -259,7 +274,9 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
             raise
 
     # oublie les fichiers disparus du listage, et les exclusions sur le nom levées depuis ; garde
-    # les exclusions manuelles posées pendant la passe (motif encore en base)
+    # les exclusions manuelles posées pendant la passe (motif encore en base) ; jamais la
+    # révision d'un ancien dépôt sur une source modifiée entre-temps
+    _verrouiller_identite(conn, source, source_id)
     motifs = motifs_manuels(conn, source.nom)
     manuelles = [r["chemin"] for r in conn.execute(
         "SELECT chemin FROM exclus WHERE source_id = %s AND raison = 'manuelle'", (source_id,))

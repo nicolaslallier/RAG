@@ -42,6 +42,10 @@ def verrouiller_source(conn, source: str) -> None:
                  (_VERROUS_SOURCES, source))
 
 
+class SourceSupprimee(Exception):
+    """La source code n'existe plus en base, ou a changé (URL, branche) : rien à écrire."""
+
+
 class SourceInconnue(Exception):
     """Source absente ou invisible pour ces niveaux (même exception : on ne distingue pas)."""
 

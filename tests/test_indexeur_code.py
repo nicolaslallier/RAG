@@ -160,3 +160,53 @@ def test_source_changee_pendant_la_passe_n_ecrit_rien(bd, depot, tmp_path, faux_
     with pytest.raises(SourceSupprimee):
         indexer_source(bd, autre_branche, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
                        faux_modeles)
+
+
+def _changer_emplacement():
+    from rag.db import connexion
+    from tests.conftest import URL
+    with connexion(URL) as autre:
+        autre.execute("UPDATE sources SET emplacement = 'https://x/nouveau.git'"
+                      " WHERE nom = 'depot-test'")
+        autre.commit()
+
+
+def test_source_changee_entre_listage_et_ecriture(bd, depot, tmp_path, faux_modeles):
+    from rag.indexeur import SourceSupprimee
+
+    class ModelesQuiChangentLaSource(type(faux_modeles)):
+        def embed_documents(self, textes, modele):
+            if not self.appels:
+                _changer_emplacement()
+            return super().embed_documents(textes, modele)
+
+    with pytest.raises(SourceSupprimee):
+        indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       ModelesQuiChangentLaSource())
+    assert bd.execute("SELECT count(*) AS n FROM documents").fetchone()["n"] == 0
+    assert bd.execute("SELECT revision FROM sources WHERE nom = 'depot-test'"
+                      ).fetchone()["revision"] is None
+
+
+def test_source_changee_pendant_le_listage(bd, depot, tmp_path, faux_modeles):
+    from rag.indexeur import SourceSupprimee
+    indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                   faux_modeles)
+    avant = bd.execute("SELECT revision, indexe_le FROM sources WHERE nom = 'depot-test'"
+                       ).fetchone()
+    bd.commit()
+    commit(depot, "b.py", "def b():\n    return 2\n")
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    lister = lec.lister
+
+    def lister_puis_changer():
+        r = lister()
+        _changer_emplacement()
+        return r
+    lec.lister = lister_puis_changer
+    with pytest.raises(SourceSupprimee):
+        indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles)
+    apres = bd.execute("SELECT revision, indexe_le FROM sources WHERE nom = 'depot-test'"
+                       ).fetchone()
+    assert dict(apres) == dict(avant)
+    assert "b.py" not in chemins(bd)

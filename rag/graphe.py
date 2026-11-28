@@ -13,7 +13,7 @@ from pathlib import Path
 import psycopg
 
 from rag.exclusions import motif_exclusion
-from rag.gestion import correspond, motifs_manuels, verrouiller_source
+from rag.gestion import SourceSupprimee, correspond, motifs_manuels, verrouiller_source
 from rag.recherche import lien_source, normaliser
 from rag.sources import nfc
 
@@ -102,16 +102,22 @@ def extraire_structure(clone: Path, travail: Path, delai_s: int = 600, *,
         raise ErreurGraphe(f"graphify : graph.json illisible ({type(e).__name__})") from None
 
 
-def charger_graphe(conn, source_nom: str, graphe: dict, origine: str = "structure"
-                   ) -> tuple[int, int]:
+def charger_graphe(conn, source_nom: str, graphe: dict, origine: str = "structure", *,
+                   identite: tuple[str, str] | None = None) -> tuple[int, int]:
     """Remplace les liens de `origine` partant de la source. Un lien peut viser un nœud d'une
     autre source par `vers_id`. Sous le verrou de la source ; les nœuds d'un fichier exclu à la
-    main entre-temps (graphify a pu tourner avant) sont écartés, avec leurs liens."""
+    main entre-temps (graphify a pu tourner avant) sont écartés, avec leurs liens.
+
+    `identite` (emplacement, branche) : `SourceSupprimee` si la source n'est plus celle-là
+    (modifiée pendant graphify) ; de même si elle a disparu."""
     with conn.transaction():
         verrouiller_source(conn, source_nom)
+        r = conn.execute("SELECT id, emplacement, COALESCE(branche, 'main') AS branche "
+                         "FROM sources WHERE nom = %s", (source_nom,)).fetchone()
+        if r is None or (identite is not None and (r["emplacement"], r["branche"]) != identite):
+            raise SourceSupprimee(f"{source_nom} : source changée ou supprimée")
+        sid = r["id"]
         motifs = motifs_manuels(conn, source_nom)
-        sid = conn.execute("SELECT id FROM sources WHERE nom = %s", (source_nom,)
-                           ).fetchone()["id"]
         conn.execute("""DELETE FROM liens l USING noeuds n
                          WHERE l.de = n.id AND n.source_id = %s AND l.origine = %s""",
                      (sid, origine))
@@ -226,7 +232,8 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
         travail = Path(reglages.donnees_dir) / "graphe" / source.nom
         g = extraire_structure(lecteur.dest, travail, commande=reglages.graphify_commande,
                                exclure=[*source.exclure, *motifs])
-        n, l = charger_graphe(conn, source.nom, g)
+        n, l = charger_graphe(conn, source.nom, g,
+                              identite=(source.emplacement, source.branche or "main"))
         conn.execute("UPDATE sources SET graphe_revision = revision WHERE nom = %s",
                      (source.nom,))
         conn.commit()
@@ -235,6 +242,9 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False) -> str:
         conn.rollback()
         log.error("%s : graphe en échec : %s", source.nom, e)
         return f"graphe : ÉCHEC {e}"
+    except SourceSupprimee:
+        conn.rollback()
+        return "graphe : source changée ou supprimée, ignoré"
 
 
 # --- Lecture : trouver, chemin, expliquer ---------------------------------------------------

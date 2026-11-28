@@ -174,3 +174,34 @@ def test_erreur_postgres_dans_le_graphe_n_arrete_rien(bd, index_code, monkeypatc
     monkeypatch.setattr("rag.graphe.charger_graphe", casse)
     assert "ÉCHEC" in maj_graphe(bd, SRC_CODE, index_code, REGLAGES)
     assert bd.execute("SELECT 1 AS x").fetchone()["x"] == 1  # connexion utilisable
+
+
+def test_charger_graphe_refuse_une_source_changee(bd, index_code):
+    import pytest
+
+    from rag.gestion import SourceSupprimee
+    with pytest.raises(SourceSupprimee):
+        charger_graphe(bd, "depot-test", G, identite=("https://x/autre.git", "main"))
+    bd.rollback()
+    assert compte(bd, "noeuds") == 0
+
+
+def test_maj_graphe_source_changee_pendant_graphify(bd, index_code, monkeypatch):
+    from rag.db import connexion
+    from tests.conftest import URL
+    avant = bd.execute("SELECT graphe_revision FROM sources WHERE nom = 'depot-test'"
+                       ).fetchone()["graphe_revision"]
+    bd.commit()
+
+    def extr(*a, **k):
+        with connexion(URL) as autre:
+            autre.execute("UPDATE sources SET emplacement = 'https://x/nouveau.git'"
+                          " WHERE nom = 'depot-test'")
+            autre.commit()
+        return G
+    monkeypatch.setattr("rag.graphe.extraire_structure", extr)
+    bilan = maj_graphe(bd, SRC_CODE, index_code, REGLAGES)
+    assert "changée" in bilan and "ÉCHEC" not in bilan
+    assert compte(bd, "noeuds") == 0
+    assert bd.execute("SELECT graphe_revision FROM sources WHERE nom = 'depot-test'"
+                      ).fetchone()["graphe_revision"] == avant
