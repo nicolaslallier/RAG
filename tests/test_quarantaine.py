@@ -1,19 +1,24 @@
+import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from rag.config import PUBLIC, TOUT, SourceConf, charger_config
 from rag.db import connexion
 from rag.gestion import SourceInconnue, exclure
+from rag.graphe import _copier_sans_exclus, maj_graphe
 from rag.indexeur import indexer_source
 from rag.quarantaine import (
     DecisionInvalide,
+    Levee,
     accepter,
     annuler,
     comptes,
     decrire,
     file,
     levees,
+    levees_indexees,
     refuser,
 )
 from rag.sources import LecteurGit
@@ -413,3 +418,39 @@ def test_accepter_contenu_secret_exige_l_empreinte_du_contenu(bd, q):
     with pytest.raises(DecisionInvalide):
         accepter(bd, "depot-test", PLAN)
     assert decision(bd, PLAN) is None
+
+
+# --- graphify ---
+
+def test_copie_graphify_inclut_un_fichier_aux_regles_levees(depot, tmp_path):
+    texte = f"# Plan\n\nexemple : {JETON}\n"
+    commit(depot, PLAN, texte)
+    sha = hashlib.sha256(texte.encode()).hexdigest()
+    sans, avec, autre = tmp_path / "sans", tmp_path / "avec", tmp_path / "autre"
+    _copier_sans_exclus(depot, sans, [])
+    _copier_sans_exclus(depot, avec, [], levees={
+        PLAN: Levee("s", frozenset({"contenu_secret"}), sha),
+        "uv.lock": Levee("s", frozenset({"nom_secret"}))})
+    assert not (sans / PLAN).exists() and (avec / PLAN).exists()
+    assert not (avec / "uv.lock").exists() and not (avec / ".env.example").exists()
+    # contenu différent de celui qui a été accepté : pas copié
+    _copier_sans_exclus(depot, autre, [], levees={
+        PLAN: Levee("s", frozenset({"contenu_secret"}), "0" * 64)})
+    assert not (autre / PLAN).exists()
+
+
+def test_maj_graphe_passe_les_fichiers_acceptes_et_indexes(bd, q, depot, tmp_path, monkeypatch):
+    vus = []
+    monkeypatch.setattr("rag.graphe.extraire_structure",
+                        lambda clone, travail, **k: vus.append(k["levees"])
+                        or {"noeuds": [], "liens": []})
+    reglages = SimpleNamespace(donnees_dir=tmp_path, graphify_commande="graphify")
+    lecteur = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    accepter(bd, "depot-test", PLAN)
+    maj_graphe(bd, SRC, lecteur, reglages, forcer=True)   # accepté, pas encore indexé
+    q()
+    maj_graphe(bd, SRC, lecteur, reglages, forcer=True)
+    attendu = {PLAN: levees(bd, "depot-test")[PLAN]}
+    assert vus == [{}, attendu]
+    assert levees_indexees(bd, "depot-test") == attendu
+    assert attendu[PLAN].regles == {"contenu_secret"}

@@ -1,6 +1,7 @@
 """Graphe de connaissances dans Postgres : structure du code (graphify), [[liens]] du coffre,
 chemin et expliquer. Toute lecture prend `niveaux` (visibilité des sources)."""
 
+import hashlib
 import json
 import logging
 import os
@@ -12,8 +13,9 @@ from pathlib import Path
 
 import psycopg
 
-from rag.exclusions import motif_exclusion
+from rag.exclusions import affiner, motif_exclusion
 from rag.gestion import SourceSupprimee, correspond, motifs_manuels, verrouiller_source
+from rag.quarantaine import Levee, levees_indexees
 from rag.recherche import lien_source, normaliser
 from rag.sources import nfc
 
@@ -61,9 +63,13 @@ def depuis_graphify(graphe: dict) -> dict:
 
 
 def _copier_sans_exclus(clone: Path, dest: Path, exclure: list[str],
-                        taille_max: int | None = None) -> None:
+                        taille_max: int | None = None,
+                        levees: dict[str, Levee] | None = None) -> None:
     """Copie de travail pour graphify : sans .git, sans secrets ni fichiers générés, sans
-    fichier de plus de `taille_max` octets (jamais lu)."""
+    fichier de plus de `taille_max` octets (jamais lu). `levees` : chemin -> acceptation de la
+    quarantaine, pour les fichiers acceptés et indexés ; `contenu_secret` n'y est levé que si
+    le contenu copié est celui qui a été accepté."""
+    levees = levees or {}
     for p in sorted(clone.rglob("*")):
         rel = p.relative_to(clone)
         if rel.parts[0] == ".git" or p.is_symlink() or not p.is_file():
@@ -75,18 +81,23 @@ def _copier_sans_exclus(clone: Path, dest: Path, exclure: list[str],
             log.warning("copie graphify : %r écarté (trop gros, %d octets)", chemin, taille)
             continue
         contenu = p.read_bytes()
-        if motif_exclusion(chemin, contenu, exclure) is None:
+        lv = levees.get(chemin)
+        leve = lv.pour(sha256=hashlib.sha256(contenu).hexdigest()) if lv else frozenset()
+        raison, _ = affiner(motif_exclusion(chemin, contenu, exclure), chemin, contenu, exclure,
+                            leve)
+        if raison is None:
             (dest / rel).parent.mkdir(parents=True, exist_ok=True)
             (dest / rel).write_bytes(contenu)
 
 
 def extraire_structure(clone: Path, travail: Path, delai_s: int = 600, *,
                        commande: str = "graphify", exclure: list[str] = (),
-                       taille_max: int | None = None) -> dict:
+                       taille_max: int | None = None,
+                       levees: dict[str, Levee] | None = None) -> dict:
     copie = Path(travail) / "src"
     shutil.rmtree(copie, ignore_errors=True)
     copie.mkdir(parents=True)
-    _copier_sans_exclus(Path(clone), copie, list(exclure), taille_max)
+    _copier_sans_exclus(Path(clone), copie, list(exclure), taille_max, levees)
     # Liste blanche : aucune clé (infonuagique ou RAG_*) ne peut atteindre graphify.
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG")}
     try:
@@ -231,6 +242,7 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False,
         r = conn.execute("SELECT revision, graphe_revision FROM sources WHERE nom = %s",
                          (source.nom,)).fetchone()
         motifs = motifs_manuels(conn, source.nom)
+        levees = levees_indexees(conn, source.nom)
         conn.commit()
         if r is None or not r["revision"]:
             return "graphe : source pas encore indexée"
@@ -238,7 +250,8 @@ def maj_graphe(conn, source, lecteur, reglages, *, forcer: bool = False,
             return "graphe : à jour"
         travail = Path(reglages.donnees_dir) / "graphe" / source.nom
         g = extraire_structure(lecteur.dest, travail, commande=reglages.graphify_commande,
-                               exclure=[*source.exclure, *motifs], taille_max=taille_max)
+                               exclure=[*source.exclure, *motifs], taille_max=taille_max,
+                               levees=levees)
         n, l = charger_graphe(conn, source.nom, g,
                               identite=(source.emplacement, source.branche or "main"))
         conn.execute("UPDATE sources SET graphe_revision = revision WHERE nom = %s",
