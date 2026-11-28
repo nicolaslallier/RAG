@@ -124,6 +124,8 @@ class ReponseConf(_Strict):
     passages: int
     seuil_refus_rerank: float | None
     seuil_refus_cosinus: float | None
+    # Taille totale des textes de passages envoyés au LLM (≈ 4 caractères par token).
+    budget_passages_caracteres: Annotated[int, Field(ge=2000)] = 24000
 
 
 class BancConf(_Strict):
