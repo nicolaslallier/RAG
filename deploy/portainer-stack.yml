@@ -1,5 +1,6 @@
 # Pile Portainer « rag » (environnement Mac-book : Colima du MacBook, Mac 192.168.2.40, VM sans IP propre) : API, indexeur
-# et Postgres dédié. Seul `rag` publie un port (8000, relayé par Colima sur le MacBook).
+# Postgres dédié et son exporter. Deux ports publiés, relayés par Colima sur le MacBook : 8000 (`rag`)
+# et 9187 (`rag-postgres-exporter`, métriques lues par le Prometheus de l'Infra).
 # Envoyée comme texte par scripts/portainer-stack.sh ; les ${…} viennent de OpenBao (scripts/vault-render-env.sh).
 x-rag: &rag
   image: ghcr.io/nicolaslallier/rag:${IMAGE_TAG:?}
@@ -17,6 +18,7 @@ x-rag: &rag
     AWS_CA_BUNDLE: /etc/rag/infra-ca.crt
     RAG_S3_ACCESS_KEY: rag
     RAG_S3_SECRET_KEY: ${RAG_S3_SECRET_KEY:?}
+    RAG_MONITORING_DB_PASSWORD: ${RAG_MONITORING_DB_PASSWORD:?}   # `rag migrer` crée/aligne le rôle monitoring
     RAG_COFFRE_BUCKET: obsidian
     RAG_COFFRE_PREFIXE: ${RAG_COFFRE_PREFIXE:-}
     RAG_DONNEES_DIR: /donnees
@@ -69,6 +71,28 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # Métriques de rag-postgres pour le Prometheus de l'Infra (job `postgres`, cluster="rag").
+  # Même image et mêmes flags que l'Infra (docker-compose.postgres.yml) : les garder en phase.
+  # Rôle `monitoring` (pg_monitor), créé par `rag migrer` ; jamais le rôle `rag` (superuser).
+  rag-postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17
+    command:
+      - --collector.postmaster
+      - --collector.stat_checkpointer
+      - --collector.database_wraparound
+    environment:
+      DATA_SOURCE_URI: rag-postgres:5432/rag?sslmode=disable
+      DATA_SOURCE_USER: monitoring
+      DATA_SOURCE_PASS: ${RAG_MONITORING_DB_PASSWORD:?}
+    ports: ["9187:9187"]   # sans authentification, lu par Prometheus (192.168.2.10) ; passe par le Mac, toutes ses interfaces
+    depends_on:
+      rag-postgres: {condition: service_healthy}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m          # 80 Mo mesurés sur l'exporter de l'Infra
+    restart: unless-stopped
 
 volumes:
   rag-donnees:

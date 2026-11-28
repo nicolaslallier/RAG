@@ -313,6 +313,10 @@ def main(argv: list[str] | None = None) -> int:
     with ouvrir as conn:
         if a.cmd == "migrer":
             print("\n".join(migrer(conn)) or "rien à migrer")
+            if reglages.monitoring_db_password:
+                from rag.db import assurer_role_monitoring
+                assurer_role_monitoring(conn, reglages.monitoring_db_password)
+                print("rôle monitoring à jour")   # jamais la valeur
             if reglages.sources_amorce:
                 from rag.sources_gerees import amorcer
                 print(f"{amorcer(conn, reglages.sources_amorce)} source(s) git amorcée(s)")

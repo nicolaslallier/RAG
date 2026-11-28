@@ -10,7 +10,7 @@ VAULT_URL="${VAULT_URL:-https://vault.infra.famillelallier.net}"
 VAULT_SECRET_PATH="${VAULT_SECRET_PATH:-infra/data/rag}"
 # Variable de la pile = clé du coffre (même nom). tests/test_pile.py vérifie que cette liste
 # est exactement celle des ${…} de deploy/portainer-stack.yml.
-CLES="RAG_DB_PASSWORD RAG_LITELLM_CLE RAG_JETON RAG_JETON_PRIVE RAG_JETON_REINDEXER RAG_GITHUB_JETON RAG_CLE_SECRETS RAG_S3_SECRET_KEY RAG_COFFRE_PREFIXE"
+CLES="RAG_DB_PASSWORD RAG_LITELLM_CLE RAG_JETON RAG_JETON_PRIVE RAG_JETON_REINDEXER RAG_GITHUB_JETON RAG_CLE_SECRETS RAG_S3_SECRET_KEY RAG_COFFRE_PREFIXE RAG_MONITORING_DB_PASSWORD"
 # Absentes, elles sont écrites vides : Portainer réécrit toute la liste Env.
 FACULTATIVES=" RAG_JETON_PRIVE RAG_GITHUB_JETON RAG_CLE_SECRETS RAG_COFFRE_PREFIXE "
 
