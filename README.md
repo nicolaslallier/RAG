@@ -173,6 +173,11 @@ Aucune n'est faite par un agent.
 - Toute réponse porte `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: same-origin` et une CSP stricte (`default-src 'self'`, sans script ni style en
   ligne) : un gabarit de l'interface ne doit contenir ni `<script>` en ligne, ni `style=`, ni `hx-on`.
+- Correctifs Debian : le `Dockerfile` rejoue `apt-get upgrade` dans une couche tardive, clé par
+  la date UTC (`MAJ_DEBIAN`, passée par `deploy.yml`) : le premier build de chaque jour (UTC)
+  prend les correctifs publiés jusque-là, malgré le cache GitHub Actions. Un correctif publié
+  après ce premier build n'est pris que le lendemain ; d'ici là, relancer `deploy` ne change rien
+  (`cache-to` s'exécute avant Trivy, même en échec), sauf à purger le cache Actions.
 - Journaux : Portainer (environnement Mac-book) ou `docker --context colima logs rag-rag-1` sur le Mac ;
   **pas dans Loki** (Alloy ne lit que l'hôte `192.168.2.10`).
 - Tourner un jeton : changer la valeur dans `infra/rag`, relancer le workflow `deploy`

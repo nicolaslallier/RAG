@@ -23,6 +23,14 @@ COPY config ./config
 COPY deploy/infra-ca.crt /etc/rag/infra-ca.crt
 RUN uv sync --frozen --no-dev $GROUPES
 
+# Correctifs Debian du jour, après les couches lourdes : deploy.yml passe la date UTC, donc cette
+# couche (et les suivantes, légères) est rejouée une fois par jour malgré le cache GitHub Actions,
+# sans reconstruire torch. Sans elle, la mise à jour du haut restait figée dans le cache et Trivy
+# bloquait le déploiement sur un correctif publié depuis.
+ARG MAJ_DEBIAN=manuel
+RUN echo "maj debian ${MAJ_DEBIAN}" && apt-get update && apt-get upgrade -y \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --uid 1000 --home-dir /donnees --no-create-home rag \
  && mkdir /donnees && chown 1000:1000 /donnees
 USER 1000
