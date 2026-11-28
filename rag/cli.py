@@ -59,6 +59,8 @@ def _indexer_verrouille(conn, reglages, config, modeles, noms, complet, forcer) 
         print(f"{src.nom} : " + ", ".join(f"{v} {k}" for k, v in asdict(b).items())
               + f" ({time.monotonic() - debut:.0f} s)")
         print(f"{src.nom} : {maj_graphe(conn, src, lecteur, reglages)}")
+        if b.echecs:
+            code = 1
     conn.execute("ANALYZE morceaux, documents, noeuds, liens")  # sinon l'index HNSW est ignoré
     conn.commit()
     return code

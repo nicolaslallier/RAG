@@ -88,3 +88,8 @@ def test_frontmatter_crlf_et_bom(texte):
 def test_frontmatter_vide():
     n = analyser_note("x.md", "---\n---\ncorps")
     assert n.frontmatter == {} and n.corps.strip() == "corps"
+
+
+def test_frontmatter_sans_nul():
+    n = analyser_note("n.md", "---\ntitre: \"a\\u0000b\"\ntags: [\"x\\0y\"]\n---\n# T\n\ncorps\n")
+    assert n.frontmatter["titre"] == "ab" and n.tags == ["xy"]

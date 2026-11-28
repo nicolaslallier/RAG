@@ -29,6 +29,18 @@ class _ChargeurSansAlias(yaml.SafeLoader):
         return super().compose_node(parent, index)
 
 
+def _sans_nul(v):
+    """NUL retirés partout : les échappements YAML (« \\0 », « \\u0000 ») en produisent, et
+    Postgres les refuse (jsonb, text)."""
+    if isinstance(v, str):
+        return v.replace("\x00", "")
+    if isinstance(v, list):
+        return [_sans_nul(x) for x in v]
+    if isinstance(v, dict):
+        return {_sans_nul(k): _sans_nul(x) for k, x in v.items()}
+    return v
+
+
 def _frontmatter(brut: str) -> dict | None:
     if len(brut) > _FM_MAX:
         return None
@@ -39,7 +51,7 @@ def _frontmatter(brut: str) -> dict | None:
         if not isinstance(d, dict):
             return None
         d = {str(k): v for k, v in d.items()}
-        return json.loads(json.dumps(d, default=str, allow_nan=False))
+        return _sans_nul(json.loads(json.dumps(d, default=str, allow_nan=False)))
     except Exception:  # noqa: BLE001 - un frontmatter n'arrête jamais l'indexation du coffre
         return None
 

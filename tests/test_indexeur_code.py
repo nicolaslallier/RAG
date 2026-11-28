@@ -210,3 +210,14 @@ def test_source_changee_pendant_le_listage(bd, depot, tmp_path, faux_modeles):
                        ).fetchone()
     assert dict(apres) == dict(avant)
     assert "b.py" not in chemins(bd)
+
+
+def test_nul_apres_8_ko_indexe_sans_nul(bd, depot, tmp_path, faux_modeles):
+    commit(depot, "gros_nul.py", "x = 1\n" * 2000 + "\x00" + "y = 2\n")
+    b = indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)
+    assert b.echecs == 0 and "gros_nul.py" in chemins(bd)
+    textes = [r["texte"] for r in bd.execute(
+        "SELECT m.texte FROM morceaux m JOIN documents d ON d.id = m.document_id"
+        " WHERE d.chemin = 'gros_nul.py'")]
+    assert textes and not any("\x00" in t for t in textes)

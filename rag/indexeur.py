@@ -3,17 +3,21 @@
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+
+import psycopg
 
 from rag.config import IndexationConf, SourceConf, empreinte_indexation
 from rag.decoupage import Morceau, decouper_note
 from rag.decoupage_code import decouper_code, langage
 from rag.exclusions import motif_exclusion
 from rag.gestion import SourceSupprimee, correspond, motifs_manuels, verrouiller_source
+from rag.modeles import ErreurModele
 from rag.notes import Note, analyser_note
 from rag.recherche import normaliser, vecteur_sql
-from rag.sources import nfc
+from rag.sources import ErreurSource, nfc
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +35,30 @@ class Bilan:
     reportes: int = 0
     exclus: int = 0
     morceaux: int = 0
+    echecs: int = 0  # documents en échec, retentés à la passe suivante
+
+
+ECHECS_MAX = 20  # au-delà, la panne est celle de la source, pas d'un document
+_REFUS_DU_DOCUMENT = re.compile(r"HTTP (400|413|422)$")
+
+
+def _arret_global(exc: Exception) -> bool:
+    """Pannes qui ne tiennent pas au document : base, modèle injoignable, source disparue."""
+    if isinstance(exc, (SourceSupprimee, psycopg.OperationalError, psycopg.InterfaceError,
+                        psycopg.errors.ForeignKeyViolation)):
+        return True
+    if isinstance(exc, ErreurModele):  # un 400/413/422 vise l'entrée ; le reste est une panne
+        return not _REFUS_DU_DOCUMENT.search(str(exc))
+    return False
+
+
+def _resume(exc: Exception) -> str:
+    """Pour le journal : jamais le message d'une erreur Postgres (il peut citer le contenu)."""
+    if isinstance(exc, psycopg.Error):
+        return f"{type(exc).__name__} {exc.sqlstate or ''}".strip()
+    if isinstance(exc, (ErreurModele, ErreurSource)):
+        return f"{type(exc).__name__} : {exc}"
+    return type(exc).__name__
 
 
 def version_courante(conn, conf: IndexationConf) -> int:
@@ -43,7 +71,7 @@ def version_courante(conn, conf: IndexationConf) -> int:
 
 
 def _morceaux(source: SourceConf, chemin: str, contenu: bytes, conf: IndexationConf):
-    texte = contenu.decode("utf-8", errors="replace")
+    texte = contenu.decode("utf-8", errors="replace").replace("\x00", "")
     if source.type == "code":
         note = Note(chemin, [], [], langage(chemin), None, None, {}, texte, [])
         if len(contenu) > conf.taille_max_octets:
@@ -269,7 +297,15 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
                 bilan.modifies += 1
             else:
                 bilan.nouveaux += 1
-        except BaseException:
+        except Exception as exc:
+            conn.rollback()
+            if _arret_global(exc):
+                raise
+            bilan.echecs += 1
+            log.error("%s : %r en échec (%s)", source.nom, chemin, _resume(exc))
+            if bilan.echecs >= ECHECS_MAX:
+                raise
+        except BaseException:  # KeyboardInterrupt, SystemExit : arrêt net
             conn.rollback()
             raise
 

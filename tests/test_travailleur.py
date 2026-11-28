@@ -402,3 +402,18 @@ def test_sans_garde_conserve_apres_une_passe_en_echec(bd, depot, reglages, faux_
     lignes = {r["nom"]: r for r in bd.execute("SELECT nom, sans_garde, demande_le FROM sources")}
     assert lignes["depot-x"]["sans_garde"] is True and lignes["depot-x"]["demande_le"] is None
     assert lignes["depot-y"]["sans_garde"] is False
+
+
+def test_passe_partielle_ok_false_sans_erreur(bd, coffre, reglages, faux_modeles, monkeypatch):
+    from rag.indexeur import Bilan
+    conf = config_pour(("coffre-maison", coffre))
+    passe(bd, "demandee", conf, reglages, faux_modeles)
+    bd.execute("UPDATE sources SET demande_le = now(), sans_garde = true")
+    bd.commit()
+    monkeypatch.setattr(travailleur, "indexer_source",
+                        lambda *a, **k: Bilan(nouveaux=1, echecs=1))
+    b = tour(bd, conf, reglages, faux_modeles)
+    assert "erreur" not in b["coffre-maison"] and b["coffre-maison"]["echecs"] == 1
+    p = bd.execute("SELECT ok FROM passes ORDER BY id DESC LIMIT 1").fetchone()
+    assert p["ok"] is False
+    assert bd.execute("SELECT sans_garde FROM sources").fetchone()["sans_garde"] is False
