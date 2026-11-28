@@ -1,6 +1,6 @@
 import pytest
 
-from rag.exclusions import motif_exclusion
+from rag.exclusions import Verdict, affiner, motif_exclusion, verdict
 
 
 @pytest.mark.parametrize("chemin,debut,raison", [
@@ -51,3 +51,64 @@ def test_motifs_slack_sans_redos():
                  b"xoxe-1-" + b"-" * 50_000):
         motif_exclusion("x.md", brut, [])
     assert time.monotonic() - debut < 2
+
+
+JETON = "sk-" + "a" * 24  # faux jeton construit : jamais de littéral réaliste dans le dépôt
+EX = [".obsidian/**"]
+
+
+@pytest.mark.parametrize("chemin,debut,raison,detail", [
+    ("deploy/.env.example", b"A=1", "secret", {"regle": "nom_secret", "motif": ".env.*"}),
+    ("uv.lock", b"x", "genere", {"regle": "genere", "motif": "uv.lock"}),
+    ("front/dist/a.js", b"x", "genere", {"regle": "genere", "motif": "dist/"}),
+    ("img.png", b"\x89PNG\x00", "binaire", None),
+    (".obsidian/app.json", b"{}", "config", None),
+])
+def test_verdict_donne_la_regle(chemin, debut, raison, detail):
+    assert verdict(chemin, debut, EX) == Verdict(raison, detail)
+
+
+def test_verdict_rien_a_redire():
+    assert verdict("rag/api.py", b"import os", EX) is None
+
+
+def test_verdict_liste_toutes_les_correspondances_masquees():
+    contenu = f"# Doc\nA={JETON}\n\n\nB={JETON}x\n".encode()
+    d = verdict("docs/plan.md", contenu, EX).detail
+    assert d == {"regle": "contenu_secret", "tronque": False, "correspondances": [
+        {"ligne": 2, "extrait": "sk-aaa… (27 caractères)"},
+        {"ligne": 5, "extrait": "sk-aaa… (28 caractères)"}]}
+    assert JETON not in str(d)
+
+
+def test_verdict_plafonne_a_vingt_correspondances():
+    d = verdict("a.md", "\n".join([JETON] * 25).encode(), EX).detail
+    assert len(d["correspondances"]) == 20 and d["tronque"] is True
+    assert d["correspondances"][-1]["ligne"] == 20
+
+
+def test_verdict_montre_l_entete_pem_entier():
+    d = verdict("k.asc", b"x\n-----BEGIN RSA PRIVATE KEY-----\nabc", EX).detail
+    assert d["correspondances"] == [{"ligne": 2, "extrait": "-----BEGIN RSA PRIVATE KEY-----"}]
+
+
+def test_regle_levee_ne_leve_qu_elle():
+    secret = f"K={JETON}".encode()
+    assert verdict(".env.local", b"A=1", EX, frozenset({"nom_secret"})) is None
+    v = verdict(".env.local", secret, EX, frozenset({"nom_secret"}))
+    assert v.raison == "secret" and v.detail["regle"] == "contenu_secret"
+    assert verdict(".env.local", secret, EX, frozenset({"nom_secret", "contenu_secret"})) is None
+    assert verdict("dist/app.bin", b"\x00\x01", EX, frozenset({"genere"})) == Verdict("binaire")
+    assert verdict("dist/cle.js", secret, EX, frozenset({"genere"})).raison == "secret"
+    assert verdict(".obsidian/x.md", b"x", EX, frozenset({"genere"})) == Verdict("config")
+
+
+def test_affiner():
+    secret = f"K={JETON}".encode()
+    assert affiner(None, "a.md", b"x", EX) == (None, None)
+    assert affiner("binaire", "a.png", b"\x00", EX) == ("binaire", None)
+    raison, detail = affiner("secret", "a.md", secret, EX)
+    assert raison == "secret" and detail["regle"] == "contenu_secret"
+    assert affiner("secret", "a.md", secret, EX, frozenset({"contenu_secret"})) == (None, None)
+    # un verdict que `verdict` ne retrouve pas (règle remplacée dans un test) est gardé tel quel
+    assert affiner("secret", "a.md", b"rien", EX) == ("secret", None)
