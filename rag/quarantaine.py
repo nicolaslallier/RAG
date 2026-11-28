@@ -6,7 +6,7 @@ Lectures filtrées par `niveaux` ; écritures réservées à l'interface (écriv
 from typing import Literal
 
 from rag.exclusions import RAISONS_ACCEPTABLES, REGLES_ACCEPTABLES
-from rag.gestion import _source_connue, demander_reindexation, verrouiller_source
+from rag.gestion import _source, _source_connue, demander_reindexation, verrouiller_source
 from rag.sources import nfc
 
 
@@ -138,3 +138,79 @@ def accepter(conn, source: str, chemin: str, signature: str | None = None) -> di
         conn.rollback()
         raise
     return {"regle": regle, "regles": regles}
+
+
+def _decision(conn, source: str, chemin: str) -> dict | None:
+    return conn.execute("SELECT decision, signature, regles FROM quarantaine_decisions "
+                        "WHERE source = %s AND chemin = %s", (source, chemin)).fetchone()
+
+
+def _retirer_document_accepte(conn, s: dict, source: str, chemin: str) -> bool:
+    """Retire le document indexé grâce à une acceptation (même signature), ses nœuds, et le
+    rend à `exclus` ; sans commit. `empreinte` vide : la prochaine passe reprend le verdict."""
+    q = _decision(conn, source, chemin)
+    if q is None or q["decision"] != "accepte":
+        return False
+    d = conn.execute("SELECT id FROM documents WHERE source_id = %s AND chemin = %s "
+                     "AND signature = %s", (s["id"], chemin, q["signature"])).fetchone()
+    if d is None:
+        return False
+    conn.execute("DELETE FROM noeuds WHERE document_id = %s", (d["id"],))
+    conn.execute("DELETE FROM documents WHERE id = %s", (d["id"],))
+    raison = "genere" if q["regles"] == ["genere"] else "secret"
+    conn.execute(
+        """INSERT INTO exclus (source_id, chemin, signature, empreinte, raison, lu, detail)
+           VALUES (%s, %s, %s, '', %s, true, NULL) ON CONFLICT (source_id, chemin)
+           DO UPDATE SET signature = EXCLUDED.signature, empreinte = '',
+                         raison = EXCLUDED.raison, lu = true, detail = NULL""",
+        (s["id"], chemin, q["signature"], raison))
+    if s["type"] == "code":
+        conn.execute("UPDATE sources SET graphe_revision = NULL WHERE id = %s", (s["id"],))
+    return True
+
+
+def refuser(conn, source: str, chemin: str) -> None:
+    """Le fichier reste exclu et sort de la file ; un document accepté et indexé est retiré."""
+    chemin = nfc(chemin)
+    try:
+        verrouiller_source(conn, source)
+        s = _source_connue(conn, source)
+        _retirer_document_accepte(conn, s, source, chemin)
+        e = _exclu(conn, s["id"], chemin)
+        if e is None or e["raison"] not in RAISONS_ACCEPTABLES:
+            raise DecisionInvalide("ce fichier n'est pas en quarantaine")
+        regle = (e["detail"] or {}).get("regle")
+        conn.execute(
+            """INSERT INTO quarantaine_decisions (source, chemin, decision, signature, regles)
+               VALUES (%s, %s, 'refuse', %s, %s)
+               ON CONFLICT (source, chemin) DO UPDATE SET decision = 'refuse',
+                 signature = EXCLUDED.signature, regles = EXCLUDED.regles, cree_le = now()""",
+            (source, chemin, e["signature"], [regle] if regle in REGLES_ACCEPTABLES else []))
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def annuler(conn, source: str, chemin: str) -> bool:
+    """Oublie la décision ; `False` s'il n'y en avait pas. Une acceptation annulée retire le
+    document indexé grâce à elle et demande une passe (le verdict est repris)."""
+    chemin = nfc(chemin)
+    try:
+        verrouiller_source(conn, source)
+        q = _decision(conn, source, chemin)
+        if q is None:
+            conn.rollback()
+            return False
+        if s := _source(conn, source):
+            _retirer_document_accepte(conn, s, source, chemin)
+        conn.execute("DELETE FROM quarantaine_decisions WHERE source = %s AND chemin = %s",
+                     (source, chemin))
+        if q["decision"] == "accepte":
+            demander_reindexation(conn, source)  # valide le tout
+        else:
+            conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return True

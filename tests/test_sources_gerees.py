@@ -606,3 +606,33 @@ def test_amorcer_journalise_les_changements_de_niveau(bd, tmp_path, caplog):
     niveaux = [r.getMessage() for r in caplog.records if "passe de" in r.getMessage()]
     assert niveaux == ["amorçage des sources git : depot-travail passe de travail à public-maison"]
     assert _ligne(bd, "depot-travail")["visibilite"] == "public-maison"
+
+
+def _decision_q(bd, source):
+    bd.execute("INSERT INTO quarantaine_decisions (source, chemin, decision, signature, regles) "
+               "VALUES (%s, 'a.md', 'refuse', 'sig', '{}')", (source,))
+    bd.commit()
+
+
+def _decisions_q(bd):
+    r = [d["source"] for d in bd.execute("SELECT source FROM quarantaine_decisions ORDER BY source")]
+    bd.rollback()
+    return r
+
+
+def test_supprimer_efface_les_decisions_de_quarantaine(bd):
+    _gerer(bd)
+    _decision_q(bd, "g")
+    _decision_q(bd, "autre")
+    supprimer(bd, "g")
+    assert _decisions_q(bd) == ["autre"]
+
+
+def test_changer_de_depot_efface_les_decisions_de_quarantaine(bd):
+    _gerer(bd)
+    _decision_q(bd, "g")
+    _modif(bd, "g", emplacement="https://x/ailleurs.git")
+    assert _decisions_q(bd) == []
+    _decision_q(bd, "g")
+    _modif(bd, "g", visibilite="public-maison")
+    assert _decisions_q(bd) == ["g"]

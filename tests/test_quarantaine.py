@@ -9,13 +9,16 @@ from rag.indexeur import indexer_source
 from rag.quarantaine import (
     DecisionInvalide,
     accepter,
+    annuler,
     comptes,
     decrire,
     file,
     levees,
+    refuser,
 )
 from rag.sources import LecteurGit
 from tests.conftest import URL, commit, git, inscrire_source
+from tests.test_gestion import bloque_par_le_verrou
 
 CONF = charger_config(Path("config/rag.yaml")).indexation
 SRC = SourceConf(visibilite="public-maison", nom="depot-test", type="code", emplacement="x")
@@ -279,3 +282,100 @@ def test_secret_exclu_et_accepte_ailleurs_ne_fuit_pas(bd, q, depot):
     accepter(bd, "depot-test", PLAN)
     q()
     assert "docs/autre.md" not in chemins(bd)
+
+
+# --- refuser, annuler ---
+
+def nb_decisions(bd):
+    return bd.execute("SELECT count(*) n FROM quarantaine_decisions").fetchone()["n"]
+
+
+def test_refuser_sort_de_la_file_et_reste_exclu(bd, q):
+    refuser(bd, "depot-test", PLAN)
+    assert etats(bd)[PLAN] == "refuse"
+    d = decision(bd, PLAN)
+    assert d["decision"] == "refuse" and d["regles"] == ["contenu_secret"]
+    assert source_en_base(bd)["demande_le"] is None
+    q()
+    assert PLAN not in chemins(bd) and etats(bd)[PLAN] == "refuse"
+
+
+def test_refus_tient_quand_le_fichier_change(bd, q, depot):
+    refuser(bd, "depot-test", PLAN)
+    commit(depot, PLAN, f"autre : {JETON}c\n")
+    q()
+    assert etats(bd)[PLAN] == "refuse"
+
+
+def test_refuser_hors_quarantaine(bd, q):
+    for chemin in ("logo.png", "a.py", "absent.md"):
+        with pytest.raises(DecisionInvalide):
+            refuser(bd, "depot-test", chemin)
+    with pytest.raises(SourceInconnue):
+        refuser(bd, "inconnue", PLAN)
+    assert nb_decisions(bd) == 0
+
+
+def test_refuser_un_fichier_accepte_et_indexe_le_retire(bd, q):
+    accepter(bd, "depot-test", PLAN)
+    q()
+    doc = bd.execute("SELECT id, source_id FROM documents WHERE chemin = %s", (PLAN,)).fetchone()
+    bd.execute("INSERT INTO noeuds (source_id, cle, libelle, libelle_norm, type, document_id) "
+               "VALUES (%s, %s, 'plan', 'plan', 'fichier', %s)",
+               (doc["source_id"], PLAN, doc["id"]))
+    bd.execute("UPDATE sources SET graphe_revision = 'abc'")
+    bd.commit()
+    refuser(bd, "depot-test", PLAN)
+    assert PLAN not in chemins(bd)
+    assert bd.execute("SELECT 1 FROM noeuds WHERE cle = %s", (PLAN,)).fetchone() is None
+    assert source_en_base(bd)["graphe_revision"] is None
+    e = exclu(bd, PLAN)
+    assert e["raison"] == "secret" and e["empreinte"] == "" and e["detail"] is None
+    assert etats(bd)[PLAN] == "refuse"
+    q()
+    assert exclu(bd, PLAN)["detail"]["regle"] == "contenu_secret" and PLAN not in chemins(bd)
+
+
+def test_annuler_une_acceptation_indexee_retire_le_document(bd, q):
+    accepter(bd, "depot-test", PLAN)
+    q()
+    bd.execute("UPDATE sources SET demande_le = NULL")
+    bd.commit()
+    assert annuler(bd, "depot-test", PLAN) is True
+    assert PLAN not in chemins(bd) and decision(bd, PLAN) is None
+    assert source_en_base(bd)["demande_le"] is not None
+    q()
+    assert etats(bd)[PLAN] == "a_traiter" and ligne(bd, PLAN)["detail"] is not None
+
+
+def test_annuler_une_acceptation_en_attente(bd, q):
+    accepter(bd, "depot-test", PLAN)
+    assert annuler(bd, "depot-test", PLAN) is True
+    q()
+    assert PLAN not in chemins(bd)
+
+
+def test_annuler_un_refus_remet_en_file(bd, q):
+    refuser(bd, "depot-test", PLAN)
+    assert annuler(bd, "depot-test", PLAN) is True
+    assert etats(bd)[PLAN] == "a_traiter"
+    assert source_en_base(bd)["demande_le"] is None
+
+
+def test_annuler_sans_decision(bd, q):
+    assert annuler(bd, "depot-test", PLAN) is False
+
+
+def test_annuler_ne_retire_pas_un_document_redevenu_propre(bd, q, depot):
+    accepter(bd, "depot-test", PLAN)
+    q()
+    commit(depot, PLAN, "# Plan\n\nsans jeton\n")
+    q()
+    assert annuler(bd, "depot-test", PLAN) is True
+    assert PLAN in chemins(bd)
+
+
+def test_ecritures_de_quarantaine_prennent_le_verrou_de_la_source(bd, q):
+    assert bloque_par_le_verrou("depot-test", accepter, "depot-test", PLAN)
+    assert bloque_par_le_verrou("depot-test", refuser, "depot-test", PLAN)
+    assert bloque_par_le_verrou("depot-test", annuler, "depot-test", PLAN)
