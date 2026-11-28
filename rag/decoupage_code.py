@@ -1,5 +1,7 @@
 """Découpage du code par symbole de premier niveau (tree-sitter), repli récursif sinon."""
-# Changer ce fichier change ce qui est indexé : incrémenter VERSION_ANALYSEUR (rag/config.py).
+# Changer ce fichier change ce qui est indexé : incrémenter VERSION_ANALYSEUR (rag/config.py),
+# sauf si test_sous_les_bornes_le_decoupage_ne_change_pas reste vert sans retouche (cas de la
+# borne dure : seuls les morceaux hors borne changent).
 
 from pathlib import PurePosixPath
 
@@ -76,7 +78,8 @@ def _methodes(defn):
 def decouper_code(depot: str, chemin: str, texte: str, conf: IndexationConf) -> list[Morceau]:
     racine_fil = f"{depot} > {chemin}"
     lang = langage(chemin)
-    repli = decouper_recursif(racine_fil, texte, conf.recursif_tokens, conf.recouvrement)
+    repli = decouper_recursif(racine_fil, texte, conf.recursif_tokens, conf.recouvrement,
+                              2 * conf.plafond_tokens)
     if lang not in _ANALYSEUR or not texte.strip():
         return repli
     from tree_sitter_language_pack import get_parser
@@ -92,7 +95,8 @@ def decouper_code(depot: str, chemin: str, texte: str, conf: IndexationConf) -> 
         fil = f"{racine_fil} > {symbole}"
         parts = ([t] if compter_tokens(t) <= conf.plafond_tokens else
                  [m.texte for m in decouper_recursif(fil, t, conf.recursif_tokens,
-                                                     conf.recouvrement)])
+                                                     conf.recouvrement,
+                                                     2 * conf.plafond_tokens)])
         for p in parts:
             out.append(Morceau(len(out), fil, p, symbole=symbole, ligne=ligne))
 
@@ -118,6 +122,7 @@ def decouper_code(depot: str, chemin: str, texte: str, conf: IndexationConf) -> 
     reste.append(src[pos:])
     r = b"".join(reste).decode("utf-8", errors="replace").strip()
     if compter_tokens(r) >= 20:
-        for m in decouper_recursif(racine_fil, r, conf.recursif_tokens, conf.recouvrement):
+        for m in decouper_recursif(racine_fil, r, conf.recursif_tokens, conf.recouvrement,
+                                   2 * conf.plafond_tokens):
             out.append(Morceau(len(out), racine_fil, m.texte, ligne=1))
     return out

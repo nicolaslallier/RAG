@@ -154,6 +154,13 @@ Aucune n'est faite par un agent.
   puis changer `infra/rag` et redéployer (ou supprimer le volume et réindexer).
 - Rotation de la CA de l'Infra : copier le nouveau `certs/infra-ca.crt` de l'Infra dans
   `deploy/infra-ca.crt` et commiter (elle est dans l'image, en `/etc/rag/infra-ca.crt`).
+- Taille des morceaux : un morceau cherchable ne dépasse pas ~2 × `plafond_tokens` (un mot géant
+  ou une ligne minifiée est coupé par caractères, un bloc de code au-delà de cette borne est
+  coupé par lignes). Cette borne n'a **pas** changé l'empreinte d'index : pas de réindexation ;
+  les morceaux plus gros déjà en base restent jusqu'à la prochaine modification de leur
+  document. Pour les rattraper sans réindexation complète :
+  `UPDATE documents SET signature = '', sha256 = '' WHERE id IN (SELECT document_id FROM
+  morceaux WHERE embedding IS NOT NULL AND length(texte) > 5800)`, puis une passe.
 
 ## Sauvegarde
 
