@@ -22,7 +22,7 @@ class FauxGenerateur:
         self.reponses, self.repete, self.tombe_sur, self.appels = reponses or [], repete, \
             tombe_sur, []
 
-    def generer(self, modele, messages, temperature, json_mode=False):
+    def generer(self, modele, messages, temperature, json_mode=False, delai=None):
         self.appels.append(messages)
         assert temperature == 0 and json_mode
         if self.tombe_sur and self.tombe_sur in messages[-1]["content"]:

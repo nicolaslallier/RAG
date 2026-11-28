@@ -21,7 +21,7 @@ class FauxGenerateur:
     def __init__(self, reponses, juge='{"ok": true}'):
         self.reponses, self.juge, self.appels = list(reponses), juge, []
 
-    def generer(self, modele, messages, temperature, json_mode=False):
+    def generer(self, modele, messages, temperature, json_mode=False, delai=None):
         self.appels.append(Appel(modele))
         if modele == CONFIG.banc.modele_juge:
             return self.juge

@@ -37,7 +37,7 @@ class AvecGeneration:
     def embed_requete(self, *a):
         return self.base.embed_requete(*a)
 
-    def generer(self, modele, messages, temperature, json_mode=False):
+    def generer(self, modele, messages, temperature, json_mode=False, delai=None):
         self.generations += 1
         self.temperatures.append(temperature)
         self.messages.append(messages)

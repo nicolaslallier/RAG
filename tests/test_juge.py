@@ -27,7 +27,7 @@ class Scripte:
     def embed_documents(self, *a):
         return self.base.embed_documents(*a)
 
-    def generer(self, modele, messages, temperature, json_mode=False):
+    def generer(self, modele, messages, temperature, json_mode=False, delai=None):
         if modele == CONFIG.banc.modele_juge:
             self.appels_juge.append(modele)
             return self.juge.pop(0)
@@ -41,7 +41,7 @@ def test_juger_lit_le_json_et_borne():
         def __init__(self, t):
             self.t = t
 
-        def generer(self, modele, messages, temperature, json_mode=False):
+        def generer(self, modele, messages, temperature, json_mode=False, delai=None):
             assert temperature == 0 and json_mode
             return self.t
     assert juger(G('{"fidelite": 5, "pertinence": 4}'), "j", "q", ["p"], "r") == {
@@ -108,10 +108,10 @@ def test_une_panne_du_modele_n_arrete_pas_le_banc(bd, index, faux_modeles):
     from rag.modeles import ErreurModele
 
     class Lent(Scripte):
-        def generer(self, modele, messages, temperature, json_mode=False):
+        def generer(self, modele, messages, temperature, json_mode=False, delai=None):
             if modele != CONFIG.banc.modele_juge and not json_mode and "pâté" in str(messages):
                 raise ErreurModele("ReadTimeout")
-            return super().generer(modele, messages, temperature, json_mode)
+            return super().generer(modele, messages, temperature, json_mode, delai)
     r = executer_generation(bd, CAS, CONFIG, Lent(faux_modeles), index.version)
     assert r["resume"]["erreurs_modele"] == 1 and r["resume"]["n"] == 4
     assert r["resume"]["fidelite_moy"] == 5.0

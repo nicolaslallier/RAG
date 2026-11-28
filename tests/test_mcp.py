@@ -20,7 +20,7 @@ class Generation:
     def embed_requete(self, *a):
         return self.base.embed_requete(*a)
 
-    def generer(self, modele, messages, temperature, json_mode=False):
+    def generer(self, modele, messages, temperature, json_mode=False, delai=None):
         return "Du cidre [1]."
 
 

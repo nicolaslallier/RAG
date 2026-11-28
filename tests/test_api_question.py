@@ -1,13 +1,14 @@
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 import yaml
 from fastapi.testclient import TestClient
 
 from rag.api import create_app
 from rag.config import Reglages
-from rag.modeles import ErreurModele
+from rag.modeles import ErreurModele, Modeles
 from tests.conftest import URL
 
 auth = {"Authorization": "Bearer pub"}
@@ -22,7 +23,7 @@ class Generation:
     def embed_requete(self, *a):
         return self.base.embed_requete(*a)
 
-    def generer(self, modele, messages, temperature, json_mode=False):
+    def generer(self, modele, messages, temperature, json_mode=False, delai=None):
         if self.panne:
             raise ErreurModele("panne")
         return '{"mode": "repondre"}' if json_mode else self.texte
@@ -174,3 +175,12 @@ def test_flux_question_exception_avant_les_passages(cfg, faux_modeles):
                      "Quelle est la recette ?")
     assert ev[0]["type"] == "aiguillage" and ev[-1] == {"type": "erreur",
                                                         "detail": "erreur interne"}
+
+
+def test_contenu_nul_du_modele_donne_503(cfg, faux_modeles):
+    client = httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json={"choices": [{"message": {"content": None}}]})))
+    vrais = Modeles("http://x", "k", client=client)
+    vrais.embed_requete = faux_modeles.embed_requete
+    r = faire(cfg, vrais).post("/repondre", json={"question": "poulet au cidre"}, headers=auth)
+    assert r.status_code == 503 and r.json() == {"detail": "modèle indisponible"}
