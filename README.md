@@ -123,8 +123,8 @@ depuis l'écran Sources (`RAG_JETON_PRIVE` requis) : « Ajouter une source git �
   et la passe échouent ; corriger l'URL dans l'écran Sources.
 - **Passe partielle** : un document en échec (illisible, refusé par le modèle) est compté
   (`echecs` dans le bilan de `/etat`), la passe est `ok=false`, le reste de la source est indexé et
-  le document est retenté à la passe suivante. Au-delà de 20 échecs dans une source, ou sur une
-  panne de la base ou du modèle, la source s'arrête comme avant.
+  le document est retenté à la passe suivante. Au 20e échec dans une source, ou sur une panne de
+  la base ou du modèle, la source s'arrête comme avant (« trop de documents en échec »).
 - **Source sans fichier indexable** (dépôt vide, tout exclu) : bilan à zéro et avertissement au
   journal, pas une erreur.
 

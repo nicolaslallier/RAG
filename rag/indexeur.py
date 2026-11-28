@@ -38,7 +38,7 @@ class Bilan:
     echecs: int = 0  # documents en échec, retentés à la passe suivante
 
 
-ECHECS_MAX = 20  # au-delà, la panne est celle de la source, pas d'un document
+ECHECS_MAX = 20  # au 20e échec, la panne est celle de la source, pas d'un document
 _REFUS_DU_DOCUMENT = re.compile(r"HTTP (400|413|422)$")
 
 
