@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import psycopg.errors
 from psycopg.types.json import Jsonb
 
+from rag.config import plafond_lecture
 from rag.db import connexion
 from rag.graphe import maj_graphe
 from rag.indexeur import SourceSupprimee, indexer_source
@@ -75,7 +76,8 @@ def passe(conn, genre: str, config, reglages, modeles, sources: list[str] | None
                 b = indexer_source(conn, src, lecteur, config.indexation, modeles,
                                    forcer=src.nom in sans_garde,
                                    sans_repos=genre != "incrementale")
-                graphe = maj_graphe(conn, src, lecteur, reglages)
+                graphe = maj_graphe(conn, src, lecteur, reglages,
+                                    taille_max=plafond_lecture(config.indexation))
                 if "ÉCHEC" in graphe:  # le message d'erreur reste au journal (maj_graphe)
                     bilan[src.nom] = asdict(b) | {"erreur": "echec"}
                 else:

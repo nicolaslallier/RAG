@@ -146,3 +146,8 @@ def charger_config(chemin: Path) -> Config:
 def empreinte_indexation(c: IndexationConf) -> str:
     brut = json.dumps(c.model_dump() | {"version_analyseur": VERSION_ANALYSEUR}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(brut.encode()).hexdigest()
+
+
+def plafond_lecture(c: IndexationConf) -> int:
+    """Au-delà, un fichier n'est jamais lu (indexeur et copie graphify)."""
+    return 10 * c.taille_max_octets

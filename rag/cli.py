@@ -7,7 +7,14 @@ from dataclasses import asdict
 from pathlib import Path
 
 from rag.banc.execution import ajouter_cli_banc, commande_banc
-from rag.config import PUBLIC, TOUT, Reglages, charger_config, empreinte_indexation
+from rag.config import (
+    PUBLIC,
+    TOUT,
+    Reglages,
+    charger_config,
+    empreinte_indexation,
+    plafond_lecture,
+)
 from rag.db import connexion, migrer
 from rag.graphe import maj_graphe
 from rag.indexeur import CoffrePartielError, SourceSupprimee, indexer_source
@@ -58,7 +65,8 @@ def _indexer_verrouille(conn, reglages, config, modeles, noms, complet, forcer) 
             continue
         print(f"{src.nom} : " + ", ".join(f"{v} {k}" for k, v in asdict(b).items())
               + f" ({time.monotonic() - debut:.0f} s)")
-        print(f"{src.nom} : {maj_graphe(conn, src, lecteur, reglages)}")
+        print(f"{src.nom} : " + maj_graphe(conn, src, lecteur, reglages,
+                                           taille_max=plafond_lecture(config.indexation)))
         if b.echecs:
             code = 1
     conn.execute("ANALYZE morceaux, documents, noeuds, liens")  # sinon l'index HNSW est ignoré
@@ -339,7 +347,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"{src.nom} : "
                           + maj_graphe(conn, src, lecteur_pour(src, reglages, active.jeton,
                                                                active.utilisateur),
-                                       reglages, forcer=True))
+                                       reglages, forcer=True,
+                                       taille_max=plafond_lecture(config.indexation)))
                     if src.type == "obsidian":
                         from rag.graphe import charger_wikiliens
                         for chemin, cible in getattr(charger_wikiliens, "non_resolues", []):

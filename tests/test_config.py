@@ -76,3 +76,9 @@ def test_tout_contient_travail():
     assert TOUT == frozenset({"public-maison", "prive", "travail"})
     assert "travail" not in PUBLIC
     SourceConf(nom="a", type="code", emplacement="https://h/a.git", visibilite="travail")
+
+
+def test_plafond_lecture():
+    from rag.config import plafond_lecture
+    conf = charger_config(Path("config/rag.yaml")).indexation
+    assert plafond_lecture(conf) == 10 * conf.taille_max_octets

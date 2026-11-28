@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import psycopg
 
-from rag.config import IndexationConf, SourceConf, empreinte_indexation
+from rag.config import IndexationConf, SourceConf, empreinte_indexation, plafond_lecture
 from rag.decoupage import Morceau, decouper_note
 from rag.decoupage_code import decouper_code, langage
 from rag.exclusions import motif_exclusion
@@ -183,7 +183,7 @@ def indexer_source(conn, source: SourceConf, lecteur, conf: IndexationConf, mode
         raison = motif_exclusion(chemin, b"", source.exclure)
         if raison is None and correspond(chemin, motifs):
             raison = "manuelle"
-        if raison is None and e.taille > 10 * conf.taille_max_octets:
+        if raison is None and e.taille > plafond_lecture(conf):
             raison = "trop_gros"  # jamais lu : un blob géant ne passe pas en mémoire
             log.warning("%s : %s exclu (trop_gros, %d octets)", source.nom, chemin, e.taille)
         if raison is None:

@@ -205,3 +205,22 @@ def test_maj_graphe_source_changee_pendant_graphify(bd, index_code, monkeypatch)
     assert compte(bd, "noeuds") == 0
     assert bd.execute("SELECT graphe_revision FROM sources WHERE nom = 'depot-test'"
                       ).fetchone()["graphe_revision"] == avant
+
+
+def test_copie_graphify_ecarte_les_fichiers_trop_gros(depot, tmp_path, monkeypatch):
+    from rag.graphe import _copier_sans_exclus
+    lus = []
+    lire = Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda p: lus.append(p.name) or lire(p))
+    copie = tmp_path / "copie"
+    copie.mkdir()
+    _copier_sans_exclus(depot, copie, [], taille_max=1000)
+    assert (copie / "a.py").exists() and not (copie / "gros.json").exists()
+    assert "gros.json" not in lus
+
+
+def test_maj_graphe_transmet_le_plafond(bd, index_code, monkeypatch):
+    vu = {}
+    monkeypatch.setattr("rag.graphe.extraire_structure", lambda *a, **k: vu.update(k) or G)
+    maj_graphe(bd, SRC_CODE, index_code, REGLAGES, taille_max=1234)
+    assert vu["taille_max"] == 1234
