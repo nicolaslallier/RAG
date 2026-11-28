@@ -37,3 +37,23 @@ def test_l_image_est_arm64():
     assert image["runs-on"] == "ubuntu-24.04-arm"
     pas = [p for p in image["steps"] if "build-push-action" in p.get("uses", "")]
     assert [p["with"]["platforms"] for p in pas] == ["linux/arm64"]
+
+
+def test_les_correctifs_debian_sont_rejoues_chaque_jour():
+    # Le cache gha figeait l'`apt-get upgrade` ; Trivy bloquait sur un correctif publié depuis.
+    image = W["deploy"]["jobs"]["image"]
+    pas_ = image["steps"]
+    jour = [i for i, p in enumerate(pas_) if p.get("id") == "jour"]
+    build = [i for i, p in enumerate(pas_) if "build-push-action" in p.get("uses", "")]
+    assert jour and build and jour[0] < min(build)
+    assert "date -u +%F" in pas_[jour[0]]["run"]
+    pas = [pas_[i] for i in build]
+    assert pas
+    assert all("MAJ_DEBIAN=${{ steps.jour.outputs.date }}" in p["with"]["build-args"] for p in pas)
+    lignes = Path("Dockerfile").read_text().splitlines()
+    arg = next(i for i, l in enumerate(lignes) if l.startswith("ARG MAJ_DEBIAN"))
+    upgrade = next(i for i, l in enumerate(lignes) if i > arg and "apt-get upgrade" in l)
+    assert "MAJ_DEBIAN" in lignes[upgrade]
+    deps = max(i for i, l in enumerate(lignes) if l.startswith("RUN uv sync"))
+    user = next(i for i, l in enumerate(lignes) if l.startswith("USER "))
+    assert deps < arg < upgrade < user
