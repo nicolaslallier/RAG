@@ -221,3 +221,39 @@ def test_nul_apres_8_ko_indexe_sans_nul(bd, depot, tmp_path, faux_modeles):
         "SELECT m.texte FROM morceaux m JOIN documents d ON d.id = m.document_id"
         " WHERE d.chemin = 'gros_nul.py'")]
     assert textes and not any("\x00" in t for t in textes)
+
+
+# Contrôle post-déploiement du README (motifs de contenu ajoutés sans changer VERSION_ANALYSEUR)
+_JETONS_SQL = "(glpat-[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9]{8,}-)"
+_SUSPECTS = f"""SELECT d.id FROM documents d LEFT JOIN morceaux m ON m.document_id = d.id
+                 WHERE m.texte ~ '{_JETONS_SQL}' OR d.frontmatter::text ~ '{_JETONS_SQL}'"""
+
+
+def test_controle_sql_post_deploiement_relit_et_exclut(bd, depot, tmp_path, faux_modeles,
+                                                         monkeypatch):
+    import re
+
+    import rag.exclusions
+    jeton = "glpat-" + "a" * 20
+    faux = "xoxb-" + "1" * 8 + "-court"  # vu par la requête, pas par l'analyseur
+    commit(depot, "ci.md", f"# CI\n\njeton: {jeton}\n")
+    commit(depot, "doc.md", f"# Doc\n\nexemple : {faux}\n")
+    ancien = re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY")  # analyseur d'avant le lot
+    with monkeypatch.context() as m:
+        m.setattr(rag.exclusions, "_CONTENU_SECRET", ancien)
+        indexer_source(bd, SRC_CODE, LecteurGit(str(depot), tmp_path / "clones" / "c"), CONF,
+                       faux_modeles)
+    assert {"ci.md", "doc.md"} <= chemins(bd)
+    lec = LecteurGit(str(depot), tmp_path / "clones" / "c")
+    assert indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles).exclus == 3  # signature égale
+    assert "ci.md" in chemins(bd)
+    n = bd.execute(f"SELECT count(*) AS n FROM ({_SUSPECTS}) s").fetchone()["n"]
+    assert n == 2
+    bd.execute(f"UPDATE documents SET signature = '' WHERE id IN ({_SUSPECTS})")
+    bd.commit()
+    appels = faux_modeles.appels
+    b = indexer_source(bd, SRC_CODE, lec, CONF, faux_modeles)
+    assert "ci.md" not in chemins(bd) and "doc.md" in chemins(bd)
+    assert b.exclus == 4 and faux_modeles.appels == appels  # rien de réembarqué
+    assert bd.execute("SELECT raison FROM exclus WHERE chemin = 'ci.md'").fetchone()["raison"] \
+        == "secret"
